@@ -9,15 +9,16 @@ export const DryRunSchema = z.union(
 
 export const EnvSchema = z.enum(['dev', 'staging', 'prod', 'test']);
 
+export const LlmProviderSchema = z.enum(['workers-ai', 'gemini']).default('workers-ai');
+
 export const WorkerEnvVarsSchema = z.object({
   DRY_RUN: DryRunSchema,
   ENV: EnvSchema.default('dev'),
+  LLM_PROVIDER: LlmProviderSchema,
 });
 
 export const WorkerSecretsSchema = z.object({
-  ANTHROPIC_API_KEY: z
-    .string({ required_error: 'Missing required secret: ANTHROPIC_API_KEY' })
-    .min(1, 'Missing required secret: ANTHROPIC_API_KEY'),
+  GEMINI_API_KEY: z.string().min(1).optional(),
 });
 
 export type WorkerEnvVars = z.infer<typeof WorkerEnvVarsSchema>;
@@ -39,12 +40,7 @@ export function isTestEnvironment(env?: Record<string, unknown>): boolean {
   return false;
 }
 
-export function createEnvSchema(isTest = false) {
-  if (isTest) {
-    return WorkerEnvVarsSchema.extend({
-      ANTHROPIC_API_KEY: z.string().min(1).optional(),
-    });
-  }
+export function createEnvSchema(_isTest = false) {
   return WorkerEnvVarsSchema.merge(WorkerSecretsSchema);
 }
 

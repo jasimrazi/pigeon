@@ -7,7 +7,7 @@ NAMING
 - Binding names: DB, RESUMES, CONFIG, JOBS_QUEUE. Use "Pigeon" in UI titles, docs and log prefixes.
 
 STACK
-TypeScript strict, pnpm workspace, Hono, Drizzle + D1, zod, Vitest + @cloudflare/vitest-pool-workers, MSW, Playwright, React + Vite + Tailwind. Anthropic API for LLM calls. Gmail and Sheets through plain fetch (REST), never SDKs.
+TypeScript strict, pnpm workspace, Hono, Drizzle + D1, zod, Vitest + @cloudflare/vitest-pool-workers, MSW, Playwright, React + Vite + Tailwind. LLM via LLMClient; providers: Cloudflare Workers AI (default), Gemini (optional). Gmail and Sheets through plain fetch (REST), never SDKs.
 
 RULES
 

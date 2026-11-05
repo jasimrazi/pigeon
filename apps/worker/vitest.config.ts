@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.toml' },
+      remoteBindings: false,
       miniflare: {
         bindings: {
           IS_TEST: true,
@@ -16,6 +17,7 @@ export default defineConfig({
     conditions: ['node', 'import'],
   },
   test: {
+    setupFiles: ['./fixtures/setup.ts'],
     dangerouslyIgnoreUnhandledErrors: true,
   },
 });

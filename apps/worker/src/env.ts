@@ -9,9 +9,11 @@ export interface Bindings {
   RESUMES: R2Bucket;
   CONFIG: KVNamespace;
   JOBS_QUEUE: Queue;
+  AI?: Ai | undefined;
   DRY_RUN?: string | boolean | undefined;
   ENV?: string | undefined;
-  ANTHROPIC_API_KEY?: string | undefined;
+  LLM_PROVIDER?: string | undefined;
+  GEMINI_API_KEY?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -20,7 +22,8 @@ export interface ValidatedEnv extends WorkerEnvVars {
   RESUMES: R2Bucket;
   CONFIG: KVNamespace;
   JOBS_QUEUE: Queue;
-  ANTHROPIC_API_KEY?: string | undefined;
+  AI?: Ai | undefined;
+  GEMINI_API_KEY?: string | undefined;
 }
 
 export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): ValidatedEnv {
@@ -48,10 +51,14 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
     JOBS_QUEUE: rawEnv.JOBS_QUEUE,
     DRY_RUN: parsed.DRY_RUN,
     ENV: parsed.ENV,
+    LLM_PROVIDER: parsed.LLM_PROVIDER,
   };
 
-  if (parsed.ANTHROPIC_API_KEY !== undefined) {
-    result.ANTHROPIC_API_KEY = parsed.ANTHROPIC_API_KEY;
+  if (rawEnv.AI !== undefined) {
+    result.AI = rawEnv.AI;
+  }
+  if (parsed.GEMINI_API_KEY !== undefined) {
+    result.GEMINI_API_KEY = parsed.GEMINI_API_KEY;
   }
 
   return result;

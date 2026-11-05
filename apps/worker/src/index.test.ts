@@ -1,23 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import worker, { app } from './index.js';
 import { validateWorkerEnv, type Bindings } from './env.js';
-import { server, startMockServer } from '../fixtures/server.js';
+import { server } from '../fixtures/server.js';
 import type { HealthResponse, ErrorResponse } from '@pigeon/shared';
 
 const workerEnv = env as unknown as Bindings;
-
-beforeAll(() => {
-  startMockServer();
-});
-
-afterEach(() => {
-  server.resetHandlers();
-});
-
-afterAll(() => {
-  server.close();
-});
 
 describe('Pigeon Worker', () => {
   describe('GET /health', () => {
@@ -54,7 +43,7 @@ describe('Pigeon Worker', () => {
     });
   });
 
-  describe('Cloudflare Bindings (D1, KV, R2, Queue)', () => {
+  describe('Cloudflare Bindings (D1, KV, R2, Queue, AI)', () => {
     it('D1, KV, R2 and Queue bindings are usable inside the test pool (write then read)', async () => {
       // 1. KV write then read
       await workerEnv.CONFIG.put('pigeon:test_key', 'kv_test_val');
@@ -118,12 +107,30 @@ describe('Pigeon Worker', () => {
 
       await worker.queue(mockBatch, workerEnv);
       expect(ackMock).toHaveBeenCalledTimes(1);
+
+      // 5. Workers AI binding exists
+      expect(workerEnv.AI).toBeDefined();
     });
   });
 
   describe('Outbound HTTP Mocking', () => {
-    it('an unmocked outbound fetch fails the test', async () => {
-      await expect(fetch('https://api.unmocked-service.com/data')).rejects.toThrow();
+    it('unmocked outbound fetch to a real URL rejects with the guard specific error', async () => {
+      await expect(fetch('https://example.com/')).rejects.toThrow(
+        /Cannot bypass a request when using the "error" strategy for the "onUnhandledRequest" option/,
+      );
+    });
+
+    it('positive control: with an MSW handler registered, fetch succeeds', async () => {
+      server.use(
+        http.get('https://example.com/', () => {
+          return HttpResponse.json({ mocked: true, site: 'example.com' });
+        }),
+      );
+
+      const res = await fetch('https://example.com/');
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { mocked: boolean; site: string };
+      expect(data).toEqual({ mocked: true, site: 'example.com' });
     });
   });
 
@@ -158,6 +165,37 @@ describe('Pigeon Worker', () => {
           true,
         );
       }).toThrow(/DRY_RUN must be "true" or "false"/);
+    });
+
+    it('defaults LLM_PROVIDER to "workers-ai" and validates with no API keys', () => {
+      const validated = validateWorkerEnv(workerEnv, true);
+      expect(validated.LLM_PROVIDER).toBe('workers-ai');
+      expect(validated.GEMINI_API_KEY).toBeUndefined();
+    });
+
+    it('accepts "gemini" as LLM_PROVIDER with optional GEMINI_API_KEY', () => {
+      const validated = validateWorkerEnv(
+        {
+          ...workerEnv,
+          LLM_PROVIDER: 'gemini',
+          GEMINI_API_KEY: 'test-gemini-key',
+        },
+        true,
+      );
+      expect(validated.LLM_PROVIDER).toBe('gemini');
+      expect(validated.GEMINI_API_KEY).toBe('test-gemini-key');
+    });
+
+    it('rejects any other value for LLM_PROVIDER', () => {
+      expect(() => {
+        validateWorkerEnv(
+          {
+            ...workerEnv,
+            LLM_PROVIDER: 'openai',
+          },
+          true,
+        );
+      }).toThrow(/LLM_PROVIDER/);
     });
   });
 });

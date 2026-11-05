@@ -5,6 +5,10 @@ compatibility_date = "2024-09-23"
 [vars]
 ENV = "dev"
 DRY_RUN = "true"
+LLM_PROVIDER = "workers-ai"
+
+[ai]
+binding = "AI"
 
 [[d1_databases]]
 binding = "DB"
@@ -30,7 +34,10 @@ max_batch_timeout = 5
 
 [env.dev]
 name = "pigeon-worker"
-vars = { ENV = "dev", DRY_RUN = "true" }
+vars = { ENV = "dev", DRY_RUN = "true", LLM_PROVIDER = "workers-ai" }
+
+[env.dev.ai]
+binding = "AI"
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -56,7 +63,10 @@ max_batch_timeout = 5
 
 [env.staging]
 name = "pigeon-worker-staging"
-vars = { ENV = "staging", DRY_RUN = "true" }
+vars = { ENV = "staging", DRY_RUN = "true", LLM_PROVIDER = "workers-ai" }
+
+[env.staging.ai]
+binding = "AI"
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -82,7 +92,10 @@ max_batch_timeout = 5
 
 [env.prod]
 name = "pigeon-worker-prod"
-vars = { ENV = "prod", DRY_RUN = "true" }
+vars = { ENV = "prod", DRY_RUN = "true", LLM_PROVIDER = "workers-ai" }
+
+[env.prod.ai]
+binding = "AI"
 
 [[env.prod.d1_databases]]
 binding = "DB"
