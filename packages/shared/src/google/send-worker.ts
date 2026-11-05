@@ -108,7 +108,8 @@ export async function applyBounceBrake(options: {
     return { effectiveCap: baseCap, brakeActive: false };
   }
 
-  const bounces = recentSends?.filter((s: { status: string }) => s.status === 'bounced').length ?? 0;
+  const bounces =
+    recentSends?.filter((s: { status: string }) => s.status === 'bounced').length ?? 0;
   const bounceRate = bounces / total;
 
   if (bounceRate > 0.1) {

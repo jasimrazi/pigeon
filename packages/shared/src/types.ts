@@ -31,9 +31,7 @@ export interface EmailSender {
   }): Promise<{ messageId: string }>;
 }
 
-export interface SheetsClient {
-  appendRow(sheetName: string, row: Record<string, unknown>): Promise<void>;
-}
+export type { SheetsClient } from './sheets/types.js';
 
 export interface LLMClient {
   generateText(prompt: string): Promise<string>;
