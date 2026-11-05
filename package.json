@@ -1,0 +1,23 @@
+{
+  "name": "pigeon",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "dev": "pnpm --filter @pigeon/worker dev",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "eslint": "^9.21.0",
+    "eslint-config-prettier": "^10.0.1",
+    "prettier": "^3.5.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.24.1",
+    "vitest": "4.1.12"
+  }
+}

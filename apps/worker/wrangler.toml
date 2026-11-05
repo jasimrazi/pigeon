@@ -1,0 +1,107 @@
+name = "pigeon-worker"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+[vars]
+ENV = "dev"
+DRY_RUN = "true"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pigeon-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "RESUMES"
+bucket_name = "pigeon-resumes"
+
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "pigeon-config"
+
+[[queues.producers]]
+binding = "JOBS_QUEUE"
+queue = "pigeon-jobs"
+
+[[queues.consumers]]
+queue = "pigeon-jobs"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[env.dev]
+name = "pigeon-worker"
+vars = { ENV = "dev", DRY_RUN = "true" }
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "pigeon-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[env.dev.r2_buckets]]
+binding = "RESUMES"
+bucket_name = "pigeon-resumes"
+
+[[env.dev.kv_namespaces]]
+binding = "CONFIG"
+id = "pigeon-config"
+
+[[env.dev.queues.producers]]
+binding = "JOBS_QUEUE"
+queue = "pigeon-jobs"
+
+[[env.dev.queues.consumers]]
+queue = "pigeon-jobs"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[env.staging]
+name = "pigeon-worker-staging"
+vars = { ENV = "staging", DRY_RUN = "true" }
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "pigeon-db-staging"
+database_id = "staging-d1-id"
+
+[[env.staging.r2_buckets]]
+binding = "RESUMES"
+bucket_name = "pigeon-resumes-staging"
+
+[[env.staging.kv_namespaces]]
+binding = "CONFIG"
+id = "staging-kv-id"
+
+[[env.staging.queues.producers]]
+binding = "JOBS_QUEUE"
+queue = "pigeon-jobs-staging"
+
+[[env.staging.queues.consumers]]
+queue = "pigeon-jobs-staging"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[env.prod]
+name = "pigeon-worker-prod"
+vars = { ENV = "prod", DRY_RUN = "true" }
+
+[[env.prod.d1_databases]]
+binding = "DB"
+database_name = "pigeon-db-prod"
+database_id = "prod-d1-id"
+
+[[env.prod.r2_buckets]]
+binding = "RESUMES"
+bucket_name = "pigeon-resumes-prod"
+
+[[env.prod.kv_namespaces]]
+binding = "CONFIG"
+id = "prod-kv-id"
+
+[[env.prod.queues.producers]]
+binding = "JOBS_QUEUE"
+queue = "pigeon-jobs-prod"
+
+[[env.prod.queues.consumers]]
+queue = "pigeon-jobs-prod"
+max_batch_size = 10
+max_batch_timeout = 5

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "types": ["@cloudflare/workers-types/2023-07-01", "@cloudflare/vitest-pool-workers/types"],
+    "outDir": "./dist",
+    "rootDir": "."
+  },
+  "include": ["src/**/*", "fixtures/**/*", "vitest.config.ts"]
+}
