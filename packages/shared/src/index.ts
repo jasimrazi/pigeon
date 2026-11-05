@@ -22,3 +22,4 @@ export * from './scoring/scorer.js';
 export * from './scoring/contact-finder.js';
 export * from './scoring/router.js';
 export * from './scoring/pipeline.js';
+export * from './applications/index.js';

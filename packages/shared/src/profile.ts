@@ -76,6 +76,7 @@ export const ProfileSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   skills: z.array(z.string().min(1)).min(1),
+  experience_years: z.number().min(0).optional(),
   experience: z.array(ExperienceItemSchema).default([]),
   education: z.array(EducationItemSchema).default([]),
   preferences: PreferencesSchema.default({}),

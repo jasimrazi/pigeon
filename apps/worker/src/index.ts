@@ -8,6 +8,8 @@ import {
   createLLMClient,
   DefaultScorer,
   processJobPipeline,
+  ApplicationFactory,
+  DefaultCoverLetterGenerator,
   type CloudflareAiBinding,
 } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
@@ -290,6 +292,74 @@ app.post('/api/pipeline/run', async (c) => {
   return c.json({ ok: true, stats });
 });
 
+// POST /api/applications/create: Creates an application for a given job using ApplicationFactory
+app.post('/api/applications/create', async (c) => {
+  const body = await c.req.json<{ job_id?: string }>().catch(() => ({}) as { job_id?: string });
+  if (!body.job_id) {
+    return c.json({ error: 'Missing required field: job_id' }, 400);
+  }
+
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  if (!profileRow?.data) {
+    return c.json({ error: 'Profile not configured' }, 400);
+  }
+
+  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+  const env = c.get('validatedEnv');
+
+  const llmClient = createLLMClient({
+    provider: env.LLM_PROVIDER,
+    ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
+    geminiApiKey: env.GEMINI_API_KEY,
+  });
+
+  const generator = new DefaultCoverLetterGenerator(llmClient);
+
+  const result = await ApplicationFactory.createForJob({
+    db: c.env.DB,
+    jobId: body.job_id,
+    profile,
+    generator,
+  });
+
+  return c.json({ ok: true, ...result });
+});
+
+// PUT /api/applications/:id/letter: Edits an application's cover letter and re-runs validation
+app.put('/api/applications/:id/letter', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req
+    .json<{ cover_letter?: string; subject?: string }>()
+    .catch(() => ({}) as { cover_letter?: string; subject?: string });
+
+  if (!body.cover_letter) {
+    return c.json({ error: 'Missing required field: cover_letter' }, 400);
+  }
+
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  if (!profileRow?.data) {
+    return c.json({ error: 'Profile not configured' }, 400);
+  }
+
+  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+
+  const result = await ApplicationFactory.updateCoverLetter({
+    db: c.env.DB,
+    applicationId: id,
+    coverLetter: body.cover_letter,
+    subject: body.subject,
+    profile,
+  });
+
+  return c.json({ ok: true, ...result });
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings): Promise<void> {
@@ -341,6 +411,35 @@ export default {
           }
         } catch (err) {
           console.error('Error during score_and_route queue task:', err);
+        }
+      } else if (
+        body &&
+        body.action === 'create_application' &&
+        typeof (body as { jobId?: string }).jobId === 'string'
+      ) {
+        try {
+          const jobId = (body as { jobId: string }).jobId;
+          const profileRow = await env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+            .bind('default')
+            .first<{ data: string }>();
+
+          if (profileRow?.data) {
+            const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+            const llmClient = createLLMClient({
+              provider: (env.LLM_PROVIDER as 'workers-ai' | 'gemini') || 'workers-ai',
+              ai: env.AI as CloudflareAiBinding | undefined,
+              geminiApiKey: env.GEMINI_API_KEY,
+            });
+            const generator = new DefaultCoverLetterGenerator(llmClient);
+            await ApplicationFactory.createForJob({
+              db: env.DB,
+              jobId,
+              profile,
+              generator,
+            });
+          }
+        } catch (err) {
+          console.error('Error during create_application queue task:', err);
         }
       }
       msg.ack();
