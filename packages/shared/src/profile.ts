@@ -30,7 +30,10 @@ export const PreferencesSchema = z
 export const FiltersSchema = z
   .object({
     titles: z.array(z.string()).default([]),
+    title_include: z.array(z.string()).optional(),
+    title_exclude: z.array(z.string()).optional(),
     locations: z.array(z.string()).default([]),
+    remote: z.boolean().optional(),
     min_salary: z.number().nullable().optional(),
     experience_range: z
       .object({

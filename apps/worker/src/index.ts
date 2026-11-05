@@ -5,6 +5,10 @@ import {
   ingestSource,
   ingestAlertEmail,
   EventsNotifier,
+  createLLMClient,
+  DefaultScorer,
+  processJobPipeline,
+  type CloudflareAiBinding,
 } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
 
@@ -251,6 +255,41 @@ app.get('/test-error', () => {
   throw new Error('Simulated failure');
 });
 
+// POST /api/pipeline/run: Runs the Phase 4 scoring and routing pipeline on 'new' jobs
+app.post('/api/pipeline/run', async (c) => {
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  if (!profileRow?.data) {
+    return c.json({ error: 'Profile not configured' }, 400);
+  }
+
+  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+  const env = c.get('validatedEnv');
+
+  const llmClient = createLLMClient({
+    provider: env.LLM_PROVIDER,
+    ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
+    geminiApiKey: env.GEMINI_API_KEY,
+  });
+
+  const scorer = new DefaultScorer(llmClient);
+
+  // Read max_scored_per_day from KV if set
+  const maxScoredRaw = await c.env.CONFIG.get('MAX_SCORED_PER_DAY');
+  const maxScoredPerDay = maxScoredRaw ? Number.parseInt(maxScoredRaw, 10) : 200;
+
+  const stats = await processJobPipeline({
+    db: c.env.DB,
+    profile,
+    scorer,
+    config: { max_scored_per_day: maxScoredPerDay },
+  });
+
+  return c.json({ ok: true, stats });
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings): Promise<void> {
@@ -261,7 +300,7 @@ export default {
   },
   async queue(batch: MessageBatch<unknown>, env: Bindings): Promise<void> {
     for (const msg of batch.messages) {
-      const body = msg.body as { source?: string };
+      const body = msg.body as { source?: string; action?: string };
       if (body && typeof body.source === 'string') {
         try {
           await ingestSource(body.source, {
@@ -275,6 +314,33 @@ export default {
         } catch (err) {
           // Log error so that one source failure does not break other sources in the batch
           console.error(`Ingestion error for source ${body.source}:`, err);
+        }
+      } else if (body && body.action === 'score_and_route') {
+        try {
+          const profileRow = await env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+            .bind('default')
+            .first<{ data: string }>();
+
+          if (profileRow?.data) {
+            const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+            const llmClient = createLLMClient({
+              provider: (env.LLM_PROVIDER as 'workers-ai' | 'gemini') || 'workers-ai',
+              aiBinding: env.AI as CloudflareAiBinding | undefined,
+              geminiApiKey: env.GEMINI_API_KEY,
+            });
+            const scorer = new DefaultScorer(llmClient);
+            const maxScoredRaw = await env.CONFIG.get('MAX_SCORED_PER_DAY');
+            const maxScoredPerDay = maxScoredRaw ? Number.parseInt(maxScoredRaw, 10) : 200;
+
+            await processJobPipeline({
+              db: env.DB,
+              profile,
+              scorer,
+              config: { max_scored_per_day: maxScoredPerDay },
+            });
+          }
+        } catch (err) {
+          console.error('Error during score_and_route queue task:', err);
         }
       }
       msg.ack();
