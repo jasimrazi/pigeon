@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ProfileSchema } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
 
 type Variables = {
@@ -32,6 +33,211 @@ app.get('/health', (c) => {
     dryRun: env.DRY_RUN,
     env: env.ENV,
   });
+});
+
+// POST /api/resumes: PDF only (%PDF magic bytes), max 5 MB, stored in R2, tags supplied by caller
+app.post('/api/resumes', async (c) => {
+  const formData = await c.req.formData();
+  const file = formData.get('file');
+
+  if (!file || typeof file === 'string' || !(file instanceof Blob)) {
+    return c.json({ error: 'Missing or invalid file' }, 400);
+  }
+
+  // Max 5 MB check
+  const arrayBuffer = await file.arrayBuffer();
+  if (arrayBuffer.byteLength > 5 * 1024 * 1024) {
+    return c.json({ error: 'File size exceeds 5 MB limit' }, 400);
+  }
+
+  // PDF magic bytes check: %PDF (0x25, 0x50, 0x44, 0x46)
+  const bytes = new Uint8Array(arrayBuffer);
+  if (
+    bytes.length < 4 ||
+    bytes[0] !== 0x25 ||
+    bytes[1] !== 0x50 ||
+    bytes[2] !== 0x44 ||
+    bytes[3] !== 0x46
+  ) {
+    return c.json({ error: 'Invalid file: only PDF documents are allowed' }, 400);
+  }
+
+  const labelRaw = formData.get('label');
+  const fileName = 'name' in file ? (file as { name?: string }).name : undefined;
+  const label =
+    typeof labelRaw === 'string' && labelRaw.trim() ? labelRaw.trim() : fileName || 'Resume';
+
+  const tagsRaw = formData.get('tags');
+  let tags: string[] = [];
+  if (typeof tagsRaw === 'string') {
+    try {
+      const parsed = JSON.parse(tagsRaw);
+      if (Array.isArray(parsed)) {
+        tags = parsed.map(String);
+      } else {
+        tags = [tagsRaw];
+      }
+    } catch {
+      tags = tagsRaw
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+    }
+  }
+
+  const isDefaultRaw = formData.get('is_default');
+  const isDefault = isDefaultRaw === 'true' || isDefaultRaw === '1';
+
+  const id = crypto.randomUUID();
+  const r2Key = `resumes/${id}.pdf`;
+  const now = new Date().toISOString();
+
+  // Store in R2
+  await c.env.RESUMES.put(r2Key, arrayBuffer, {
+    httpMetadata: { contentType: 'application/pdf' },
+  });
+
+  // Store in D1 and write event
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO resumes (id, label, r2_key, tags, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).bind(id, label, r2Key, JSON.stringify(tags), isDefault ? 1 : 0, now),
+    c.env.DB.prepare(
+      `INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      crypto.randomUUID(),
+      'resume',
+      id,
+      'resume_uploaded',
+      JSON.stringify({ label, r2_key: r2Key, tags, is_default: isDefault }),
+      now,
+    ),
+  ]);
+
+  return c.json(
+    {
+      resume: {
+        id,
+        label,
+        r2_key: r2Key,
+        tags,
+        is_default: isDefault,
+        created_at: now,
+      },
+    },
+    201,
+  );
+});
+
+// GET /api/profile
+app.get('/api/profile', async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT data, updated_at FROM profile WHERE id = 'default'`,
+  ).first<{ data: string; updated_at: string }>();
+
+  if (!row) {
+    return c.json({ error: 'Profile not found' }, 404);
+  }
+
+  const parsed = JSON.parse(row.data);
+  return c.json({ profile: parsed, updated_at: row.updated_at });
+});
+
+// PUT /api/profile
+app.put('/api/profile', async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const result = ProfileSchema.safeParse(body);
+  if (!result.success) {
+    return c.json({ error: 'Validation failed', issues: result.error.issues }, 400);
+  }
+
+  const now = new Date().toISOString();
+  const profileJson = JSON.stringify(result.data);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO profile (id, data, updated_at) VALUES ('default', ?, ?)
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+    ).bind(profileJson, now),
+    c.env.DB.prepare(
+      `INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      crypto.randomUUID(),
+      'profile',
+      'default',
+      'profile_updated',
+      JSON.stringify({ email: result.data.email, name: result.data.name }),
+      now,
+    ),
+  ]);
+
+  return c.json({ profile: result.data, updated_at: now });
+});
+
+// GET /api/events with filters
+app.get('/api/events', async (c) => {
+  const entity = c.req.query('entity');
+  const entityId = c.req.query('entity_id');
+  const type = c.req.query('type');
+  const limitParam = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 100);
+  const offsetParam = parseInt(c.req.query('offset') || '0', 10);
+  const offset = Math.max(0, isNaN(offsetParam) ? 0 : offsetParam);
+
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (entity) {
+    conditions.push('entity = ?');
+    params.push(entity);
+  }
+  if (entityId) {
+    conditions.push('entity_id = ?');
+    params.push(entityId);
+  }
+  if (type) {
+    conditions.push('type = ?');
+    params.push(type);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const query = `SELECT id, entity, entity_id, type, payload, created_at FROM events ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+
+  const stmt = c.env.DB.prepare(query);
+  const { results } = await stmt.bind(...params).all<{
+    id: string;
+    entity: string;
+    entity_id: string;
+    type: string;
+    payload: string;
+    created_at: string;
+  }>();
+
+  const formattedEvents = (results || []).map((row) => {
+    let parsedPayload: unknown;
+    try {
+      parsedPayload = JSON.parse(row.payload);
+    } catch {
+      parsedPayload = row.payload;
+    }
+    return {
+      id: row.id,
+      entity: row.entity,
+      entity_id: row.entity_id,
+      type: row.type,
+      payload: parsedPayload,
+      created_at: row.created_at,
+    };
+  });
+
+  return c.json({ events: formattedEvents });
 });
 
 // Test route to verify 500 handler behavior
