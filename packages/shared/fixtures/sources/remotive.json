@@ -1,0 +1,18 @@
+{
+  "0-legal-notice": "Remotive API terms of use",
+  "job-count": 1,
+  "jobs": [
+    {
+      "id": 303,
+      "url": "https://remotive.com/remote-jobs/software-dev/senior-backend-engineer-303",
+      "title": "Senior Backend Engineer",
+      "company_name": "Distributed Systems Co",
+      "category": "Software Development",
+      "job_type": "full_time",
+      "publication_date": "2026-11-02T14:30:00Z",
+      "candidate_required_location": "Remote - Worldwide",
+      "salary": "$130,000 - $160,000 USD",
+      "description": "<p>Looking for a Senior Backend Engineer. Send your resume to talent@distributedsystems.co</p>"
+    }
+  ]
+}

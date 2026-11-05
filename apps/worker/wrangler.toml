@@ -2,6 +2,9 @@ name = "pigeon-worker"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
+[triggers]
+crons = ["0 */3 * * *"]
+
 [vars]
 ENV = "dev"
 DRY_RUN = "true"

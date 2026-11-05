@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { ProfileSchema } from '@pigeon/shared';
+import { ProfileSchema, getEnabledSources, ingestSource } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
 
 type Variables = {
@@ -247,8 +247,30 @@ app.get('/test-error', () => {
 
 export default {
   fetch: app.fetch,
-  async queue(batch: MessageBatch<unknown>, _env: Bindings): Promise<void> {
+  async scheduled(_event: ScheduledEvent, env: Bindings): Promise<void> {
+    const enabledSources = await getEnabledSources(env.CONFIG);
+    for (const source of enabledSources) {
+      await env.JOBS_QUEUE.send({ source });
+    }
+  },
+  async queue(batch: MessageBatch<unknown>, env: Bindings): Promise<void> {
     for (const msg of batch.messages) {
+      const body = msg.body as { source?: string };
+      if (body && typeof body.source === 'string') {
+        try {
+          await ingestSource(body.source, {
+            db: env.DB,
+            kv: env.CONFIG,
+            secrets: {
+              ADZUNA_APP_ID: env.ADZUNA_APP_ID,
+              ADZUNA_APP_KEY: env.ADZUNA_APP_KEY,
+            },
+          });
+        } catch (err) {
+          // Log error so that one source failure does not break other sources in the batch
+          console.error(`Ingestion error for source ${body.source}:`, err);
+        }
+      }
       msg.ack();
     }
   },

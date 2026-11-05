@@ -1,0 +1,21 @@
+{
+  "storySearch": {
+    "hits": [
+      {
+        "objectID": "999901",
+        "title": "Ask HN: Who is hiring? (November 2026)",
+        "created_at": "2026-11-01T15:00:00Z"
+      }
+    ]
+  },
+  "commentSearch": {
+    "hits": [
+      {
+        "objectID": "comm-501",
+        "author": "stripe_recruiter",
+        "created_at": "2026-11-01T16:00:00Z",
+        "comment_text": "Stripe | Infrastructure Engineer | San Francisco, CA | REMOTE | $160k-$220k<br><br>We are expanding our core payment platform. Looking for engineers with strong systems background.<br>Email us directly: jobs-infra@stripe.com (please mention HN)."
+      }
+    ]
+  }
+}

@@ -19,6 +19,8 @@ export const WorkerEnvVarsSchema = z.object({
 
 export const WorkerSecretsSchema = z.object({
   GEMINI_API_KEY: z.string().min(1).optional(),
+  ADZUNA_APP_ID: z.string().min(1).optional(),
+  ADZUNA_APP_KEY: z.string().min(1).optional(),
 });
 
 export type WorkerEnvVars = z.infer<typeof WorkerEnvVarsSchema>;

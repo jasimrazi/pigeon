@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "id": "adzuna-job-101",
+      "title": "Senior Cloud Infrastructure Engineer",
+      "description": "We are seeking a Senior Cloud Infrastructure Engineer with experience in TypeScript, Cloudflare Workers, and distributed systems. Please reach out to recruiter@techcorp.in for queries.",
+      "company": {
+        "display_name": "TechCorp India Private Limited"
+      },
+      "location": {
+        "display_name": "Bengaluru, Karnataka, India"
+      },
+      "salary_min": 1800000,
+      "salary_max": 2800000,
+      "salary_is_predicted": 0,
+      "redirect_url": "https://www.adzuna.in/land/ad/101",
+      "created": "2026-11-01T10:00:00Z"
+    }
+  ]
+}

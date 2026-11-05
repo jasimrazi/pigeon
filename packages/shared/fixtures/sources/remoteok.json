@@ -1,0 +1,18 @@
+[
+  {
+    "legal": "Remote OK API Terms: Attribution required. Use only as authorized."
+  },
+  {
+    "id": "remoteok-202",
+    "epoch": 1730455200,
+    "date": "2026-11-01T12:00:00Z",
+    "company": "Nomad Devs LLC",
+    "position": "Full Stack Engineer (TypeScript / Node)",
+    "tags": ["typescript", "react", "remote"],
+    "description": "<p>Nomad Devs is hiring a <strong>Full Stack Engineer</strong>. Work from anywhere.</p><p>Contact: hiring.team@nomaddevs.com</p>",
+    "location": "Worldwide",
+    "url": "https://remoteok.com/remote-jobs/202",
+    "salary_min": 110000,
+    "salary_max": 140000
+  }
+]

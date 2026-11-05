@@ -14,17 +14,12 @@ export interface JobItem {
   id: string;
   title: string;
   company: string;
-  location?: string;
+  location?: string | undefined;
   description: string;
   url: string;
   source: string;
   applyRoute: ApplyRoute;
-  contactEmail?: string;
-}
-
-export interface JobSource {
-  name: string;
-  fetchJobs(): Promise<JobItem[]>;
+  contactEmail?: string | undefined;
 }
 
 export interface EmailSender {

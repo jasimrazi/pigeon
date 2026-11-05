@@ -1,0 +1,20 @@
+{
+  "jobs": [
+    {
+      "id": "ashby-801",
+      "title": "Principal Distributed Systems Engineer",
+      "department": "Engineering",
+      "location": "Remote",
+      "isRemote": true,
+      "jobUrl": "https://jobs.ashbyhq.com/linear/ashby-801",
+      "publishedAt": "2026-11-01T11:00:00Z",
+      "descriptionHtml": "<p>Linear is looking for a Principal Distributed Systems Engineer. Email us at engineering-careers@linear.app</p>",
+      "compensation": {
+        "compensationTierSummary": "$180,000 - $220,000 USD",
+        "min": 180000,
+        "max": 220000,
+        "currencyCode": "USD"
+      }
+    }
+  ]
+}

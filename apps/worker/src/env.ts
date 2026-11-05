@@ -14,6 +14,8 @@ export interface Bindings {
   ENV?: string | undefined;
   LLM_PROVIDER?: string | undefined;
   GEMINI_API_KEY?: string | undefined;
+  ADZUNA_APP_ID?: string | undefined;
+  ADZUNA_APP_KEY?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -24,6 +26,8 @@ export interface ValidatedEnv extends WorkerEnvVars {
   JOBS_QUEUE: Queue;
   AI?: Ai | undefined;
   GEMINI_API_KEY?: string | undefined;
+  ADZUNA_APP_ID?: string | undefined;
+  ADZUNA_APP_KEY?: string | undefined;
 }
 
 export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): ValidatedEnv {
@@ -59,6 +63,12 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
   }
   if (parsed.GEMINI_API_KEY !== undefined) {
     result.GEMINI_API_KEY = parsed.GEMINI_API_KEY;
+  }
+  if (parsed.ADZUNA_APP_ID !== undefined) {
+    result.ADZUNA_APP_ID = parsed.ADZUNA_APP_ID;
+  }
+  if (parsed.ADZUNA_APP_KEY !== undefined) {
+    result.ADZUNA_APP_KEY = parsed.ADZUNA_APP_KEY;
   }
 
   return result;
