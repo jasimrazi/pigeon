@@ -16,12 +16,20 @@ export const WorkerEnvVarsSchema = z.object({
   ENV: EnvSchema.default('dev'),
   LLM_PROVIDER: LlmProviderSchema,
   ALERT_FORWARDING_ADDRESS: z.string().email().optional(),
+  KILL_SWITCH: z
+    .union([z.enum(['true', 'false']).transform((v) => v === 'true'), z.boolean()])
+    .optional()
+    .default(false),
+  GOOGLE_REDIRECT_URI: z.string().optional(),
 });
 
 export const WorkerSecretsSchema = z.object({
   GEMINI_API_KEY: z.string().min(1).optional(),
   ADZUNA_APP_ID: z.string().min(1).optional(),
   ADZUNA_APP_KEY: z.string().min(1).optional(),
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().min(1).optional(),
 });
 
 export type WorkerEnvVars = z.infer<typeof WorkerEnvVarsSchema>;

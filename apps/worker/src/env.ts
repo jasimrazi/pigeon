@@ -17,6 +17,11 @@ export interface Bindings {
   ADZUNA_APP_ID?: string | undefined;
   ADZUNA_APP_KEY?: string | undefined;
   ALERT_FORWARDING_ADDRESS?: string | undefined;
+  KILL_SWITCH?: string | boolean | undefined;
+  GOOGLE_CLIENT_ID?: string | undefined;
+  GOOGLE_CLIENT_SECRET?: string | undefined;
+  GOOGLE_TOKEN_ENCRYPTION_KEY?: string | undefined;
+  GOOGLE_REDIRECT_URI?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -30,6 +35,11 @@ export interface ValidatedEnv extends WorkerEnvVars {
   ADZUNA_APP_ID?: string | undefined;
   ADZUNA_APP_KEY?: string | undefined;
   ALERT_FORWARDING_ADDRESS?: string | undefined;
+  KILL_SWITCH: boolean;
+  GOOGLE_CLIENT_ID?: string | undefined;
+  GOOGLE_CLIENT_SECRET?: string | undefined;
+  GOOGLE_TOKEN_ENCRYPTION_KEY?: string | undefined;
+  GOOGLE_REDIRECT_URI?: string | undefined;
 }
 
 export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): ValidatedEnv {
@@ -58,6 +68,7 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
     DRY_RUN: parsed.DRY_RUN,
     ENV: parsed.ENV,
     LLM_PROVIDER: parsed.LLM_PROVIDER,
+    KILL_SWITCH: parsed.KILL_SWITCH ?? false,
   };
 
   if (rawEnv.AI !== undefined) {
@@ -71,6 +82,18 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
   }
   if (parsed.ADZUNA_APP_KEY !== undefined) {
     result.ADZUNA_APP_KEY = parsed.ADZUNA_APP_KEY;
+  }
+  if (parsed.GOOGLE_CLIENT_ID !== undefined) {
+    result.GOOGLE_CLIENT_ID = parsed.GOOGLE_CLIENT_ID;
+  }
+  if (parsed.GOOGLE_CLIENT_SECRET !== undefined) {
+    result.GOOGLE_CLIENT_SECRET = parsed.GOOGLE_CLIENT_SECRET;
+  }
+  if (parsed.GOOGLE_TOKEN_ENCRYPTION_KEY !== undefined) {
+    result.GOOGLE_TOKEN_ENCRYPTION_KEY = parsed.GOOGLE_TOKEN_ENCRYPTION_KEY;
+  }
+  if (parsed.GOOGLE_REDIRECT_URI !== undefined) {
+    result.GOOGLE_REDIRECT_URI = parsed.GOOGLE_REDIRECT_URI;
   }
 
   return result;

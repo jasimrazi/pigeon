@@ -20,7 +20,18 @@ import {
   recordOutcome,
   expireStaleManualPending,
   sendManualDailyDigest,
+  getGoogleAuthUrl,
+  completeGoogleAuthCallback,
+  getGoogleAuthHealth,
+  pingGoogleAuthHealth,
+  approveApplication,
+  bulkApproveApplications,
+  sendApplicationEmail,
+  RestGmailSender,
+  getValidAccessToken,
   type CloudflareAiBinding,
+  type GoogleOAuthSecrets,
+  type ApplicationToSend,
 } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
 
@@ -533,6 +544,215 @@ app.get('/api/resumes/:id/download', async (c) => {
   return c.body(object.body);
 });
 
+// -------------------------------------------------------------
+// Google OAuth & Auth Health Routes
+// -------------------------------------------------------------
+
+app.get('/auth/google/start', (c) => {
+  const env = c.get('validatedEnv');
+  if (!env.GOOGLE_CLIENT_ID) {
+    return c.json({ error: 'GOOGLE_CLIENT_ID is not configured' }, 400);
+  }
+
+  const redirectUri =
+    env.GOOGLE_REDIRECT_URI || new URL('/auth/google/callback', c.req.url).toString();
+  const state = crypto.randomUUID();
+  const authUrl = getGoogleAuthUrl({
+    clientId: env.GOOGLE_CLIENT_ID,
+    redirectUri,
+    state,
+  });
+
+  return c.redirect(authUrl, 302);
+});
+
+app.get('/auth/google/callback', async (c) => {
+  const env = c.get('validatedEnv');
+  const code = c.req.query('code');
+  const error = c.req.query('error');
+
+  if (error) {
+    return c.json({ error: `Google OAuth error: ${error}` }, 400);
+  }
+  if (!code) {
+    return c.json({ error: 'Missing authorization code' }, 400);
+  }
+
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    return c.json({ error: 'Google client credentials not configured' }, 400);
+  }
+
+  const redirectUri =
+    env.GOOGLE_REDIRECT_URI || new URL('/auth/google/callback', c.req.url).toString();
+  const secrets: GoogleOAuthSecrets = {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    tokenEncryptionKey:
+      env.GOOGLE_TOKEN_ENCRYPTION_KEY || 'default-pigeon-token-encryption-key-32b',
+    redirectUri,
+  };
+
+  const notifier = new EventsNotifier(c.env.DB);
+  await completeGoogleAuthCallback({
+    code,
+    config: c.env.CONFIG,
+    secrets,
+    redirectUri,
+    notifier,
+  });
+
+  return c.json({
+    ok: true,
+    message: 'Google authentication successful. Refresh token encrypted and health set to ok.',
+  });
+});
+
+app.get('/api/auth/google/health', async (c) => {
+  const health = await getGoogleAuthHealth(c.env.CONFIG);
+  return c.json({ ok: true, health });
+});
+
+app.post('/api/auth/google/ping', async (c) => {
+  const env = c.get('validatedEnv');
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    return c.json({ error: 'Google client credentials not configured' }, 400);
+  }
+
+  const secrets: GoogleOAuthSecrets = {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    tokenEncryptionKey:
+      env.GOOGLE_TOKEN_ENCRYPTION_KEY || 'default-pigeon-token-encryption-key-32b',
+  };
+
+  const notifier = new EventsNotifier(c.env.DB);
+  const health = await pingGoogleAuthHealth({
+    config: c.env.CONFIG,
+    secrets,
+    notifier,
+  });
+
+  return c.json({ ok: true, health });
+});
+
+// -------------------------------------------------------------
+// Application Approval Routes
+// -------------------------------------------------------------
+
+app.post('/api/applications/:id/approve', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req
+    .json<{ confirm_risk?: boolean }>()
+    .catch(() => ({}) as { confirm_risk?: boolean });
+
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  if (!profileRow?.data) {
+    return c.json({ error: 'Profile not configured' }, 400);
+  }
+  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+
+  await approveApplication({
+    db: c.env.DB,
+    applicationId: id,
+    profile,
+    confirmRisk: body.confirm_risk,
+  });
+
+  return c.json({ ok: true, success: true });
+});
+
+app.post('/api/applications/approve-bulk', async (c) => {
+  const body = await c.req.json<{ ids?: string[] }>().catch(() => ({}) as { ids?: string[] });
+
+  if (!body.ids || !Array.isArray(body.ids)) {
+    return c.json({ error: "Missing required 'ids' array in body" }, 400);
+  }
+
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  if (!profileRow?.data) {
+    return c.json({ error: 'Profile not configured' }, 400);
+  }
+  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+
+  const result = await bulkApproveApplications({
+    db: c.env.DB,
+    ids: body.ids,
+    profile,
+  });
+
+  return c.json({ ok: true, ...result });
+});
+
+// -------------------------------------------------------------
+// Application Send Route
+// -------------------------------------------------------------
+
+app.post('/api/applications/:id/send', async (c) => {
+  const id = c.req.param('id');
+  const env = c.get('validatedEnv');
+
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  if (!profileRow?.data) {
+    return c.json({ error: 'Profile not configured' }, 400);
+  }
+  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+
+  const appRow = await c.env.DB.prepare(
+    `SELECT
+       a.id, a.job_id, a.channel, a.status, a.cover_letter, a.subject,
+       a.resume_id, a.message_id_header, a.gmail_message_id, a.gmail_thread_id,
+       a.retry_count, j.title, j.company, j.company_normalized, j.contact_email
+     FROM applications a
+     JOIN jobs j ON a.job_id = j.id
+     WHERE a.id = ?`,
+  )
+    .bind(id)
+    .first<ApplicationToSend>();
+
+  if (!appRow) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+
+  const secrets: GoogleOAuthSecrets = {
+    clientId: env.GOOGLE_CLIENT_ID || 'client-id',
+    clientSecret: env.GOOGLE_CLIENT_SECRET || 'client-secret',
+    tokenEncryptionKey:
+      env.GOOGLE_TOKEN_ENCRYPTION_KEY || 'default-pigeon-token-encryption-key-32b',
+  };
+
+  const notifier = new EventsNotifier(c.env.DB);
+  const gmailSender = new RestGmailSender(() =>
+    getValidAccessToken({
+      config: c.env.CONFIG,
+      secrets,
+      notifier,
+    }),
+  );
+
+  const result = await sendApplicationEmail({
+    db: c.env.DB,
+    config: c.env.CONFIG,
+    resumesBucket: c.env.RESUMES,
+    gmailSender,
+    profile,
+    notifier,
+    dryRun: env.DRY_RUN,
+    killSwitch: env.KILL_SWITCH,
+    application: appRow,
+  });
+
+  return c.json({ ok: result.success, ...result });
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings): Promise<void> {
@@ -545,6 +765,26 @@ export default {
     // Send daily digest
     const notifier = new EventsNotifier(env.DB);
     await sendManualDailyDigest({ db: env.DB, notifier });
+
+    // Daily Google Auth health ping if credentials configured
+    if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+      try {
+        const secrets: GoogleOAuthSecrets = {
+          clientId: env.GOOGLE_CLIENT_ID as string,
+          clientSecret: env.GOOGLE_CLIENT_SECRET as string,
+          tokenEncryptionKey:
+            (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) ||
+            'default-pigeon-token-encryption-key-32b',
+        };
+        await pingGoogleAuthHealth({
+          config: env.CONFIG,
+          secrets,
+          notifier,
+        });
+      } catch (err) {
+        console.error('Error during scheduled Google auth health ping:', err);
+      }
+    }
   },
   async queue(batch: MessageBatch<unknown>, env: Bindings): Promise<void> {
     for (const msg of batch.messages) {
@@ -618,6 +858,70 @@ export default {
           }
         } catch (err) {
           console.error('Error during create_application queue task:', err);
+        }
+      } else if (
+        body &&
+        body.action === 'send_application' &&
+        typeof (body as { applicationId?: string }).applicationId === 'string'
+      ) {
+        try {
+          const applicationId = (body as { applicationId: string }).applicationId;
+          const profileRow = await env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+            .bind('default')
+            .first<{ data: string }>();
+
+          if (profileRow?.data) {
+            const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+            const appRow = await env.DB.prepare(
+              `SELECT
+                 a.id, a.job_id, a.channel, a.status, a.cover_letter, a.subject,
+                 a.resume_id, a.message_id_header, a.gmail_message_id, a.gmail_thread_id,
+                 a.retry_count, j.title, j.company, j.company_normalized, j.contact_email
+               FROM applications a
+               JOIN jobs j ON a.job_id = j.id
+               WHERE a.id = ?`,
+            )
+              .bind(applicationId)
+              .first<ApplicationToSend>();
+
+            if (appRow) {
+              const secrets: GoogleOAuthSecrets = {
+                clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
+                clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+                tokenEncryptionKey:
+                  (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) ||
+                  'default-pigeon-token-encryption-key-32b',
+              };
+
+              const notifier = new EventsNotifier(env.DB);
+              const gmailSender = new RestGmailSender(() =>
+                getValidAccessToken({
+                  config: env.CONFIG,
+                  secrets,
+                  notifier,
+                }),
+              );
+
+              const dryRunVal =
+                typeof env.DRY_RUN === 'boolean' ? env.DRY_RUN : env.DRY_RUN !== 'false';
+              const killSwitchVal =
+                typeof env.KILL_SWITCH === 'boolean' ? env.KILL_SWITCH : env.KILL_SWITCH === 'true';
+
+              await sendApplicationEmail({
+                db: env.DB,
+                config: env.CONFIG,
+                resumesBucket: env.RESUMES,
+                gmailSender,
+                profile,
+                notifier,
+                dryRun: dryRunVal,
+                killSwitch: killSwitchVal,
+                application: appRow,
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Error during send_application queue task:', err);
         }
       }
       msg.ack();
