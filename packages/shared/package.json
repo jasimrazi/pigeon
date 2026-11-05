@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
+    "postal-mime": "^4.2.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

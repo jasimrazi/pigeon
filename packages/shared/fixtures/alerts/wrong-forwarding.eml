@@ -1,0 +1,17 @@
+From: "LinkedIn Job Alerts" <jobalerts-noreply@linkedin.com>
+To: "Unknown User" <unauthorized-dest@wrongdomain.org>
+Subject: 1 new job for 'Database Administrator'
+Date: Tue, 04 Nov 2026 14:00:00 +0000
+Message-ID: <alert-wrong-dest-1111@linkedin.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+
+<!DOCTYPE html>
+<html>
+<body>
+  <div>
+    <a href="https://www.linkedin.com/jobs/view/999888777?trk=eml">Database Administrator</a>
+    <div class="company-name">Wayne Enterprises</div>
+  </div>
+</body>
+</html>

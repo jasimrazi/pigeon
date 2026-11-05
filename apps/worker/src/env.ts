@@ -16,6 +16,7 @@ export interface Bindings {
   GEMINI_API_KEY?: string | undefined;
   ADZUNA_APP_ID?: string | undefined;
   ADZUNA_APP_KEY?: string | undefined;
+  ALERT_FORWARDING_ADDRESS?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -28,6 +29,7 @@ export interface ValidatedEnv extends WorkerEnvVars {
   GEMINI_API_KEY?: string | undefined;
   ADZUNA_APP_ID?: string | undefined;
   ADZUNA_APP_KEY?: string | undefined;
+  ALERT_FORWARDING_ADDRESS?: string | undefined;
 }
 
 export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): ValidatedEnv {

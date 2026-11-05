@@ -1,0 +1,30 @@
+From: "Naukri Job Alerts" <jobalerts@naukri.com>
+To: "Alex Mercer" <alex.mercer@example.com>
+Subject: Recommended jobs matching your profile
+Date: Tue, 04 Nov 2026 10:15:00 +0000
+Message-ID: <alert-naukri-67890@naukri.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+
+<!DOCTYPE html>
+<html>
+<head><title>Naukri Job Alert</title></head>
+<body>
+  <div>
+    <h2>Custom Job Recommendations</h2>
+    <div class="job-tuple">
+      <a href="https://www.naukri.com/job-listings-full-stack-lead-initech-bengaluru-9876543210?src=jobsearchDesk&amp;sid=1726354&amp;xp=1&amp;px=1&amp;utm_source=alert"><b>Full Stack Lead Developer</b></a>
+      <div class="comp-name">Initech India Pvt Ltd</div>
+      <div class="loc">Bengaluru / Bangalore</div>
+      <div class="salary">18-28 Lacs PA</div>
+    </div>
+    <div class="job-tuple">
+      <a href="https://www.naukri.com/job-listings-devops-platform-engineer-hooli-hyderabad-9876543211?src=jobsearchDesk&amp;sid=1726354&amp;xp=2"><b>DevOps &amp; Platform Engineer</b></a>
+      <div class="comp-name">Hooli Operations</div>
+      <div class="loc">Hyderabad</div>
+      <div class="salary">Not Disclosed</div>
+    </div>
+    <p><a href="https://www.naukri.com/unsubscribe">Unsubscribe</a></p>
+  </div>
+</body>
+</html>

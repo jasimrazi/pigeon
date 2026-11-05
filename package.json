@@ -9,13 +9,15 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "parse-eml": "node scripts/parse-eml.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9.21.0",
     "eslint-config-prettier": "^10.0.1",
+    "postal-mime": "^4.2.0",
     "prettier": "^3.5.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.24.1",

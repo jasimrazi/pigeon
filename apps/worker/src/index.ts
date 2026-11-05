@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
-import { ProfileSchema, getEnabledSources, ingestSource } from '@pigeon/shared';
+import {
+  ProfileSchema,
+  getEnabledSources,
+  ingestSource,
+  ingestAlertEmail,
+  EventsNotifier,
+} from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
 
 type Variables = {
@@ -273,5 +279,43 @@ export default {
       }
       msg.ack();
     }
+  },
+  async email(
+    message: ForwardableEmailMessage,
+    env: Bindings,
+    _ctx?: ExecutionContext,
+  ): Promise<void> {
+    let configuredForwardingAddress =
+      typeof env.ALERT_FORWARDING_ADDRESS === 'string' ? env.ALERT_FORWARDING_ADDRESS : undefined;
+
+    if (!configuredForwardingAddress) {
+      const profileRow = await env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+        .bind('default')
+        .first<{ data: string }>();
+
+      if (profileRow?.data) {
+        try {
+          const profile = JSON.parse(profileRow.data) as { email?: string };
+          if (profile.email) {
+            configuredForwardingAddress = profile.email;
+          }
+        } catch {
+          // Ignore JSON parse errors in profile
+        }
+      }
+    }
+
+    const notifier = new EventsNotifier(env.DB);
+
+    await ingestAlertEmail(message.raw, {
+      db: env.DB,
+      envelope: {
+        from: message.from,
+        to: message.to,
+        headers: message.headers,
+      },
+      configuredForwardingAddress,
+      notifier,
+    });
   },
 };

@@ -43,6 +43,4 @@ export interface ContactFinder {
   findContact(domainOrCompany: string): Promise<string | null>;
 }
 
-export interface Notifier {
-  notify(message: string): Promise<void>;
-}
+export type { Notifier, NotificationPayload } from './notifier.js';

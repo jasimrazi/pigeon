@@ -139,6 +139,7 @@ export const sourceState = sqliteTable('source_state', {
   last_success_at: text('last_success_at'),
   last_error: text('last_error'),
   parser_empty_streak: integer('parser_empty_streak').notNull().default(0),
+  untrusted: integer('untrusted', { mode: 'boolean' }).notNull().default(false),
 });
 
 // 7. Daily counters table

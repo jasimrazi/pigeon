@@ -1,0 +1,1 @@
+ALTER TABLE source_state ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;

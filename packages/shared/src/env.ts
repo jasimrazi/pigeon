@@ -15,6 +15,7 @@ export const WorkerEnvVarsSchema = z.object({
   DRY_RUN: DryRunSchema,
   ENV: EnvSchema.default('dev'),
   LLM_PROVIDER: LlmProviderSchema,
+  ALERT_FORWARDING_ADDRESS: z.string().email().optional(),
 });
 
 export const WorkerSecretsSchema = z.object({
