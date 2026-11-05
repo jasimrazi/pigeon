@@ -24,6 +24,7 @@ export const PreferencesSchema = z
     locations: z.array(z.string()).default([]),
     remote: z.boolean().default(true),
     roles: z.array(z.string()).optional(),
+    manual_daily_target: z.number().int().min(1).optional(),
   })
   .passthrough();
 

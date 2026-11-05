@@ -10,6 +10,16 @@ import {
   processJobPipeline,
   ApplicationFactory,
   DefaultCoverLetterGenerator,
+  getManualQueue,
+  getManualKit,
+  markApplied,
+  skipManualApplication,
+  snoozeManualApplication,
+  sendByEmail,
+  bulkManualAction,
+  recordOutcome,
+  expireStaleManualPending,
+  sendManualDailyDigest,
   type CloudflareAiBinding,
 } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
@@ -360,6 +370,169 @@ app.put('/api/applications/:id/letter', async (c) => {
   return c.json({ ok: true, ...result });
 });
 
+// GET /api/manual: Lists manual queue applications
+app.get('/api/manual', async (c) => {
+  const route = c.req.query('route');
+  const route_reason = c.req.query('route_reason');
+  const source = c.req.query('source');
+  const min_score = c.req.query('min_score') ? Number(c.req.query('min_score')) : undefined;
+  const max_score = c.req.query('max_score') ? Number(c.req.query('max_score')) : undefined;
+  const age_days = c.req.query('age_days') ? Number(c.req.query('age_days')) : undefined;
+  const include_snoozed = c.req.query('include_snoozed') === 'true';
+
+  const result = await getManualQueue(c.env.DB, {
+    filters: {
+      route,
+      route_reason,
+      source,
+      min_score,
+      max_score,
+      age_days,
+      include_snoozed,
+    },
+  });
+
+  return c.json({ ok: true, ...result });
+});
+
+// GET /api/manual/:id/kit: Retrieves the Manual Apply Kit for an application
+app.get('/api/manual/:id/kit', async (c) => {
+  const id = c.req.param('id');
+  const kit = await getManualKit(c.env.DB, id);
+  if (!kit) {
+    return c.json({ error: 'Manual apply kit not found' }, 404);
+  }
+  return c.json({ ok: true, kit });
+});
+
+// POST /api/manual/:id/applied: Marks application as manually applied
+app.post('/api/manual/:id/applied', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req
+    .json<{ note?: string; applied_at?: string }>()
+    .catch(() => ({}) as { note?: string; applied_at?: string });
+  const result = await markApplied({
+    db: c.env.DB,
+    applicationId: id,
+    note: body.note,
+    applied_at: body.applied_at,
+  });
+  return c.json({ ok: true, ...result });
+});
+
+// POST /api/manual/:id/skip: Skips a manual application with reason
+app.post('/api/manual/:id/skip', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json<{ reason?: string }>().catch(() => ({}) as { reason?: string });
+  const reason = body.reason?.trim() || 'MANUAL_SKIPPED';
+  const result = await skipManualApplication({
+    db: c.env.DB,
+    applicationId: id,
+    reason,
+  });
+  return c.json({ ok: true, ...result });
+});
+
+// POST /api/manual/:id/snooze: Snoozes a manual application for N days
+app.post('/api/manual/:id/snooze', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json<{ days?: number }>().catch(() => ({}) as { days?: number });
+  const days = typeof body.days === 'number' && body.days > 0 ? body.days : 1;
+  const result = await snoozeManualApplication({
+    db: c.env.DB,
+    applicationId: id,
+    days,
+  });
+  return c.json({ ok: true, ...result });
+});
+
+// POST /api/manual/:id/send-by-email: Switches channel to email and approves
+app.post('/api/manual/:id/send-by-email', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req
+    .json<{ confirm_risk?: boolean }>()
+    .catch(() => ({}) as { confirm_risk?: boolean });
+  const result = await sendByEmail({
+    db: c.env.DB,
+    applicationId: id,
+    confirmRisk: body.confirm_risk,
+  });
+  return c.json({ ok: true, ...result });
+});
+
+// POST /api/manual/bulk: Bulk applied or skip for manual_pending items
+app.post('/api/manual/bulk', async (c) => {
+  const body = await c.req
+    .json<{ ids?: string[]; action?: 'applied' | 'skip'; reason?: string; note?: string }>()
+    .catch(
+      () =>
+        ({}) as {
+          ids?: string[];
+          action?: 'applied' | 'skip';
+          reason?: string;
+          note?: string;
+        },
+    );
+  if (
+    !body.ids ||
+    !Array.isArray(body.ids) ||
+    (body.action !== 'applied' && body.action !== 'skip')
+  ) {
+    return c.json(
+      { error: "Invalid bulk action: requires 'ids' array and action 'applied' or 'skip'" },
+      400,
+    );
+  }
+  const result = await bulkManualAction({
+    db: c.env.DB,
+    ids: body.ids,
+    action: body.action,
+    reason: body.reason,
+    note: body.note,
+  });
+  return c.json({ ok: true, ...result });
+});
+
+// POST /api/applications/:id/outcome: Record interview/offer/rejection/replied outcome
+app.post('/api/applications/:id/outcome', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req
+    .json<{ status?: 'replied' | 'interview' | 'rejected' | 'offer' }>()
+    .catch(() => ({}) as { status?: 'replied' | 'interview' | 'rejected' | 'offer' });
+  const allowed = ['replied', 'interview', 'rejected', 'offer'];
+  if (!body.status || !allowed.includes(body.status)) {
+    return c.json({ error: `Invalid outcome status: must be one of ${allowed.join(', ')}` }, 400);
+  }
+  const result = await recordOutcome({
+    db: c.env.DB,
+    applicationId: id,
+    status: body.status,
+  });
+  return c.json({ ok: true, ...result });
+});
+
+// GET /api/resumes/:id/download: Streams the resume PDF from R2
+app.get('/api/resumes/:id/download', async (c) => {
+  const id = c.req.param('id');
+  const resume = await c.env.DB.prepare('SELECT r2_key, label FROM resumes WHERE id = ?')
+    .bind(id)
+    .first<{ r2_key: string; label: string }>();
+
+  if (!resume) {
+    return c.json({ error: 'Resume not found' }, 404);
+  }
+
+  const object = await c.env.RESUMES.get(resume.r2_key);
+  if (!object) {
+    return c.json({ error: 'Resume file not found in storage' }, 404);
+  }
+
+  const safeFilename = `${resume.label.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+  c.header('Content-Type', 'application/pdf');
+  c.header('Content-Disposition', `inline; filename="${safeFilename}"`);
+  return c.body(object.body);
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings): Promise<void> {
@@ -367,6 +540,11 @@ export default {
     for (const source of enabledSources) {
       await env.JOBS_QUEUE.send({ source });
     }
+    // Housekeeping: expire 30-day-old manual_pending items
+    await expireStaleManualPending(env.DB);
+    // Send daily digest
+    const notifier = new EventsNotifier(env.DB);
+    await sendManualDailyDigest({ db: env.DB, notifier });
   },
   async queue(batch: MessageBatch<unknown>, env: Bindings): Promise<void> {
     for (const msg of batch.messages) {
