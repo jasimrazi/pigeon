@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
 [triggers]
-crons = ["0 */3 * * *"]
+crons = ["0 */3 * * *", "*/10 * * * *"]
 
 [vars]
 ENV = "dev"

@@ -28,6 +28,8 @@ import {
   bulkApproveApplications,
   sendApplicationEmail,
   RestGmailSender,
+  RestSheetsClient,
+  syncApplicationsToSheet,
   getValidAccessToken,
   type CloudflareAiBinding,
   type GoogleOAuthSecrets,
@@ -428,6 +430,11 @@ app.post('/api/manual/:id/applied', async (c) => {
     note: body.note,
     applied_at: body.applied_at,
   });
+  try {
+    await c.env.JOBS_QUEUE.send({ action: 'sync_sheet' });
+  } catch {
+    // Non-fatal
+  }
   return c.json({ ok: true, ...result });
 });
 
@@ -441,6 +448,11 @@ app.post('/api/manual/:id/skip', async (c) => {
     applicationId: id,
     reason,
   });
+  try {
+    await c.env.JOBS_QUEUE.send({ action: 'sync_sheet' });
+  } catch {
+    // Non-fatal
+  }
   return c.json({ ok: true, ...result });
 });
 
@@ -661,6 +673,12 @@ app.post('/api/applications/:id/approve', async (c) => {
     confirmRisk: body.confirm_risk,
   });
 
+  try {
+    await c.env.JOBS_QUEUE.send({ action: 'sync_sheet' });
+  } catch {
+    // Non-fatal
+  }
+
   return c.json({ ok: true, success: true });
 });
 
@@ -685,6 +703,12 @@ app.post('/api/applications/approve-bulk', async (c) => {
     ids: body.ids,
     profile,
   });
+
+  try {
+    await c.env.JOBS_QUEUE.send({ action: 'sync_sheet' });
+  } catch {
+    // Non-fatal
+  }
 
   return c.json({ ok: true, ...result });
 });
@@ -750,6 +774,47 @@ app.post('/api/applications/:id/send', async (c) => {
     application: appRow,
   });
 
+  // Trigger sheet sync after send attempt
+  try {
+    await c.env.JOBS_QUEUE.send({ action: 'sync_sheet' });
+  } catch {
+    // Non-fatal
+  }
+
+  return c.json({ ok: result.success, ...result });
+});
+
+// -------------------------------------------------------------
+// Google Sheets Sync Route
+// -------------------------------------------------------------
+
+app.post('/api/sync/sheet', async (c) => {
+  const env = c.get('validatedEnv');
+
+  const secrets: GoogleOAuthSecrets = {
+    clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
+    clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+    tokenEncryptionKey:
+      (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) || 'default-pigeon-token-encryption-key-32b',
+  };
+
+  const notifier = new EventsNotifier(c.env.DB);
+  const sheetsClient = new RestSheetsClient(() =>
+    getValidAccessToken({
+      config: c.env.CONFIG,
+      secrets,
+      notifier,
+    }),
+  );
+
+  const result = await syncApplicationsToSheet({
+    db: c.env.DB,
+    config: c.env.CONFIG,
+    sheetsClient,
+    spreadsheetId: env.GOOGLE_SHEET_ID,
+    notifier,
+  });
+
   return c.json({ ok: result.success, ...result });
 });
 
@@ -765,6 +830,15 @@ export default {
     // Send daily digest
     const notifier = new EventsNotifier(env.DB);
     await sendManualDailyDigest({ db: env.DB, notifier });
+
+    // Sync to Google Sheet every cron run (10 min) if OAuth configured
+    if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+      try {
+        await env.JOBS_QUEUE.send({ action: 'sync_sheet' });
+      } catch (err) {
+        console.error('Error enqueuing scheduled sheet sync:', err);
+      }
+    }
 
     // Daily Google Auth health ping if credentials configured
     if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
@@ -922,6 +996,35 @@ export default {
           }
         } catch (err) {
           console.error('Error during send_application queue task:', err);
+        }
+      } else if (body && body.action === 'sync_sheet') {
+        try {
+          const secrets: GoogleOAuthSecrets = {
+            clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
+            clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+            tokenEncryptionKey:
+              (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) ||
+              'default-pigeon-token-encryption-key-32b',
+          };
+
+          const notifier = new EventsNotifier(env.DB);
+          const sheetsClient = new RestSheetsClient(() =>
+            getValidAccessToken({
+              config: env.CONFIG,
+              secrets,
+              notifier,
+            }),
+          );
+
+          await syncApplicationsToSheet({
+            db: env.DB,
+            config: env.CONFIG,
+            sheetsClient,
+            spreadsheetId: env.GOOGLE_SHEET_ID as string | undefined,
+            notifier,
+          });
+        } catch (err) {
+          console.error('Error during sync_sheet queue task:', err);
         }
       }
       msg.ack();

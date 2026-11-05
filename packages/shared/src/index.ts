@@ -25,3 +25,4 @@ export * from './scoring/pipeline.js';
 export * from './applications/index.js';
 export * from './manual/index.js';
 export * from './google/index.js';
+export * from './sheets/index.js';

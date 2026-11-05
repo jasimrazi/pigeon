@@ -25,6 +25,7 @@ export const KV_KEYS = {
   ACCESS_TOKEN_EXPIRES_AT: 'google_access_token_expires_at',
   AUTH_HEALTH: 'auth_health',
   AUTH_INVALID_NOTIFIED: 'auth_invalid_notified',
+  SPREADSHEET_ID: 'google_spreadsheet_id',
 } as const;
 
 export class GoogleAuthError extends Error {

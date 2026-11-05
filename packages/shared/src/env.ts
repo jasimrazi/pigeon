@@ -21,6 +21,7 @@ export const WorkerEnvVarsSchema = z.object({
     .optional()
     .default(false),
   GOOGLE_REDIRECT_URI: z.string().optional(),
+  GOOGLE_SHEET_ID: z.string().optional(),
 });
 
 export const WorkerSecretsSchema = z.object({

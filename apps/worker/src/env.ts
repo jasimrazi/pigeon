@@ -22,6 +22,7 @@ export interface Bindings {
   GOOGLE_CLIENT_SECRET?: string | undefined;
   GOOGLE_TOKEN_ENCRYPTION_KEY?: string | undefined;
   GOOGLE_REDIRECT_URI?: string | undefined;
+  GOOGLE_SHEET_ID?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -40,6 +41,7 @@ export interface ValidatedEnv extends WorkerEnvVars {
   GOOGLE_CLIENT_SECRET?: string | undefined;
   GOOGLE_TOKEN_ENCRYPTION_KEY?: string | undefined;
   GOOGLE_REDIRECT_URI?: string | undefined;
+  GOOGLE_SHEET_ID?: string | undefined;
 }
 
 export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): ValidatedEnv {
