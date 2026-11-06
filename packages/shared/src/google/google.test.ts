@@ -927,7 +927,9 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
         companiesContacted: Map<string, Record<string, unknown>>;
         doNotContact: Set<string>;
         dailyCounters: Map<string, { sends: number; bounces: number }>;
-        resumesBucket: { get: (key: string) => Promise<{ arrayBuffer: () => Promise<ArrayBuffer> } | null> };
+        resumesBucket: {
+          get: (key: string) => Promise<{ arrayBuffer: () => Promise<ArrayBuffer> } | null>;
+        };
       }) => void | Promise<void>;
       expected: {
         success: boolean;
@@ -1968,7 +1970,14 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
     };
 
     it('blocks application if status is approved, needs_review, sent, or rejected', () => {
-      for (const st of ['approved', 'needs_review', 'sent', 'rejected', 'failed', 'manual_pending']) {
+      for (const st of [
+        'approved',
+        'needs_review',
+        'sent',
+        'rejected',
+        'failed',
+        'manual_pending',
+      ]) {
         const res = canBulkApprove({ ...cleanDraft, status: st }, { profile: mockProfile });
         expect(res.allowed).toBe(false);
         expect(res.reason).toBeTruthy();
@@ -2003,10 +2012,7 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
 
     it('blocks application if match score is below minimum threshold', () => {
       // mockProfile min_score is 70
-      const resBelow = canBulkApprove(
-        { ...cleanDraft, match_score: 69 },
-        { profile: mockProfile },
-      );
+      const resBelow = canBulkApprove({ ...cleanDraft, match_score: 69 }, { profile: mockProfile });
       expect(resBelow.allowed).toBe(false);
       expect(resBelow.reason).toContain('below minimum score');
 

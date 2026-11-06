@@ -9,6 +9,7 @@ This runbook covers operational troubleshooting, safety procedures, secret rotat
 When you need to stop all outgoing emails immediately:
 
 ### Option A: Via Owner Dashboard (Recommended)
+
 1. Open the Pigeon Dashboard at your Cloudflare Pages URL.
 2. Navigate to **Overview** or **Settings**.
 3. Toggle the **KILL SWITCH** to **ON**.
@@ -16,6 +17,7 @@ When you need to stop all outgoing emails immediately:
 5. Senders halt immediately; all pending and scheduled email sends are aborted.
 
 ### Option B: Via Wrangler CLI (Emergency Fallback)
+
 If the dashboard is inaccessible, use Wrangler to set the KV flag directly:
 
 ```bash
@@ -23,6 +25,7 @@ pnpm --filter @pigeon/worker exec wrangler kv:key put --binding=CONFIG kill_swit
 ```
 
 ### Verifying Kill Switch State
+
 ```bash
 pnpm --filter @pigeon/worker exec wrangler kv:key get --binding=CONFIG kill_switch --env prod
 # Output should return: "true"
@@ -33,13 +36,16 @@ pnpm --filter @pigeon/worker exec wrangler kv:key get --binding=CONFIG kill_swit
 ## 2. Reconnecting Google OAuth After `auth_invalid`
 
 ### When This Happens
+
 If a Google API call receives `invalid_grant` (e.g. user revoked permissions or Google invalidated the refresh token), Pigeon automatically:
+
 1. Marks Google Auth Health in KV as `invalid`.
 2. Emits a high-priority Telegram alert (`key=auth_invalid`).
 3. Pauses the send worker, inbox poller, and Google Sheets sync worker.
 4. Leaves the Manual Apply queue and dashboard operational.
 
 ### Reconnection Procedure
+
 1. Navigate to the Pigeon Worker authorization URL:
    `https://<your-worker-domain>/auth/google/start`
 2. Sign in with the intended Google account and click **Allow** on the consent screen.
@@ -60,6 +66,7 @@ Follow this procedure when periodically rotating credentials or when an API key 
 > Never put secrets in git or build logs. Use `wrangler secret put` exclusively.
 
 ### Routine Secret Rotation
+
 ```bash
 # 1. Update Cloudflare Access credentials if audience or certificates changed
 pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_AUD --env prod
@@ -78,6 +85,7 @@ pnpm --filter @pigeon/worker exec wrangler secret put GEMINI_API_KEY --env prod
 ```
 
 ### Rotating `GOOGLE_TOKEN_ENCRYPTION_KEY`
+
 1. Arm the Kill Switch:
    ```bash
    pnpm --filter @pigeon/worker exec wrangler kv:key put --binding=CONFIG kill_switch true --env prod
@@ -136,12 +144,15 @@ If an incorrect, unintended, or poorly phrased email is sent:
 ## 5. Handling a `parser_suspect` Alert
 
 ### Why It Triggers
+
 When an alert email parser (e.g. LinkedIn, Indeed, Naukri) records **3 consecutive email deliveries that yield 0 parsed jobs**, the portal is flagged as `parser_suspect`.
+
 - An alert is sent to Telegram.
 - All future jobs from this portal are marked `untrusted = true`.
 - The Manual Apply kit displays a warning banner instructing you to verify links and company info before applying.
 
 ### Resolution Steps
+
 1. **Download a Sample `.eml`**:
    - Check the forwarded alert email in your inbox that failed parsing.
    - Save the raw `.eml` file to `fixtures/alerts/<portal>/<test-name>.eml`.
@@ -168,13 +179,16 @@ When an alert email parser (e.g. LinkedIn, Indeed, Naukri) records **3 consecuti
 ## 6. Re-Enabling a Tripped Circuit Breaker
 
 ### Why It Trips
+
 If an external API (such as Adzuna) fails 5 consecutive times (HTTP 5xx, timeouts, or network errors), the circuit breaker opens to prevent flooding the upstream service.
 
 ### Inspection
+
 1. View the **Sources** tab in the Dashboard.
 2. The affected source will display state: `OPEN` along with the last error timestamp.
 
 ### Recovery Procedure
+
 1. Check external API status and credentials (e.g. verify Adzuna API quota).
 2. Reset the circuit breaker state:
    - The circuit breaker automatically transitions to `half_open` after its reset timeout (default: 15 minutes).

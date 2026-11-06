@@ -16,23 +16,24 @@ import {
 
 describe('State Machine - Application Transition Matrix', () => {
   // Independent literal declaration of the 27 expected transitions
-  const EXPECTED_APPLICATION_TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
-    draft: ['approved', 'needs_review', 'skipped'],
-    needs_review: ['draft', 'approved', 'manual_applied', 'manual_skipped'],
-    approved: ['sending', 'draft'],
-    sending: ['sent', 'failed', 'approved'],
-    failed: ['approved', 'skipped'],
-    sent: ['bounced', 'replied'],
-    replied: ['interview', 'rejected', 'offer'],
-    interview: ['offer', 'rejected'],
-    manual_pending: ['manual_applied', 'manual_skipped'],
-    manual_applied: ['replied', 'interview', 'rejected', 'offer'],
-    skipped: [],
-    bounced: [],
-    rejected: [],
-    offer: [],
-    manual_skipped: [],
-  };
+  const EXPECTED_APPLICATION_TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> =
+    {
+      draft: ['approved', 'needs_review', 'skipped'],
+      needs_review: ['draft', 'approved', 'manual_applied', 'manual_skipped'],
+      approved: ['sending', 'draft'],
+      sending: ['sent', 'failed', 'approved'],
+      failed: ['approved', 'skipped'],
+      sent: ['bounced', 'replied'],
+      replied: ['interview', 'rejected', 'offer'],
+      interview: ['offer', 'rejected'],
+      manual_pending: ['manual_applied', 'manual_skipped'],
+      manual_applied: ['replied', 'interview', 'rejected', 'offer'],
+      skipped: [],
+      bounced: [],
+      rejected: [],
+      offer: [],
+      manual_skipped: [],
+    };
 
   const allStatuses = APPLICATION_STATUSES;
 

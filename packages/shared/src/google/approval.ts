@@ -237,15 +237,10 @@ export function canBulkApprove(
     };
   }
   if (profile) {
-    const letterErrors = validateCoverLetter(
-      app.cover_letter || '',
-      app.subject || '',
-      profile,
-      {
-        title: app.title || '',
-        company: app.company || '',
-      },
-    );
+    const letterErrors = validateCoverLetter(app.cover_letter || '', app.subject || '', profile, {
+      title: app.title || '',
+      company: app.company || '',
+    });
     if (letterErrors.length > 0) {
       return {
         allowed: false,
@@ -287,7 +282,10 @@ export async function bulkApproveApplications(options: {
       WHERE a.id = ?
     `;
 
-    const app = await db.prepare(query).bind(id).first<RawAppRow & { red_flags?: string | null; untrusted?: number | boolean | null }>();
+    const app = await db
+      .prepare(query)
+      .bind(id)
+      .first<RawAppRow & { red_flags?: string | null; untrusted?: number | boolean | null }>();
     if (!app) {
       rejected.push({ id, reason: 'Application not found' });
       continue;

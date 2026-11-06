@@ -23,8 +23,12 @@ describe('packages/shared env validation', () => {
     expect(() => validateEnv({ DRY_RUN: 'invalid', ENV: 'dev' })).toThrowError(
       /DRY_RUN must be "true" or "false"/,
     );
-    expect(() => validateEnv({ DRY_RUN: 'yes', ENV: 'dev' })).toThrowError(/DRY_RUN must be "true" or "false"/);
-    expect(() => validateEnv({ DRY_RUN: 123, ENV: 'dev' })).toThrowError(/DRY_RUN must be "true" or "false"/);
+    expect(() => validateEnv({ DRY_RUN: 'yes', ENV: 'dev' })).toThrowError(
+      /DRY_RUN must be "true" or "false"/,
+    );
+    expect(() => validateEnv({ DRY_RUN: 123, ENV: 'dev' })).toThrowError(
+      /DRY_RUN must be "true" or "false"/,
+    );
   });
 
   it('defaults LLM_PROVIDER to "workers-ai"', () => {

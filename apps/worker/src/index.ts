@@ -1320,7 +1320,9 @@ app.get('/api/review-queue', async (c) => {
   }
 
   // Pre-fetch DNC list for bulk predicate
-  const dncRows = await c.env.DB.prepare('SELECT value FROM do_not_contact').all<{ value: string }>();
+  const dncRows = await c.env.DB.prepare('SELECT value FROM do_not_contact').all<{
+    value: string;
+  }>();
   const dncSet = new Set((dncRows.results || []).map((r) => r.value.toLowerCase().trim()));
 
   interface ReviewQueueDbRow {

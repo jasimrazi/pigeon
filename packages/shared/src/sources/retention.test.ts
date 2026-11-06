@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { D1LikeDatabase } from '../state-machine.js';
-import {
-  purgeExpiredJobDescriptions,
-  PURGED_DESCRIPTION_PLACEHOLDER,
-} from './retention.js';
+import { purgeExpiredJobDescriptions, PURGED_DESCRIPTION_PLACEHOLDER } from './retention.js';
 
 class MockD1PreparedStatement {
   private query: string;

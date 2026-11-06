@@ -3,7 +3,11 @@ import { applyD1Migrations, env } from 'cloudflare:test';
 import { app } from './index.js';
 import type { Bindings } from './env.js';
 import { server } from '../fixtures/server.js';
-import { googleHandlers, mockThreadsStore, resetMockThreadsStore } from '../fixtures/google/handlers.js';
+import {
+  googleHandlers,
+  mockThreadsStore,
+  resetMockThreadsStore,
+} from '../fixtures/google/handlers.js';
 import {
   sheetsHandlers,
   currentSheetsStore,
@@ -237,7 +241,9 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     });
 
     // Verify routed to auto_email
-    const jobRow = await workerEnv.DB.prepare('SELECT apply_route, route_reason, status FROM jobs WHERE id = ?')
+    const jobRow = await workerEnv.DB.prepare(
+      'SELECT apply_route, route_reason, status FROM jobs WHERE id = ?',
+    )
       .bind(jobId)
       .first<{ apply_route: string; route_reason: string; status: string }>();
 
@@ -308,9 +314,16 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     });
 
     // Verify application status updated to sent
-    const sentApp = await workerEnv.DB.prepare('SELECT status, sent_at, gmail_message_id, gmail_thread_id FROM applications WHERE id = ?')
+    const sentApp = await workerEnv.DB.prepare(
+      'SELECT status, sent_at, gmail_message_id, gmail_thread_id FROM applications WHERE id = ?',
+    )
       .bind(application.id)
-      .first<{ status: string; sent_at: string; gmail_message_id: string; gmail_thread_id: string }>();
+      .first<{
+        status: string;
+        sent_at: string;
+        gmail_message_id: string;
+        gmail_thread_id: string;
+      }>();
 
     expect(sentApp?.status).toBe('sent');
     expect(sentApp?.sent_at).toBeDefined();
@@ -347,7 +360,8 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
         },
         {
           id: 'msg-in-2',
-          snippet: 'Hello Alex, thanks for reaching out. We would love to chat further next Tuesday!',
+          snippet:
+            'Hello Alex, thanks for reaching out. We would love to chat further next Tuesday!',
           internalDate: String(Date.now()),
           payload: { headers: [{ name: 'From', value: 'recruiter@stripe.com' }] },
         },
@@ -418,7 +432,9 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
       scorer: mockScorer,
     });
 
-    const job = await workerEnv.DB.prepare('SELECT apply_route, route_reason FROM jobs WHERE id = ?')
+    const job = await workerEnv.DB.prepare(
+      'SELECT apply_route, route_reason FROM jobs WHERE id = ?',
+    )
       .bind(jobId)
       .first<{ apply_route: string; route_reason: string }>();
     expect(job?.apply_route).toBe('manual_portal');
@@ -436,9 +452,15 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     expect(application.channel).toBe('manual');
 
     // Fetch kit
-    const kitRes = await app.request(`/api/manual/${application.id}/kit`, { method: 'GET' }, workerEnv);
+    const kitRes = await app.request(
+      `/api/manual/${application.id}/kit`,
+      { method: 'GET' },
+      workerEnv,
+    );
     expect(kitRes.status).toBe(200);
-    const body = (await kitRes.json()) as { kit: { company: string; apply_url: string; untrusted: boolean } };
+    const body = (await kitRes.json()) as {
+      kit: { company: string; apply_url: string; untrusted: boolean };
+    };
     expect(body.kit.company).toBe('Initech Networks');
     expect(body.kit.apply_url).toContain('currentJobId=123456');
 
@@ -515,7 +537,9 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
       scorer: mockScorer,
     });
 
-    const job = await workerEnv.DB.prepare('SELECT apply_route, route_reason FROM jobs WHERE id = ?')
+    const job = await workerEnv.DB.prepare(
+      'SELECT apply_route, route_reason FROM jobs WHERE id = ?',
+    )
       .bind(jobId)
       .first<{ apply_route: string; route_reason: string }>();
     expect(job?.apply_route).toBe('manual_portal');
@@ -530,7 +554,9 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
 
     const queueRes = await app.request('/api/manual', { method: 'GET' }, workerEnv);
     expect(queueRes.status).toBe(200);
-    const queue = (await queueRes.json()) as { items: Array<{ company: string; route_reason: string }> };
+    const queue = (await queueRes.json()) as {
+      items: Array<{ company: string; route_reason: string }>;
+    };
     const item = queue.items.find((i) => i.company === 'ScaleTech');
     expect(item).toBeDefined();
     expect(item?.route_reason).toBe('NO_EMAIL_FORM');
@@ -586,7 +612,9 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
       scorer: mockScorer,
     });
 
-    const job = await workerEnv.DB.prepare('SELECT apply_route, route_reason FROM jobs WHERE id = ?')
+    const job = await workerEnv.DB.prepare(
+      'SELECT apply_route, route_reason FROM jobs WHERE id = ?',
+    )
       .bind(jobId)
       .first<{ apply_route: string; route_reason: string }>();
     expect(job?.apply_route).toBe('manual_review');
@@ -630,7 +658,20 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
       `INSERT INTO jobs (id, dedupe_key, source, source_kind, title, company, company_normalized, description, contact_email, fetched_at, status, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind('job-pipe-e', 'dedupe-pipe-e', 'api', 'api', 'Dev', 'Acme', 'acme', 'Desc', 'hire@acme.com', nowIso, 'routed', nowIso)
+      .bind(
+        'job-pipe-e',
+        'dedupe-pipe-e',
+        'api',
+        'api',
+        'Dev',
+        'Acme',
+        'acme',
+        'Desc',
+        'hire@acme.com',
+        nowIso,
+        'routed',
+        nowIso,
+      )
       .run();
 
     await workerEnv.DB.prepare(
@@ -696,7 +737,11 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     // 1. Trigger 3 consecutive empty parses for linkedin
     await handleParserHealth({ db: workerEnv.DB, portal: 'linkedin', jobsCount: 0 });
     await handleParserHealth({ db: workerEnv.DB, portal: 'linkedin', jobsCount: 0 });
-    const healthResult = await handleParserHealth({ db: workerEnv.DB, portal: 'linkedin', jobsCount: 0 });
+    const healthResult = await handleParserHealth({
+      db: workerEnv.DB,
+      portal: 'linkedin',
+      jobsCount: 0,
+    });
 
     expect(healthResult.streak).toBe(3);
     expect(healthResult.isSuspect).toBe(true);
@@ -819,7 +864,9 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     expect(job?.filter_reason).toBe('DNC');
 
     // 4. Verify no application was created and nothing can be sent
-    const apps = await workerEnv.DB.prepare('SELECT count(*) as cnt FROM applications WHERE job_id = ?')
+    const apps = await workerEnv.DB.prepare(
+      'SELECT count(*) as cnt FROM applications WHERE job_id = ?',
+    )
       .bind(jobId)
       .first<{ cnt: number }>();
     expect(apps?.cnt).toBe(0);

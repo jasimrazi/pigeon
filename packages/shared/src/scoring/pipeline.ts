@@ -115,9 +115,7 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
       stats.filtered_out++;
       await transition(db, 'job', job.id, 'filtered_out', filterRes.reason);
       await db
-        .prepare(
-          `UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`,
-        )
+        .prepare(`UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`)
         .bind(filterRes.reason ?? 'FILTERED_OUT', nowIso, job.id)
         .run();
       continue;
@@ -138,9 +136,7 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
       stats.skipped_dnc_or_recent++;
       await transition(db, 'job', job.id, 'skipped', skipRes.reason);
       await db
-        .prepare(
-          `UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`,
-        )
+        .prepare(`UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`)
         .bind(skipRes.reason ?? 'SKIPPED', nowIso, job.id)
         .run();
       continue;

@@ -16,6 +16,7 @@ This runbook outlines the exact procedure for retrieving a backup SQL dump from 
 ## 2. Listing and Downloading Backups
 
 ### Step 1: List Available Backups in R2
+
 List the available backup files to identify the desired timestamp:
 
 ```bash
@@ -23,6 +24,7 @@ npx wrangler r2 object list pigeon-resumes-prod --prefix="backups/"
 ```
 
 ### Step 2: Download the Target Backup Dump
+
 Download the chosen `.sql` dump to a secure local staging folder:
 
 ```bash
@@ -31,6 +33,7 @@ npx wrangler r2 object get "pigeon-resumes-prod/backups/pigeon-db-prod-2026-11-0
 ```
 
 ### Step 3: Validate Dump Integrity
+
 Inspect the header and content of the downloaded file:
 
 ```bash
@@ -40,6 +43,7 @@ ls -lh ./backups/restore-target.sql
 # Inspect initial schema lines
 head -n 25 ./backups/restore-target.sql
 ```
+
 Confirm the presence of standard SQLite DDL statements (`CREATE TABLE IF NOT EXISTS`, `INSERT INTO`).
 
 ---
@@ -50,17 +54,21 @@ Confirm the presence of standard SQLite DDL statements (`CREATE TABLE IF NOT EXI
 > **Always test restores in an isolated scratch database first.** Never restore directly to production without testing the dump in an ephemeral database.
 
 ### Step 1: Create a Temporary Scratch Database
+
 ```bash
 npx wrangler d1 create pigeon-db-scratch
 ```
+
 Copy the generated database ID from the command output.
 
 ### Step 2: Execute the Restore Script in Scratch
+
 ```bash
 npx wrangler d1 execute pigeon-db-scratch --remote --file="./backups/restore-target.sql"
 ```
 
 ### Step 3: Verify Integrity & Row Counts
+
 Run integrity queries against the scratch database:
 
 ```bash
@@ -72,7 +80,9 @@ npx wrangler d1 execute pigeon-db-scratch --remote --command="SELECT 'jobs', cou
 ```
 
 ### Step 4: Tear Down Scratch Database
+
 Once verification passes, delete the scratch database:
+
 ```bash
 npx wrangler d1 delete pigeon-db-scratch
 ```
@@ -84,6 +94,7 @@ npx wrangler d1 delete pigeon-db-scratch
 Follow these steps strictly during a disaster recovery or point-in-time recovery event:
 
 ### Step 1: Arm the Kill Switch (Halt All Outbound Senders)
+
 Ensure no emails or sync jobs run during the restore:
 
 ```bash
@@ -91,6 +102,7 @@ pnpm --filter @pigeon/worker exec wrangler kv:key put --binding=CONFIG kill_swit
 ```
 
 ### Step 2: Restore the SQL Dump to Production D1
+
 Apply the SQL script to the production database:
 
 ```bash
@@ -98,6 +110,7 @@ pnpm --filter @pigeon/worker exec wrangler d1 execute pigeon-db-prod --remote --
 ```
 
 ### Step 3: Run Integrity & Sanity Verification
+
 Verify table integrity and records:
 
 ```bash
@@ -109,6 +122,7 @@ pnpm --filter @pigeon/worker exec wrangler d1 execute pigeon-db-prod --remote \
 ```
 
 ### Step 4: Disarm Kill Switch
+
 After verifying that data is restored and application health is verified:
 
 ```bash

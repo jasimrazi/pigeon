@@ -16,8 +16,9 @@ export function validateSqlDump(sqlContent) {
   }
 
   const hasCreateTable = /CREATE TABLE/i.test(sqlContent);
-  const hasSqlStatements =
-    /INSERT(?:\s+OR\s+REPLACE)?\s+INTO|PRAGMA|BEGIN TRANSACTION/i.test(sqlContent);
+  const hasSqlStatements = /INSERT(?:\s+OR\s+REPLACE)?\s+INTO|PRAGMA|BEGIN TRANSACTION/i.test(
+    sqlContent,
+  );
 
   if (!hasCreateTable && !hasSqlStatements) {
     return { valid: false, reason: 'Dump file does not contain valid SQLite statements' };
@@ -82,7 +83,9 @@ export async function runD1Backup(options = {}) {
   const uploadCmd = `npx wrangler r2 object put "${bucketName}/${r2Key}" --file="${filePath}"`;
   exec(uploadCmd);
 
-  console.log(`[pigeon-backup] Backup completed successfully: ${filename} (${sqlContent.length} bytes)`);
+  console.log(
+    `[pigeon-backup] Backup completed successfully: ${filename} (${sqlContent.length} bytes)`,
+  );
 
   return {
     filename,
@@ -93,7 +96,11 @@ export async function runD1Backup(options = {}) {
 }
 
 // Allow direct script execution under Node
-if (typeof process !== 'undefined' && process.argv && import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`) {
+if (
+  typeof process !== 'undefined' &&
+  process.argv &&
+  import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`
+) {
   runD1Backup()
     .then((result) => {
       console.log(`Backup succeeded: ${result.uploadedKey}`);

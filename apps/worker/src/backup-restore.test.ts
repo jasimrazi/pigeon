@@ -29,12 +29,12 @@ describe('D1 Backup & Scratch Database Restore (Phase 11)', () => {
     expect(validateSqlDump('   ').valid).toBe(false);
     expect(validateSqlDump('Corrupt binary data or non-sql string').valid).toBe(false);
 
-    expect(
-      validateSqlDump('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY);').valid,
-    ).toBe(true);
-    expect(
-      validateSqlDump('PRAGMA foreign_keys = ON; INSERT INTO jobs VALUES ("1");').valid,
-    ).toBe(true);
+    expect(validateSqlDump('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY);').valid).toBe(
+      true,
+    );
+    expect(validateSqlDump('PRAGMA foreign_keys = ON; INSERT INTO jobs VALUES ("1");').valid).toBe(
+      true,
+    );
   });
 
   it('executes backup routine producing a validated SQL dump for upload', async () => {
@@ -113,7 +113,9 @@ describe('D1 Backup & Scratch Database Restore (Phase 11)', () => {
     }
 
     // 4. Query scratch D1 database to verify rows and tables
-    const restoredJob = await workerEnv.DB.prepare('SELECT id, title, company FROM jobs WHERE id = ?')
+    const restoredJob = await workerEnv.DB.prepare(
+      'SELECT id, title, company FROM jobs WHERE id = ?',
+    )
       .bind('job-restored-001')
       .first<{ id: string; title: string; company: string }>();
 
@@ -123,7 +125,9 @@ describe('D1 Backup & Scratch Database Restore (Phase 11)', () => {
       company: 'Restore Corp',
     });
 
-    const restoredApp = await workerEnv.DB.prepare('SELECT id, job_id, status, cover_letter FROM applications WHERE id = ?')
+    const restoredApp = await workerEnv.DB.prepare(
+      'SELECT id, job_id, status, cover_letter FROM applications WHERE id = ?',
+    )
       .bind('app-restored-001')
       .first<{ id: string; job_id: string; status: string; cover_letter: string }>();
 
@@ -134,7 +138,9 @@ describe('D1 Backup & Scratch Database Restore (Phase 11)', () => {
       cover_letter: 'Restored cover letter',
     });
 
-    const restoredEvent = await workerEnv.DB.prepare('SELECT id, type, entity_id FROM events WHERE id = ?')
+    const restoredEvent = await workerEnv.DB.prepare(
+      'SELECT id, type, entity_id FROM events WHERE id = ?',
+    )
       .bind('evt-restored-001')
       .first<{ id: string; type: string; entity_id: string }>();
 

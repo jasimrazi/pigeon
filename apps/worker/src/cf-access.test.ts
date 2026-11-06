@@ -545,7 +545,8 @@ describe('Worker Cloudflare Access & API Security Middleware', () => {
           // Delete target variable without dynamic delete
           if (varToOmit === 'CF_ACCESS_AUD') delete workerEnv.CF_ACCESS_AUD;
           else if (varToOmit === 'CF_ACCESS_TEAM_DOMAIN') delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
-          else if (varToOmit === 'CF_ACCESS_ALLOWED_EMAIL') delete workerEnv.CF_ACCESS_ALLOWED_EMAIL;
+          else if (varToOmit === 'CF_ACCESS_ALLOWED_EMAIL')
+            delete workerEnv.CF_ACCESS_ALLOWED_EMAIL;
           else if (varToOmit === 'OWNER_GMAIL') delete workerEnv.OWNER_GMAIL;
 
           const resApi = await app.fetch(

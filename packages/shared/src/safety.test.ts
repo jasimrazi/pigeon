@@ -385,7 +385,9 @@ describe('Safety Controls: DRY_RUN & Kill Switch', () => {
         ...scanDirForSecretFallbacks(sharedSrc, allowlist),
       ];
 
-      expect(violations, `Found secret fallbacks in codebase:\n${violations.join('\n')}`).toEqual([]);
+      expect(violations, `Found secret fallbacks in codebase:\n${violations.join('\n')}`).toEqual(
+        [],
+      );
     });
 
     it('verifies the fallback detector fails on the old vulnerable code patterns', () => {
