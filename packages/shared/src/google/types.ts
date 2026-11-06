@@ -20,7 +20,7 @@ export interface GoogleTokenRefreshResponse {
 }
 
 export interface AuthHealthState {
-  status: 'ok' | 'invalid';
+  status: 'ok' | 'invalid' | 'unknown';
   checked_at: string;
   reason: string | null;
 }

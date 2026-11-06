@@ -40,6 +40,21 @@ export class GoogleAuthError extends Error {
 }
 
 /**
+ * Retrieves the Google token encryption key from environment or secrets.
+ * Throws if missing or shorter than 32 characters.
+ */
+export function getTokenKey(env: {
+  GOOGLE_TOKEN_ENCRYPTION_KEY?: string | unknown;
+  [key: string]: unknown;
+}): string {
+  const key = env.GOOGLE_TOKEN_ENCRYPTION_KEY;
+  if (!key || typeof key !== 'string' || key.length < 32) {
+    throw new Error('GOOGLE_TOKEN_ENCRYPTION_KEY is missing or shorter than 32 characters');
+  }
+  return key;
+}
+
+/**
  * Builds the Google OAuth2 authorization start URL.
  */
 export function getGoogleAuthUrl(options: {
@@ -139,25 +154,50 @@ export async function refreshGoogleAccessToken(params: {
 
 /**
  * Gets the current auth health state from KV.
+ * Missing key -> status 'unknown' (blocks sending until ping or reconnect).
+ * KV error or corrupt JSON -> status 'invalid'.
  */
 export async function getGoogleAuthHealth(config: KVLike): Promise<AuthHealthState> {
-  const stored = await config.get(KV_KEYS.AUTH_HEALTH);
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as AuthHealthState;
-      if (parsed.status === 'ok' || parsed.status === 'invalid') {
-        return parsed;
-      }
-    } catch {
-      // Fallback
-    }
+  const nowIso = new Date().toISOString();
+  let stored: string | null = null;
+  try {
+    stored = await config.get(KV_KEYS.AUTH_HEALTH);
+  } catch (err) {
+    return {
+      status: 'invalid',
+      checked_at: nowIso,
+      reason: `KV error reading auth health: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
-  return {
-    status: 'ok',
-    checked_at: new Date().toISOString(),
-    reason: null,
-  };
+  if (!stored) {
+    return {
+      status: 'unknown',
+      checked_at: nowIso,
+      reason: 'No auth health record found in KV',
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as AuthHealthState;
+    if (
+      parsed &&
+      (parsed.status === 'ok' || parsed.status === 'invalid' || parsed.status === 'unknown')
+    ) {
+      return parsed;
+    }
+    return {
+      status: 'invalid',
+      checked_at: nowIso,
+      reason: 'Invalid status in stored auth health record',
+    };
+  } catch {
+    return {
+      status: 'invalid',
+      checked_at: nowIso,
+      reason: 'Corrupted auth health JSON in KV',
+    };
+  }
 }
 
 /**
@@ -209,8 +249,9 @@ export async function completeGoogleAuthCallback(options: {
   secrets: GoogleOAuthSecrets;
   redirectUri: string;
   notifier?: Notifier | undefined;
+  ownerGmail?: string | undefined;
 }): Promise<{ success: boolean; access_token: string }> {
-  const { code, config, secrets, redirectUri, notifier } = options;
+  const { code, config, secrets, redirectUri, notifier, ownerGmail } = options;
 
   const tokens = await exchangeGoogleAuthCode({
     code,
@@ -218,6 +259,29 @@ export async function completeGoogleAuthCallback(options: {
     clientSecret: secrets.clientSecret,
     redirectUri,
   });
+
+  // If ownerGmail is specified, verify users.getProfile email before saving anything
+  if (ownerGmail) {
+    const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+
+    if (!profileRes.ok) {
+      throw new GoogleAuthError(
+        'profile_fetch_failed',
+        `Failed to fetch Gmail profile: HTTP ${profileRes.status}`,
+      );
+    }
+
+    const profileData = (await profileRes.json()) as { emailAddress?: string };
+    const email = profileData.emailAddress;
+    if (!email || email.toLowerCase() !== ownerGmail.toLowerCase()) {
+      throw new GoogleAuthError(
+        'owner_mismatch',
+        `Authenticated Gmail '${email || 'unknown'}' does not match OWNER_GMAIL '${ownerGmail}'`,
+      );
+    }
+  }
 
   if (tokens.refresh_token) {
     const encrypted = await encryptRefreshToken(tokens.refresh_token, secrets.tokenEncryptionKey);

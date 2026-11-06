@@ -25,9 +25,9 @@ export async function syncApplicationsToSheet(options: SyncOptions): Promise<Syn
     notifier,
   } = options;
 
-  // 1. Auth Health Check: pause automatically while invalid
+  // 1. Auth Health Check: pause automatically while not ok
   const health = await getGoogleAuthHealth(config);
-  if (health.status === 'invalid') {
+  if (health.status !== 'ok') {
     return {
       success: false,
       paused: true,

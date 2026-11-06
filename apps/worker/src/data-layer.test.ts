@@ -553,5 +553,39 @@ describe('Pigeon Data Layer & Schema Tests', () => {
       expect(jsonStatus.events.length).toBeGreaterThan(0);
       expect(jsonStatus.events.every((e) => e.type === 'status_change')).toBe(true);
     });
+
+    it('searches events by search query parameter across entity_id, type, or payload', async () => {
+      const nowIso = new Date().toISOString();
+      const uniqueKeyword = 'audit_search_unique_xyz_123';
+      await workerEnv.DB.prepare(
+        `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+         VALUES (?, 'application', 'app-search-target-1', 'test_search_event', ?, ?)`,
+      )
+        .bind(crypto.randomUUID(), JSON.stringify({ detail: uniqueKeyword }), nowIso)
+        .run();
+
+      const resMatch = await app.request(
+        `/api/events?search=${uniqueKeyword}`,
+        { method: 'GET' },
+        workerEnv,
+      );
+      expect(resMatch.status).toBe(200);
+      const jsonMatch = await resMatch.json<{
+        ok: boolean;
+        events: Array<{ entity_id: string; type: string; payload: unknown }>;
+      }>();
+      expect(jsonMatch.events.length).toBe(1);
+      expect(jsonMatch.events[0]?.entity_id).toBe('app-search-target-1');
+
+      // Search for nonexistent term returns empty
+      const resNone = await app.request(
+        '/api/events?search=nonexistent_query_term_9999',
+        { method: 'GET' },
+        workerEnv,
+      );
+      expect(resNone.status).toBe(200);
+      const jsonNone = await resNone.json<{ ok: boolean; events: unknown[] }>();
+      expect(jsonNone.events.length).toBe(0);
+    });
   });
 });

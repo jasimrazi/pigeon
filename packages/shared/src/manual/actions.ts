@@ -304,15 +304,9 @@ export async function bulkManualAction(params: BulkManualActionParams): Promise<
  * Records outcome for a manually applied application.
  */
 export async function recordOutcome(params: OutcomeParams): Promise<{ success: boolean }> {
-  const { db, applicationId, status, nowMs } = params;
-  const nowIso = new Date(nowMs ?? Date.now()).toISOString();
+  const { db, applicationId, status } = params;
 
   await transition(db, 'application', applicationId, status, 'OUTCOME_RECORDED');
-
-  await db
-    .prepare(`UPDATE applications SET status = ?, updated_at = ? WHERE id = ?`)
-    .bind(status, nowIso, applicationId)
-    .run();
 
   return { success: true };
 }

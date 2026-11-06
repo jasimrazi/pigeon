@@ -29,6 +29,8 @@ export interface Bindings {
   DASHBOARD_ORIGIN?: string | undefined;
   TELEGRAM_BOT_TOKEN?: string | undefined;
   TELEGRAM_CHAT_ID?: string | undefined;
+  OWNER_GMAIL?: string | undefined;
+  ALLOW_INSECURE_DEV_AUTH?: string | boolean | undefined;
   [key: string]: unknown;
 }
 
@@ -48,6 +50,8 @@ export interface ValidatedEnv extends WorkerEnvVars {
   GOOGLE_TOKEN_ENCRYPTION_KEY?: string | undefined;
   GOOGLE_REDIRECT_URI?: string | undefined;
   GOOGLE_SHEET_ID?: string | undefined;
+  OWNER_GMAIL?: string | undefined;
+  ALLOW_INSECURE_DEV_AUTH: boolean;
 }
 
 export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): ValidatedEnv {
@@ -77,6 +81,7 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
     ENV: parsed.ENV,
     LLM_PROVIDER: parsed.LLM_PROVIDER,
     KILL_SWITCH: parsed.KILL_SWITCH ?? false,
+    ALLOW_INSECURE_DEV_AUTH: parsed.ALLOW_INSECURE_DEV_AUTH ?? false,
   };
 
   if (rawEnv.AI !== undefined) {
@@ -102,6 +107,12 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
   }
   if (parsed.GOOGLE_REDIRECT_URI !== undefined) {
     result.GOOGLE_REDIRECT_URI = parsed.GOOGLE_REDIRECT_URI;
+  }
+  if (parsed.OWNER_GMAIL !== undefined) {
+    result.OWNER_GMAIL = parsed.OWNER_GMAIL;
+  }
+  if (parsed.ALLOW_INSECURE_DEV_AUTH !== undefined) {
+    result.ALLOW_INSECURE_DEV_AUTH = parsed.ALLOW_INSECURE_DEV_AUTH;
   }
 
   return result;

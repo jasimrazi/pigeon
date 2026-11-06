@@ -145,12 +145,20 @@ describe('Pigeon Worker', () => {
     });
 
     it('a thrown error returns JSON 500 with no stack trace', async () => {
-      const res = await app.request('/test-error', {}, workerEnv);
-      expect(res.status).toBe(500);
-      expect(res.headers.get('content-type')).toContain('application/json');
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['error']).toBe('Simulated failure');
-      expect(body['stack']).toBeUndefined();
+      const origPrepare = workerEnv.DB.prepare;
+      workerEnv.DB.prepare = vi.fn().mockImplementation(() => {
+        throw new Error('Simulated failure');
+      });
+      try {
+        const res = await app.request('/api/overview', {}, workerEnv);
+        expect(res.status).toBe(500);
+        expect(res.headers.get('content-type')).toContain('application/json');
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body['error']).toBe('Simulated failure');
+        expect(body['stack']).toBeUndefined();
+      } finally {
+        workerEnv.DB.prepare = origPrepare;
+      }
     });
   });
 

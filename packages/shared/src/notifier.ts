@@ -1,4 +1,5 @@
 import type { D1LikeDatabase } from './state-machine.js';
+import { maskEmailsInString, maskEmailsInValue } from './safety.js';
 
 export interface NotificationPayload {
   key: string;
@@ -21,7 +22,9 @@ export class EventsNotifier implements Notifier {
     const payload: NotificationPayload =
       typeof input === 'string' ? { key: 'default', message: input } : input;
 
-    console.warn(`[Pigeon Notifier] [${payload.key}]: ${payload.message}`, payload.details ?? '');
+    const maskedMessage = maskEmailsInString(payload.message);
+    const maskedDetails = payload.details ? maskEmailsInValue(payload.details) : '';
+    console.warn(`[Pigeon Notifier] [${payload.key}]: ${maskedMessage}`, maskedDetails);
 
     if (this.db) {
       const nowIso = new Date().toISOString();

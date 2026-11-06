@@ -1,5 +1,6 @@
 import type { KVLike } from '../google/auth.js';
 import type { NotificationPayload, Notifier } from '../notifier.js';
+import { maskEmailsInString } from '../safety.js';
 
 export interface TelegramNotifierOptions {
   botToken?: string | undefined;
@@ -81,7 +82,7 @@ export class TelegramNotifier implements Notifier {
 
     // 4. Send Telegram message
     const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-    const text = `[Pigeon] ${payload.message}`;
+    const text = `[Pigeon] ${maskEmailsInString(payload.message)}`;
 
     try {
       const res = await this.fetchFn(url, {

@@ -26,7 +26,7 @@ export const APPLICATION_TRANSITIONS: Record<ApplicationStatus, readonly Applica
   draft: ['approved', 'needs_review', 'skipped'],
   needs_review: ['draft', 'approved', 'manual_applied', 'manual_skipped'],
   approved: ['sending', 'draft'],
-  sending: ['sent', 'failed'],
+  sending: ['sent', 'failed', 'approved'],
   failed: ['approved', 'skipped'],
   sent: ['bounced', 'replied'],
   replied: ['interview', 'rejected', 'offer'],
@@ -54,8 +54,9 @@ export class IllegalTransitionError extends Error {
     public readonly id: string,
     public readonly from: string,
     public readonly to: string,
+    message?: string,
   ) {
-    super(`Illegal transition for ${entity} '${id}' from '${from}' to '${to}'`);
+    super(message || `Illegal transition for ${entity} '${id}' from '${from}' to '${to}'`);
     this.name = 'IllegalTransitionError';
   }
 }
@@ -77,9 +78,22 @@ export function validateTransition(
   from: string,
   to: string,
   id = 'unspecified',
+  reason?: string | null,
 ): void {
   if (!canTransition(entity, from, to)) {
     throw new IllegalTransitionError(entity, id, from, to);
+  }
+
+  if (entity === 'application' && from === 'sending' && to === 'approved') {
+    if (reason !== 'retry' && reason !== 'auth_pause') {
+      throw new IllegalTransitionError(
+        entity,
+        id,
+        from,
+        to,
+        `Transition from sending to approved requires reason to be 'retry' or 'auth_pause' (got '${reason}')`,
+      );
+    }
   }
 }
 
@@ -181,7 +195,7 @@ export async function transition(
   }
 
   const from = row.status;
-  validateTransition(entity, from, to, id);
+  validateTransition(entity, from, to, id, reason);
 
   const now = new Date().toISOString();
   const eventId = crypto.randomUUID();

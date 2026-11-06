@@ -25,7 +25,10 @@ describe('State Machine - Application Transition Matrix', () => {
         if (isAllowed) {
           allowedCount++;
           expect(canTransition('application', from, to)).toBe(true);
-          expect(() => validateTransition('application', from, to)).not.toThrow();
+          const reason = from === 'sending' && to === 'approved' ? 'retry' : undefined;
+          expect(() =>
+            validateTransition('application', from, to, 'app_test', reason),
+          ).not.toThrow();
         } else {
           forbiddenCount++;
           expect(canTransition('application', from, to)).toBe(false);
@@ -36,10 +39,25 @@ describe('State Machine - Application Transition Matrix', () => {
       }
     }
 
-    // Check totals: 26 allowed transitions + 199 forbidden = 225 total
-    expect(allowedCount).toBe(26);
-    expect(forbiddenCount).toBe(199);
+    // Check totals: 27 allowed transitions + 198 forbidden = 225 total
+    expect(allowedCount).toBe(27);
+    expect(forbiddenCount).toBe(198);
     expect(allowedCount + forbiddenCount).toBe(225);
+  });
+
+  it('sending -> approved requires reason retry or auth_pause', () => {
+    expect(() =>
+      validateTransition('application', 'sending', 'approved', 'app_1', 'retry'),
+    ).not.toThrow();
+    expect(() =>
+      validateTransition('application', 'sending', 'approved', 'app_1', 'auth_pause'),
+    ).not.toThrow();
+    expect(() => validateTransition('application', 'sending', 'approved', 'app_1')).toThrowError(
+      IllegalTransitionError,
+    );
+    expect(() =>
+      validateTransition('application', 'sending', 'approved', 'app_1', 'invalid_reason'),
+    ).toThrowError(IllegalTransitionError);
   });
 
   it('validates allowed job transitions', () => {

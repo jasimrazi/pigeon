@@ -10,10 +10,16 @@ import {
   completeGoogleAuthCallback,
   getValidAccessToken,
   pingGoogleAuthHealth,
+  getTokenKey,
   KV_KEYS,
   type KVLike,
 } from './auth.js';
-import { approveApplication, bulkApproveApplications, checkAutoApprove } from './approval.js';
+import {
+  approveApplication,
+  bulkApproveApplications,
+  checkAutoApprove,
+  canBulkApprove,
+} from './approval.js';
 import {
   calculateEffectiveCap,
   applyBounceBrake,
@@ -85,6 +91,24 @@ I deeply admire Stripe's engineering culture and dedication to reliability and d
 Warm regards,
 Alex Mercer`;
 
+const targetApp: ApplicationToSend = {
+  id: 'app-target',
+  job_id: 'job-target',
+  channel: 'email',
+  status: 'approved',
+  cover_letter: validCoverLetter,
+  subject: 'Application for Senior Systems Engineer',
+  resume_id: 'res-valid',
+  message_id_header: null,
+  gmail_message_id: null,
+  gmail_thread_id: null,
+  retry_count: 0,
+  title: 'Senior Systems Engineer',
+  company: 'Stripe',
+  company_normalized: 'stripe',
+  contact_email: 'jobs@stripe.com',
+};
+
 function createMockKV(): KVLike & { store: Map<string, string> } {
   const store = new Map<string, string>();
   return {
@@ -118,7 +142,7 @@ function createMockDb() {
   const companiesContacted = new Map<string, Record<string, unknown>>();
   const doNotContact = new Set<string>();
   const dailyCounters = new Map<string, { sends: number; bounces: number }>();
-  const events: Array<{ type: string; payload: string }> = [];
+  const events: Array<{ entity_id: string; type: string; payload: string }> = [];
 
   const db: D1LikeDatabase = {
     prepare(query: string) {
@@ -264,8 +288,19 @@ function createMockDb() {
             return { meta: { changes: 1 }, changes: 1 };
           }
           if (query.includes('INSERT INTO events')) {
-            const payload = String(boundParams[3]);
-            events.push({ type: String(boundParams[2]), payload });
+            if (query.includes("'email_dry_run'")) {
+              events.push({
+                entity_id: String(boundParams[1]),
+                type: 'email_dry_run',
+                payload: String(boundParams[2]),
+              });
+            } else {
+              events.push({
+                entity_id: String(boundParams[2]),
+                type: String(boundParams[3]),
+                payload: String(boundParams[4]),
+              });
+            }
             return { meta: { changes: 1 }, changes: 1 };
           }
           return { meta: { changes: 1 }, changes: 1 };
@@ -885,24 +920,6 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
       },
     };
 
-    const targetApp: ApplicationToSend = {
-      id: 'app-target',
-      job_id: 'job-target',
-      channel: 'email',
-      status: 'approved',
-      cover_letter: validCoverLetter,
-      subject: 'Application for Senior Systems Engineer',
-      resume_id: 'res-valid',
-      message_id_header: null,
-      gmail_message_id: null,
-      gmail_thread_id: null,
-      retry_count: 0,
-      title: 'Senior Systems Engineer',
-      company: 'Stripe',
-      company_normalized: 'stripe',
-      contact_email: 'jobs@stripe.com',
-    };
-
     it('unapproved application is never sent; DRY_RUN=true, kill switch, and auth health invalid independently block sending', async () => {
       const { db, resumes, applications } = createMockDb();
       applications.set('app-target', { id: 'app-target', status: 'approved' });
@@ -990,6 +1007,7 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
     it('crash after Gmail call before DB write: retry finds message by Message-ID and does not resend', async () => {
       const { db, resumes, applications } = createMockDb();
       const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
       resumes.set('res-valid', {
         id: 'res-valid',
         r2_key: 'resumes/valid.pdf',
@@ -1049,6 +1067,7 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
     it('handles 429/5xx backoff and retries up to 3 times before failing; permanent 4xx fails without retry', async () => {
       const { db, resumes, applications } = createMockDb();
       const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
       resumes.set('res-valid', {
         id: 'res-valid',
         r2_key: 'resumes/valid.pdf',
@@ -1120,6 +1139,247 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
 
       expect(res4xx.success).toBe(false);
       expect(applications.get('app-perm-fail')?.['status']).toBe('failed');
+    });
+
+    it('DRY_RUN claims no cap slot, changes no status, and writes exactly one email_dry_run event row', async () => {
+      const { db, resumes, applications, events, dailyCounters } = createMockDb();
+      const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
+      resumes.set('res-valid', {
+        id: 'res-valid',
+        r2_key: 'resumes/valid.pdf',
+        label: 'Valid Resume',
+      });
+      applications.set('app-dry', { id: 'app-dry', status: 'approved' });
+
+      const sendTimeMs = new Date('2026-11-04T06:00:00Z').getTime();
+      let emailSent = false;
+      const dummySender: GmailSender = {
+        async send() {
+          emailSent = true;
+          return { gmailMessageId: 'g-msg-1', gmailThreadId: 'g-th-1' };
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      };
+
+      const res = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket: dummyR2,
+        gmailSender: dummySender,
+        profile: mockProfile,
+        dryRun: true,
+        killSwitch: false,
+        nowMs: sendTimeMs,
+        application: { ...targetApp, id: 'app-dry' },
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.dryRun).toBe(true);
+      expect(emailSent).toBe(false);
+
+      // Status remains approved (no status transition)
+      expect(applications.get('app-dry')?.['status']).toBe('approved');
+
+      // daily_counters is untouched
+      expect(dailyCounters.size).toBe(0);
+
+      // Writes exactly one email_dry_run event
+      const appEvents = events.filter((e) => e.entity_id === 'app-dry');
+      expect(appEvents.length).toBe(1);
+      expect(appEvents[0]?.type).toBe('email_dry_run');
+    });
+
+    it('retrying after 429/5xx transitions sending -> approved with reason retry and writes exactly one event row', async () => {
+      const { db, resumes, applications, events } = createMockDb();
+      const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
+      resumes.set('res-valid', {
+        id: 'res-valid',
+        r2_key: 'resumes/valid.pdf',
+        label: 'Valid Resume',
+      });
+      applications.set('app-retry', { id: 'app-retry', status: 'approved' });
+
+      const sendTimeMs = new Date('2026-11-04T06:00:00Z').getTime();
+      const rateLimitSender: GmailSender = {
+        async send() {
+          throw new GoogleRateLimitError('Rate limit hit');
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      };
+
+      const res = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket: dummyR2,
+        gmailSender: rateLimitSender,
+        profile: mockProfile,
+        dryRun: false,
+        nowMs: sendTimeMs,
+        application: { ...targetApp, id: 'app-retry', retry_count: 0 },
+      });
+
+      expect(res.success).toBe(false);
+      expect(applications.get('app-retry')?.['status']).toBe('approved');
+
+      // Transitions: approved -> sending, then sending -> approved
+      const retryEvents = events.filter(
+        (e) => e.entity_id === 'app-retry' && e.type === 'status_change',
+      );
+      expect(retryEvents.length).toBe(2);
+      const secondEvent = retryEvents[1];
+      expect(secondEvent).toBeDefined();
+      const lastEventPayload = JSON.parse(secondEvent?.payload ?? '{}');
+      expect(lastEventPayload.from).toBe('sending');
+      expect(lastEventPayload.to).toBe('approved');
+      expect(lastEventPayload.reason).toBe('retry');
+    });
+  });
+
+  describe('Security Audits: getTokenKey Helper', () => {
+    it('throws if GOOGLE_TOKEN_ENCRYPTION_KEY is missing or shorter than 32 characters', () => {
+      expect(() => getTokenKey({})).toThrow('GOOGLE_TOKEN_ENCRYPTION_KEY is missing');
+      expect(() => getTokenKey({ GOOGLE_TOKEN_ENCRYPTION_KEY: '' })).toThrow(
+        'GOOGLE_TOKEN_ENCRYPTION_KEY is missing',
+      );
+      expect(() => getTokenKey({ GOOGLE_TOKEN_ENCRYPTION_KEY: 'too-short-key' })).toThrow(
+        'shorter than 32 characters',
+      );
+      expect(
+        getTokenKey({
+          GOOGLE_TOKEN_ENCRYPTION_KEY: 'valid-encryption-key-with-32-chars-ok',
+        }),
+      ).toBe('valid-encryption-key-with-32-chars-ok');
+    });
+
+    it('with encryption key missing, getTokenKey throws and prevents storing or decrypting tokens', () => {
+      const emptyEnv = {};
+      expect(() => getTokenKey(emptyEnv)).toThrow('GOOGLE_TOKEN_ENCRYPTION_KEY is missing');
+      const shortEnv = { GOOGLE_TOKEN_ENCRYPTION_KEY: 'short' };
+      expect(() => getTokenKey(shortEnv)).toThrow('shorter than 32 characters');
+    });
+  });
+
+  describe('Security Audits: getGoogleAuthHealth KV Safety', () => {
+    it('returns unknown when KV has no record and blocks sending', async () => {
+      const config = createMockKV();
+      const health = await getGoogleAuthHealth(config);
+      expect(health.status).toBe('unknown');
+      expect(health.reason).toContain('No auth health record found');
+
+      // Sending is blocked when health is unknown
+      const { db, resumes, applications } = createMockDb();
+      resumes.set('res-valid', { id: 'res-valid', r2_key: 'r2-key', label: 'Resume' });
+      applications.set('app-block', { id: 'app-block', status: 'approved' });
+      const dummySender: GmailSender = {
+        async send() {
+          return { gmailMessageId: 'id', gmailThreadId: 'th' };
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      };
+
+      const localR2: R2LikeBucket = {
+        async get() {
+          return null;
+        },
+      };
+
+      const sendRes = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket: localR2,
+        gmailSender: dummySender,
+        profile: mockProfile,
+        dryRun: false,
+        application: { ...targetApp, id: 'app-block' },
+      });
+      expect(sendRes.success).toBe(false);
+      expect(sendRes.error).toContain('Google auth health is invalid: No auth health record found');
+      expect(applications.get('app-block')?.['status']).toBe('approved');
+    });
+
+    it('returns invalid when KV contains corrupt JSON', async () => {
+      const config = createMockKV();
+      await config.put(KV_KEYS.AUTH_HEALTH, 'not-valid-json{');
+      const health = await getGoogleAuthHealth(config);
+      expect(health.status).toBe('invalid');
+      expect(health.reason).toContain('Corrupted auth health JSON');
+    });
+
+    it('returns invalid when KV get throws an error', async () => {
+      const throwingConfig: KVLike = {
+        async get() {
+          throw new Error('KV connection timed out');
+        },
+        async put() {},
+        async delete() {},
+      };
+      const health = await getGoogleAuthHealth(throwingConfig);
+      expect(health.status).toBe('invalid');
+      expect(health.reason).toContain('KV error reading auth health');
+    });
+  });
+
+  describe('Security Audits: canBulkApprove Invariant Property Tests', () => {
+    it('property test: no application with manual route, guessed/none contact, or needs_review can be bulk-approved', () => {
+      const routes = ['auto_email', 'manual_portal', 'manual_review'];
+      const contactSources = ['posting', 'finder', 'guessed', 'none'];
+      const statuses = ['draft', 'needs_review', 'approved', 'rejected'];
+      const scores = [60, 85, 95];
+      const redFlagsOptions = [[], ['flag_1']];
+      const untrustedOptions = [false, true];
+
+      for (const apply_route of routes) {
+        for (const contact_source of contactSources) {
+          for (const status of statuses) {
+            for (const score of scores) {
+              for (const red_flags of redFlagsOptions) {
+                for (const untrusted of untrustedOptions) {
+                  const item = {
+                    id: 'app-prop-test',
+                    job_id: 'job-prop-test',
+                    status,
+                    cover_letter: 'valid letter',
+                    subject: 'subject',
+                    title: 'Title',
+                    company: 'Company',
+                    apply_route,
+                    contact_email: 'jobs@company.com',
+                    contact_source,
+                    match_score: score,
+                    red_flags,
+                    untrusted,
+                  };
+
+                  const canApprove = canBulkApprove(item);
+
+                  // Invariant: If apply_route is manual, contact_source is guessed/none,
+                  // or status is needs_review, it MUST NEVER be approved.
+                  if (
+                    apply_route === 'manual_review' ||
+                    apply_route === 'manual_portal' ||
+                    contact_source === 'guessed' ||
+                    contact_source === 'none' ||
+                    status === 'needs_review'
+                  ) {
+                    expect(
+                      canApprove.allowed,
+                      `Invariant violation: item with route=${apply_route}, contact=${contact_source}, status=${status} was allowed to bulk approve`,
+                    ).toBe(false);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     });
   });
 });

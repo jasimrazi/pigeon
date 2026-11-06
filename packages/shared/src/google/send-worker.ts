@@ -413,28 +413,6 @@ export async function sendApplicationEmail(
     return { success: false, error: validation.error };
   }
 
-  // 7. Atomic Conditional Cap Acquisition
-  const acquired = await acquireSendSlot(db, dateStr, effectiveCap);
-  if (!acquired) {
-    return {
-      success: false,
-      rescheduled: true,
-      error: `Daily send cap of ${effectiveCap} reached for ${dateStr}. Item rescheduled.`,
-    };
-  }
-
-  // 8. Generate Message-ID and transition approved -> sending BEFORE calling Gmail
-  const messageIdHeader = app.message_id_header || `<${crypto.randomUUID()}@pigeon.local>`;
-
-  if (app.status === 'approved') {
-    await transition(db, 'application', app.id, 'sending', 'SEND_INITIATED');
-  }
-
-  await db
-    .prepare(`UPDATE applications SET message_id_header = ?, updated_at = ? WHERE id = ?`)
-    .bind(messageIdHeader, nowIso, app.id)
-    .run();
-
   // Load Resume PDF bytes if present
   let resumePdfBytes: Uint8Array | undefined;
   let resumeLabel = 'Resume.pdf';
@@ -477,10 +455,11 @@ export async function sendApplicationEmail(
     }
   }
 
-  // 9. DRY RUN Check
+  const messageIdHeader = app.message_id_header || `<${crypto.randomUUID()}@pigeon.local>`;
+
+  // 7. DRY RUN Check (Claims no cap slot, changes no status, only writes email_dry_run event)
   const effectiveDryRun = await getEffectiveDryRun(dryRun, config);
   if (effectiveDryRun) {
-    // Write would-be email to events table; do NOT call Gmail; do NOT mark as sent
     const dryRunPayload = {
       headers: {
         From: profile.email,
@@ -506,14 +485,28 @@ export async function sendApplicationEmail(
       .bind(crypto.randomUUID(), app.id, JSON.stringify(dryRunPayload), nowIso)
       .run();
 
-    // Revert status from sending back to approved for future real run
-    await db
-      .prepare(`UPDATE applications SET status = 'approved', updated_at = ? WHERE id = ?`)
-      .bind(nowIso, app.id)
-      .run();
-
     return { success: true, dryRun: true };
   }
+
+  // 8. Atomic Conditional Cap Acquisition (Real send only)
+  const acquired = await acquireSendSlot(db, dateStr, effectiveCap);
+  if (!acquired) {
+    return {
+      success: false,
+      rescheduled: true,
+      error: `Daily send cap of ${effectiveCap} reached for ${dateStr}. Item rescheduled.`,
+    };
+  }
+
+  // 9. Transition approved -> sending BEFORE calling Gmail
+  if (app.status === 'approved') {
+    await transition(db, 'application', app.id, 'sending', 'SEND_INITIATED');
+  }
+
+  await db
+    .prepare(`UPDATE applications SET message_id_header = ?, updated_at = ? WHERE id = ?`)
+    .bind(messageIdHeader, nowIso, app.id)
+    .run();
 
   // 10. Real Send via Gmail
   try {
@@ -575,11 +568,10 @@ export async function sendApplicationEmail(
           .bind(err.message, newRetries, nowIso, app.id)
           .run();
       } else {
-        // Backoff: revert to approved with incremented retry_count
+        // Backoff: revert to approved with incremented retry_count via transition()
+        await transition(db, 'application', app.id, 'approved', 'retry');
         await db
-          .prepare(
-            `UPDATE applications SET status = 'approved', retry_count = ?, updated_at = ? WHERE id = ?`,
-          )
+          .prepare(`UPDATE applications SET retry_count = ?, updated_at = ? WHERE id = ?`)
           .bind(newRetries, nowIso, app.id)
           .run();
       }
@@ -607,11 +599,8 @@ export async function sendApplicationEmail(
         reason: err.message,
         notifier,
       });
-      // Revert to approved so it can send once auth is restored
-      await db
-        .prepare(`UPDATE applications SET status = 'approved', updated_at = ? WHERE id = ?`)
-        .bind(nowIso, app.id)
-        .run();
+      // Revert to approved so it can send once auth is restored via transition()
+      await transition(db, 'application', app.id, 'approved', 'auth_pause');
       return { success: false, error: err.message };
     }
 

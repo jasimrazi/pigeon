@@ -100,32 +100,107 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
     server.use(...googleHandlers);
   });
 
-  it('GET /auth/google/start redirects with 302 to Google authorization URL', async () => {
+  it('GET /auth/google/start redirects with 302 to Google authorization URL and stores state in KV', async () => {
     const res = await app.fetch(new Request('http://localhost/auth/google/start'), workerEnv);
     expect(res.status).toBe(302);
-    const location = res.headers.get('Location');
+    const location = res.headers.get('Location') || '';
     expect(location).toContain('https://accounts.google.com/o/oauth2/v2/auth?');
     expect(location).toContain('client_id=test-worker-client-id');
     expect(location).toContain('gmail.send');
     expect(location).toContain('spreadsheets');
+
+    const url = new URL(location);
+    const state = url.searchParams.get('state');
+    expect(state).toBeTruthy();
+
+    const storedInKv = await workerEnv.CONFIG.get(`oauth_state:${state}`);
+    expect(storedInKv).toBe('valid');
   });
 
-  it('GET /auth/google/callback exchanges code, encrypts refresh token, and restores health', async () => {
-    const res = await app.fetch(
+  it('GET /auth/google/callback rejects missing, wrong, reused or expired state', async () => {
+    // 1. Missing state -> 400
+    const resNoState = await app.fetch(
       new Request('http://localhost/auth/google/callback?code=mock_auth_code_123'),
       workerEnv,
     );
-    expect(res.status).toBe(200);
-    const data = (await res.json()) as { ok: boolean; message: string };
-    expect(data.ok).toBe(true);
+    expect(resNoState.status).toBe(400);
+    const bodyNoState = (await resNoState.json()) as { error: string };
+    expect(bodyNoState.error).toContain('Missing OAuth state parameter');
 
-    // Verify encrypted token in KV
-    const stored = await workerEnv.CONFIG.get('google_refresh_token_encrypted');
-    expect(stored).not.toBeNull();
+    // 2. Wrong/nonexistent state -> 400
+    const resWrongState = await app.fetch(
+      new Request(
+        'http://localhost/auth/google/callback?code=mock_auth_code_123&state=nonexistent-state',
+      ),
+      workerEnv,
+    );
+    expect(resWrongState.status).toBe(400);
+    const bodyWrong = (await resWrongState.json()) as { error: string };
+    expect(bodyWrong.error).toContain('Invalid, expired, or reused OAuth state');
+  });
 
-    // Verify health is ok
-    const healthJson = await workerEnv.CONFIG.get('auth_health');
-    expect(healthJson).toContain('"status":"ok"');
+  it('GET /auth/google/callback rejects mismatched OWNER_GMAIL (403) and stores nothing in KV', async () => {
+    // Clean any prior stored refresh token
+    await workerEnv.CONFIG.delete('google_refresh_token_encrypted');
+
+    // Start flow to get valid state
+    const startRes = await app.fetch(new Request('http://localhost/auth/google/start'), workerEnv);
+    const location = startRes.headers.get('Location') || '';
+    const state = new URL(location).searchParams.get('state') || '';
+
+    // Set mismatched OWNER_GMAIL
+    workerEnv.OWNER_GMAIL = 'different.user@example.com';
+    try {
+      const res = await app.fetch(
+        new Request(`http://localhost/auth/google/callback?code=mock_auth_code_123&state=${state}`),
+        workerEnv,
+      );
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain('does not match OWNER_GMAIL');
+
+      // Verify nothing stored in KV
+      const stored = await workerEnv.CONFIG.get('google_refresh_token_encrypted');
+      expect(stored).toBeNull();
+    } finally {
+      delete workerEnv.OWNER_GMAIL;
+    }
+  });
+
+  it('GET /auth/google/callback exchanges code, encrypts refresh token, and enforces single-use state', async () => {
+    const startRes = await app.fetch(new Request('http://localhost/auth/google/start'), workerEnv);
+    const location = startRes.headers.get('Location') || '';
+    const state = new URL(location).searchParams.get('state') || '';
+
+    workerEnv.OWNER_GMAIL = 'alex.mercer@example.com';
+    try {
+      const res = await app.fetch(
+        new Request(`http://localhost/auth/google/callback?code=mock_auth_code_123&state=${state}`),
+        workerEnv,
+      );
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { ok: boolean; message: string };
+      expect(data.ok).toBe(true);
+
+      // Verify encrypted token in KV
+      const stored = await workerEnv.CONFIG.get('google_refresh_token_encrypted');
+      expect(stored).not.toBeNull();
+
+      // Verify health is ok
+      const healthJson = await workerEnv.CONFIG.get('auth_health');
+      expect(healthJson).toContain('"status":"ok"');
+
+      // Reused state -> 400
+      const reuseRes = await app.fetch(
+        new Request(`http://localhost/auth/google/callback?code=mock_auth_code_123&state=${state}`),
+        workerEnv,
+      );
+      expect(reuseRes.status).toBe(400);
+      const reuseBody = (await reuseRes.json()) as { error: string };
+      expect(reuseBody.error).toContain('Invalid, expired, or reused OAuth state');
+    } finally {
+      delete workerEnv.OWNER_GMAIL;
+    }
   });
 
   it('GET /api/auth/google/health returns health state', async () => {
@@ -234,7 +309,7 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
       .run();
 
     const res = await app.fetch(
-      new Request('http://localhost/api/applications/approve-bulk', {
+      new Request('http://localhost/api/applications/bulk-approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ ids: ['app-bulk-good', 'app-bulk-bad'] }),

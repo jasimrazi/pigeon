@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   ProfileSchema,
   getEnabledSources,
@@ -26,6 +26,7 @@ import {
   pingGoogleAuthHealth,
   approveApplication,
   bulkApproveApplications,
+  getTokenKey,
   sendApplicationEmail,
   RestGmailSender,
   RestSheetsClient,
@@ -33,7 +34,6 @@ import {
   getValidAccessToken,
   pollInboxAndTrackOutcomes,
   verifyCfAccessJwt,
-  validateCoverLetter,
   calculateEffectiveCap,
   transition,
   TelegramNotifier,
@@ -124,14 +124,26 @@ app.use('*', async (c, next) => {
     }
   }
 
-  // Cloudflare Access JWT Assertion check for /api/*
-  if (path.startsWith('/api/')) {
-    const cfAccessAud = (c.env.CF_ACCESS_AUD as string) || undefined;
-    const cfAccessTeamDomain = (c.env.CF_ACCESS_TEAM_DOMAIN as string) || undefined;
-    const cfAccessAllowedEmail = (c.env.CF_ACCESS_ALLOWED_EMAIL as string) || undefined;
+  // Cloudflare Access JWT Assertion check for /api/* and /auth/google/*
+  if (path.startsWith('/api/') || path.startsWith('/auth/google/')) {
+    const envMode = (c.env.ENV as string) || 'dev';
+    const isDev = envMode === 'dev';
+    const allowInsecureDevAuth =
+      c.env.ALLOW_INSECURE_DEV_AUTH === true || c.env.ALLOW_INSECURE_DEV_AUTH === 'true';
 
-    // Enforce when Cloudflare Access is configured
-    if (cfAccessAud && cfAccessTeamDomain) {
+    // Cloudflare Access JWT Assertion check for /api/* and /auth/google/*
+    if (isDev && allowInsecureDevAuth) {
+      // Skip the check only when ENV=dev AND ALLOW_INSECURE_DEV_AUTH=true
+    } else {
+      const cfAccessAud = (c.env.CF_ACCESS_AUD as string) || undefined;
+      const cfAccessTeamDomain = (c.env.CF_ACCESS_TEAM_DOMAIN as string) || undefined;
+      const cfAccessAllowedEmail = (c.env.CF_ACCESS_ALLOWED_EMAIL as string) || undefined;
+
+      // If Cloudflare Access is unconfigured: fail closed (503)
+      if (!cfAccessAud || !cfAccessTeamDomain) {
+        return c.json({ error: 'Service Unavailable: Cloudflare Access not configured' }, 503);
+      }
+
       const assertion = c.req.header('cf-access-jwt-assertion');
       if (!assertion) {
         return c.json({ error: 'Unauthorized: Missing Cf-Access-Jwt-Assertion header' }, 401);
@@ -335,13 +347,14 @@ app.put('/api/profile', async (c) => {
   return c.json({ profile: result.data, updated_at: now });
 });
 
-// GET /api/events with filters
+// GET /api/events with search & filters
 app.get('/api/events', async (c) => {
-  const entity = c.req.query('entity');
-  const entityId = c.req.query('entity_id');
-  const type = c.req.query('type');
+  const entity = c.req.query('entity') || null;
+  const entityId = c.req.query('entity_id') || null;
+  const type = c.req.query('type') || null;
+  const search = c.req.query('search') || null;
   const limitParam = parseInt(c.req.query('limit') || '50', 10);
-  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 100);
+  const limit = Math.min(Math.max(1, isNaN(limitParam) ? 50 : limitParam), 200);
   const offsetParam = parseInt(c.req.query('offset') || '0', 10);
   const offset = Math.max(0, isNaN(offsetParam) ? 0 : offsetParam);
 
@@ -359,6 +372,11 @@ app.get('/api/events', async (c) => {
   if (type) {
     conditions.push('type = ?');
     params.push(type);
+  }
+  if (search) {
+    const searchPattern = `%${search.toLowerCase()}%`;
+    conditions.push('(LOWER(entity_id) LIKE ? OR LOWER(type) LIKE ? OR LOWER(payload) LIKE ?)');
+    params.push(searchPattern, searchPattern, searchPattern);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -392,12 +410,7 @@ app.get('/api/events', async (c) => {
     };
   });
 
-  return c.json({ events: formattedEvents });
-});
-
-// Test route to verify 500 handler behavior
-app.get('/test-error', () => {
-  throw new Error('Simulated failure');
+  return c.json({ ok: true, events: formattedEvents });
 });
 
 // POST /api/pipeline/run: Runs the Phase 4 scoring and routing pipeline on 'new' jobs
@@ -471,14 +484,19 @@ app.post('/api/applications/create', async (c) => {
   return c.json({ ok: true, ...result });
 });
 
-// PUT /api/applications/:id/letter: Edits an application's cover letter and re-runs validation
-app.put('/api/applications/:id/letter', async (c) => {
+// PUT & PATCH /api/applications/:id/letter: Edits an application's cover letter and re-runs validation
+const handleUpdateCoverLetter = async (
+  c: Context<{ Bindings: Bindings; Variables: Variables }>,
+) => {
   const id = c.req.param('id');
+  if (!id) {
+    return c.json({ error: 'Missing application id' }, 400);
+  }
   const body = await c.req
     .json<{ cover_letter?: string; subject?: string }>()
     .catch(() => ({}) as { cover_letter?: string; subject?: string });
 
-  if (!body.cover_letter) {
+  if (!body.cover_letter || typeof body.cover_letter !== 'string') {
     return c.json({ error: 'Missing required field: cover_letter' }, 400);
   }
 
@@ -492,16 +510,45 @@ app.put('/api/applications/:id/letter', async (c) => {
 
   const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
 
-  const result = await ApplicationFactory.updateCoverLetter({
-    db: c.env.DB,
-    applicationId: id,
-    coverLetter: body.cover_letter,
-    subject: body.subject,
-    profile,
-  });
+  let result;
+  try {
+    result = await ApplicationFactory.updateCoverLetter({
+      db: c.env.DB,
+      applicationId: id,
+      coverLetter: body.cover_letter,
+      subject: body.subject,
+      profile,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('not found')) {
+      return c.json({ error: msg }, 404);
+    }
+    return c.json({ error: msg }, 500);
+  }
 
-  return c.json({ ok: true, ...result });
-});
+  const nowIso = new Date().toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'application', ?, 'cover_letter_edited', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      id,
+      JSON.stringify({ error_count: result.errors.length, errors: result.errors }),
+      nowIso,
+    )
+    .run();
+
+  return c.json({
+    ok: true,
+    ...result,
+    validator_errors: result.errors,
+  });
+};
+
+app.put('/api/applications/:id/letter', handleUpdateCoverLetter);
+app.patch('/api/applications/:id/letter', handleUpdateCoverLetter);
 
 // GET /api/manual: Lists manual queue applications
 app.get('/api/manual', async (c) => {
@@ -680,7 +727,7 @@ app.get('/api/resumes/:id/download', async (c) => {
 // Google OAuth & Auth Health Routes
 // -------------------------------------------------------------
 
-app.get('/auth/google/start', (c) => {
+app.get('/auth/google/start', async (c) => {
   const env = c.get('validatedEnv');
   if (!env.GOOGLE_CLIENT_ID) {
     return c.json({ error: 'GOOGLE_CLIENT_ID is not configured' }, 400);
@@ -689,6 +736,10 @@ app.get('/auth/google/start', (c) => {
   const redirectUri =
     env.GOOGLE_REDIRECT_URI || new URL('/auth/google/callback', c.req.url).toString();
   const state = crypto.randomUUID();
+
+  // Store state in KV for 10 minutes (600s), single use
+  await c.env.CONFIG.put(`oauth_state:${state}`, 'valid', { expirationTtl: 600 });
+
   const authUrl = getGoogleAuthUrl({
     clientId: env.GOOGLE_CLIENT_ID,
     redirectUri,
@@ -701,17 +752,37 @@ app.get('/auth/google/start', (c) => {
 app.get('/auth/google/callback', async (c) => {
   const env = c.get('validatedEnv');
   const code = c.req.query('code');
+  const state = c.req.query('state');
   const error = c.req.query('error');
 
   if (error) {
     return c.json({ error: `Google OAuth error: ${error}` }, 400);
   }
+  if (!state) {
+    return c.json({ error: 'Missing OAuth state parameter' }, 400);
+  }
   if (!code) {
     return c.json({ error: 'Missing authorization code' }, 400);
   }
 
+  // Reject missing, wrong, reused or expired state
+  const storedState = await c.env.CONFIG.get(`oauth_state:${state}`);
+  if (!storedState) {
+    return c.json({ error: 'Invalid, expired, or reused OAuth state' }, 400);
+  }
+
+  // Single-use: delete state immediately
+  await c.env.CONFIG.delete(`oauth_state:${state}`);
+
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
     return c.json({ error: 'Google client credentials not configured' }, 400);
+  }
+
+  let tokenEncryptionKey: string;
+  try {
+    tokenEncryptionKey = getTokenKey(c.env);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
   }
 
   const redirectUri =
@@ -719,19 +790,29 @@ app.get('/auth/google/callback', async (c) => {
   const secrets: GoogleOAuthSecrets = {
     clientId: env.GOOGLE_CLIENT_ID,
     clientSecret: env.GOOGLE_CLIENT_SECRET,
-    tokenEncryptionKey:
-      env.GOOGLE_TOKEN_ENCRYPTION_KEY || 'default-pigeon-token-encryption-key-32b',
+    tokenEncryptionKey,
     redirectUri,
   };
 
   const notifier = createWorkerNotifier(c.env);
-  await completeGoogleAuthCallback({
-    code,
-    config: c.env.CONFIG,
-    secrets,
-    redirectUri,
-    notifier,
-  });
+  const ownerGmail = (c.env.OWNER_GMAIL as string) || env.OWNER_GMAIL || undefined;
+
+  try {
+    await completeGoogleAuthCallback({
+      code,
+      config: c.env.CONFIG,
+      secrets,
+      redirectUri,
+      notifier,
+      ownerGmail,
+    });
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.includes('does not match OWNER_GMAIL')) {
+      return c.json({ error: `OAuth account email mismatch: ${errMsg}` }, 403);
+    }
+    return c.json({ error: `OAuth callback failed: ${errMsg}` }, 400);
+  }
 
   return c.json({
     ok: true,
@@ -750,11 +831,17 @@ app.post('/api/auth/google/ping', async (c) => {
     return c.json({ error: 'Google client credentials not configured' }, 400);
   }
 
+  let tokenEncryptionKey: string;
+  try {
+    tokenEncryptionKey = getTokenKey(c.env);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
+  }
+
   const secrets: GoogleOAuthSecrets = {
     clientId: env.GOOGLE_CLIENT_ID,
     clientSecret: env.GOOGLE_CLIENT_SECRET,
-    tokenEncryptionKey:
-      env.GOOGLE_TOKEN_ENCRYPTION_KEY || 'default-pigeon-token-encryption-key-32b',
+    tokenEncryptionKey,
   };
 
   const notifier = createWorkerNotifier(c.env);
@@ -800,40 +887,6 @@ app.post('/api/applications/:id/approve', async (c) => {
   }
 
   return c.json({ ok: true, success: true });
-});
-
-app.post('/api/applications/approve-bulk', async (c) => {
-  const body = await c.req
-    .json<{ ids?: string[]; application_ids?: string[] }>()
-    .catch(() => ({}) as { ids?: string[]; application_ids?: string[] });
-  const ids = body.ids || body.application_ids;
-
-  if (!ids || !Array.isArray(ids)) {
-    return c.json({ error: "Missing required 'ids' or 'application_ids' array in body" }, 400);
-  }
-
-  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
-    .bind('default')
-    .first<{ data: string }>();
-
-  if (!profileRow?.data) {
-    return c.json({ error: 'Profile not configured' }, 400);
-  }
-  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
-
-  const result = await bulkApproveApplications({
-    db: c.env.DB,
-    ids,
-    profile,
-  });
-
-  try {
-    await c.env.JOBS_QUEUE.send({ action: 'sync_sheet' });
-  } catch {
-    // Non-fatal
-  }
-
-  return c.json({ ok: true, ...result });
 });
 
 app.post('/api/applications/bulk-approve', async (c) => {
@@ -903,11 +956,17 @@ app.post('/api/applications/:id/send', async (c) => {
     return c.json({ error: `Application '${id}' not found` }, 404);
   }
 
+  let tokenEncryptionKey: string;
+  try {
+    tokenEncryptionKey = getTokenKey(c.env);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
+  }
+
   const secrets: GoogleOAuthSecrets = {
     clientId: env.GOOGLE_CLIENT_ID || 'client-id',
     clientSecret: env.GOOGLE_CLIENT_SECRET || 'client-secret',
-    tokenEncryptionKey:
-      env.GOOGLE_TOKEN_ENCRYPTION_KEY || 'default-pigeon-token-encryption-key-32b',
+    tokenEncryptionKey,
   };
 
   const notifier = createWorkerNotifier(c.env);
@@ -948,11 +1007,17 @@ app.post('/api/applications/:id/send', async (c) => {
 app.post('/api/sync/sheet', async (c) => {
   const env = c.get('validatedEnv');
 
+  let tokenEncryptionKey: string;
+  try {
+    tokenEncryptionKey = getTokenKey(c.env);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
+  }
+
   const secrets: GoogleOAuthSecrets = {
     clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
     clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
-    tokenEncryptionKey:
-      (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) || 'default-pigeon-token-encryption-key-32b',
+    tokenEncryptionKey,
   };
 
   const notifier = createWorkerNotifier(c.env);
@@ -991,11 +1056,17 @@ app.post('/api/inbox/poll', async (c) => {
   }
   const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
 
+  let tokenEncryptionKey: string;
+  try {
+    tokenEncryptionKey = getTokenKey(c.env);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
+  }
+
   const secrets: GoogleOAuthSecrets = {
     clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
     clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
-    tokenEncryptionKey:
-      (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) || 'default-pigeon-token-encryption-key-32b',
+    tokenEncryptionKey,
   };
 
   const notifier = new EventsNotifier(c.env.DB);
@@ -1228,65 +1299,6 @@ app.get('/api/review-queue', async (c) => {
   return c.json({ items });
 });
 
-// 3. PATCH /api/applications/:id/letter: Edits cover letter & re-runs guardrail validator
-app.patch('/api/applications/:id/letter', async (c) => {
-  const id = c.req.param('id');
-  const body = await c.req
-    .json<{ cover_letter?: string }>()
-    .catch(() => ({}) as { cover_letter?: string });
-
-  if (!body.cover_letter || typeof body.cover_letter !== 'string') {
-    return c.json({ error: 'Missing cover_letter in request body' }, 400);
-  }
-
-  const appRow = await c.env.DB.prepare(
-    `SELECT a.id, a.subject, j.title, j.company
-     FROM applications a
-     JOIN jobs j ON a.job_id = j.id
-     WHERE a.id = ?`,
-  )
-    .bind(id)
-    .first<{ id: string; subject: string; title: string; company: string }>();
-
-  if (!appRow) {
-    return c.json({ error: `Application '${id}' not found` }, 404);
-  }
-
-  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
-    .bind('default')
-    .first<{ data: string }>();
-
-  if (!profileRow?.data) {
-    return c.json({ error: 'Profile not configured' }, 400);
-  }
-  const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
-
-  // Run pure guardrail validator
-  const errors = validateCoverLetter(body.cover_letter, appRow.subject || '', profile, {
-    title: appRow.title,
-    company: appRow.company,
-  });
-
-  const nowIso = new Date().toISOString();
-  await c.env.DB.prepare(
-    `UPDATE applications
-     SET cover_letter = ?, validator_errors = ?, updated_at = ?
-     WHERE id = ?`,
-  )
-    .bind(body.cover_letter, errors.length > 0 ? JSON.stringify(errors) : null, nowIso, id)
-    .run();
-
-  // Audit event
-  await c.env.DB.prepare(
-    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
-     VALUES (?, 'application', ?, 'cover_letter_edited', ?, ?)`,
-  )
-    .bind(crypto.randomUUID(), id, JSON.stringify({ error_count: errors.length, errors }), nowIso)
-    .run();
-
-  return c.json({ ok: true, validator_errors: errors });
-});
-
 // 4. PATCH /api/applications/:id/resume: Updates resume assignment
 app.patch('/api/applications/:id/resume', async (c) => {
   const id = c.req.param('id');
@@ -1515,42 +1527,6 @@ app.post('/api/settings/kill-switch', async (c) => {
   return c.json({ ok: true, killSwitch: body.kill_switch });
 });
 
-// 12. GET /api/events: Searchable audit log
-app.get('/api/events', async (c) => {
-  const search = c.req.query('search') || null;
-  const entity = c.req.query('entity') || null;
-  const type = c.req.query('type') || null;
-  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 200);
-  const offset = Math.max(Number.parseInt(c.req.query('offset') || '0', 10), 0);
-
-  const searchPattern = search ? `%${search.toLowerCase()}%` : null;
-
-  const { results: rawEvents } = await c.env.DB.prepare(
-    `SELECT id, entity, entity_id, type, payload, created_at
-     FROM events
-     WHERE (? IS NULL OR entity = ?)
-       AND (? IS NULL OR type = ?)
-       AND (? IS NULL OR (LOWER(entity_id) LIKE ? OR LOWER(type) LIKE ? OR LOWER(payload) LIKE ?))
-     ORDER BY created_at DESC
-     LIMIT ? OFFSET ?`,
-  )
-    .bind(
-      entity,
-      entity,
-      type,
-      type,
-      searchPattern,
-      searchPattern,
-      searchPattern,
-      searchPattern,
-      limit,
-      offset,
-    )
-    .all();
-
-  return c.json({ events: rawEvents || [] });
-});
-
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings): Promise<void> {
@@ -1585,12 +1561,11 @@ export default {
     // Daily Google Auth health ping if credentials configured
     if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
       try {
+        const tokenEncryptionKey = getTokenKey(env);
         const secrets: GoogleOAuthSecrets = {
           clientId: env.GOOGLE_CLIENT_ID as string,
           clientSecret: env.GOOGLE_CLIENT_SECRET as string,
-          tokenEncryptionKey:
-            (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) ||
-            'default-pigeon-token-encryption-key-32b',
+          tokenEncryptionKey,
         };
         await pingGoogleAuthHealth({
           config: env.CONFIG,
@@ -1701,12 +1676,11 @@ export default {
               .first<ApplicationToSend>();
 
             if (appRow) {
+              const tokenEncryptionKey = getTokenKey(env);
               const secrets: GoogleOAuthSecrets = {
                 clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
                 clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
-                tokenEncryptionKey:
-                  (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) ||
-                  'default-pigeon-token-encryption-key-32b',
+                tokenEncryptionKey,
               };
 
               const notifier = createWorkerNotifier(env);
@@ -1741,12 +1715,11 @@ export default {
         }
       } else if (body && body.action === 'sync_sheet') {
         try {
+          const tokenEncryptionKey = getTokenKey(env);
           const secrets: GoogleOAuthSecrets = {
             clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
             clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
-            tokenEncryptionKey:
-              (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) ||
-              'default-pigeon-token-encryption-key-32b',
+            tokenEncryptionKey,
           };
 
           const notifier = createWorkerNotifier(env);
@@ -1776,12 +1749,11 @@ export default {
 
           if (profileRow?.data) {
             const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+            const tokenEncryptionKey = getTokenKey(env);
             const secrets: GoogleOAuthSecrets = {
               clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
               clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
-              tokenEncryptionKey:
-                (env.GOOGLE_TOKEN_ENCRYPTION_KEY as string) ||
-                'default-pigeon-token-encryption-key-32b',
+              tokenEncryptionKey,
             };
 
             const notifier = createWorkerNotifier(env);

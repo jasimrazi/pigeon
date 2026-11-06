@@ -14,6 +14,7 @@ export default defineConfig(async () => {
         miniflare: {
           bindings: {
             IS_TEST: true,
+            ALLOW_INSECURE_DEV_AUTH: true,
             TEST_MIGRATIONS: migrations,
           },
         },

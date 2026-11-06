@@ -1,4 +1,5 @@
 import type { LLMClient } from '../types.js';
+import { wrapUntrusted } from '../safety.js';
 
 export interface SelectableResume {
   id: string;
@@ -90,6 +91,26 @@ function scoreResume(
   return { score, matchedTags };
 }
 
+export function buildResumeSelectionPrompt(
+  job: JobForResumeSelection,
+  topScored: { resume: SelectableResume; score?: number }[],
+): string {
+  const postingSnippet = `Job Title: ${job.title}\nJob Description: ${job.description.slice(0, 1000)}`;
+  return `You are selecting the best resume for a job application.
+
+${wrapUntrusted(postingSnippet, 'job_posting')}
+
+Candidate Resume Options:
+${topScored
+  .map(
+    (t, i) =>
+      `${i + 1}. ID: ${t.resume.id}, Label: ${t.resume.label}, Tags: ${JSON.stringify(t.resume.tags)}`,
+  )
+  .join('\n')}
+
+Output JSON ONLY: {"selected_resume_id": "<id>", "reason": "<short explanation>"}`;
+}
+
 export async function selectResume(
   resumes: SelectableResume[],
   job: JobForResumeSelection,
@@ -146,19 +167,7 @@ export async function selectResume(
   // Optional LLM tiebreak (off by default)
   if (options?.use_llm_tiebreak && options.llmClient) {
     try {
-      const prompt = `You are selecting the best resume for a job application.
-Job Title: ${job.title}
-Job Description: ${job.description.slice(0, 1000)}
-
-Candidate Resume Options:
-${topScored
-  .map(
-    (t, i) =>
-      `${i + 1}. ID: ${t.resume.id}, Label: ${t.resume.label}, Tags: ${JSON.stringify(t.resume.tags)}`,
-  )
-  .join('\n')}
-
-Output JSON ONLY: {"selected_resume_id": "<id>", "reason": "<short explanation>"}`;
+      const prompt = buildResumeSelectionPrompt(job, topScored);
 
       const rawResp = await options.llmClient.generateText(prompt);
       const match = rawResp.match(/\{[\s\S]*\}/);

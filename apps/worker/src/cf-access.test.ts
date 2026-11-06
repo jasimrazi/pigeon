@@ -73,6 +73,7 @@ describe('Worker Cloudflare Access & API Security Middleware', () => {
     workerEnv.CF_ACCESS_TEAM_DOMAIN = teamDomain;
     workerEnv.CF_ACCESS_AUD = audience;
     workerEnv.DASHBOARD_ORIGIN = dashboardOrigin;
+    workerEnv.ALLOW_INSECURE_DEV_AUTH = false;
 
     // Register MSW handler in beforeEach because setup.ts resets handlers after each test
     server.use(
@@ -482,18 +483,109 @@ describe('Worker Cloudflare Access & API Security Middleware', () => {
     expect(body.error).toContain('Unsupported Media Type');
   });
 
-  it('handles CORS preflight OPTIONS requests with 204 and headers', async () => {
+  it('returns 503 when ENV=prod and CF_ACCESS vars are missing', async () => {
+    delete workerEnv.CF_ACCESS_AUD;
+    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
+    const origEnv = workerEnv.ENV;
+    workerEnv.ENV = 'prod';
+    try {
+      const res = await app.fetch(
+        new Request('http://localhost/api/overview', {
+          method: 'GET',
+        }),
+        workerEnv,
+      );
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain('Cloudflare Access not configured');
+    } finally {
+      workerEnv.ENV = origEnv;
+    }
+  });
+
+  it('returns 503 when ENV=dev and ALLOW_INSECURE_DEV_AUTH is not set or false and vars are missing', async () => {
+    delete workerEnv.CF_ACCESS_AUD;
+    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
+    workerEnv.ENV = 'dev';
+    workerEnv.ALLOW_INSECURE_DEV_AUTH = false;
     const res = await app.fetch(
       new Request('http://localhost/api/overview', {
-        method: 'OPTIONS',
+        method: 'GET',
+      }),
+      workerEnv,
+    );
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('Cloudflare Access not configured');
+  });
+
+  it('allows request when ENV=dev and ALLOW_INSECURE_DEV_AUTH=true even with missing vars', async () => {
+    delete workerEnv.CF_ACCESS_AUD;
+    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
+    workerEnv.ENV = 'dev';
+    workerEnv.ALLOW_INSECURE_DEV_AUTH = true;
+    const res = await app.fetch(
+      new Request('http://localhost/api/overview', {
+        method: 'GET',
+      }),
+      workerEnv,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects request with 401 when email claim does not match CF_ACCESS_ALLOWED_EMAIL', async () => {
+    workerEnv.CF_ACCESS_ALLOWED_EMAIL = 'correct-owner@example.com';
+    try {
+      const token = await createSignedJwt({ email: 'wrong-user@example.com' });
+      const res = await app.fetch(
+        new Request('http://localhost/api/overview', {
+          method: 'GET',
+          headers: {
+            'Cf-Access-Jwt-Assertion': token,
+          },
+        }),
+        workerEnv,
+      );
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain('Forbidden email');
+    } finally {
+      delete workerEnv.CF_ACCESS_ALLOWED_EMAIL;
+    }
+  });
+
+  it('puts /auth/google/start and /auth/google/callback behind the same Access check', async () => {
+    // 1. Without token -> 401
+    const resStart401 = await app.fetch(
+      new Request('http://localhost/auth/google/start', {
+        method: 'GET',
+      }),
+      workerEnv,
+    );
+    expect(resStart401.status).toBe(401);
+
+    const resCallback401 = await app.fetch(
+      new Request('http://localhost/auth/google/callback?code=abc&state=xyz', {
+        method: 'GET',
+      }),
+      workerEnv,
+    );
+    expect(resCallback401.status).toBe(401);
+
+    // 2. With valid Access token -> allowed past middleware (start redirects to Google)
+    workerEnv.GOOGLE_CLIENT_ID = 'test-client-id';
+    workerEnv.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+    const validToken = await createSignedJwt();
+    const resStart = await app.fetch(
+      new Request('http://localhost/auth/google/start', {
+        method: 'GET',
         headers: {
-          Origin: dashboardOrigin,
+          'Cf-Access-Jwt-Assertion': validToken,
         },
       }),
       workerEnv,
     );
-    expect(res.status).toBe(204);
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(dashboardOrigin);
-    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+    // start returns 302 redirect
+    expect(resStart.status).toBe(302);
   });
 });

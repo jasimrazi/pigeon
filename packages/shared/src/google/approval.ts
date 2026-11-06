@@ -81,6 +81,59 @@ export async function approveApplication(options: {
   return { success: true };
 }
 
+export interface CanBulkApproveCandidate {
+  status?: string | null | undefined;
+  apply_route?: string | null | undefined;
+  contact_source?: string | null | undefined;
+  route_reason?: string | null | undefined;
+  contact_email?: string | null | undefined;
+  company?: string | null | undefined;
+}
+
+/**
+ * Predicate determining whether an application is eligible for bulk approval.
+ * Rejects:
+ * - status needs_review
+ * - route not auto_email (e.g. manual_review, manual_portal)
+ * - contact_source guessed or none or missing
+ * - route_reason GUESSED_EMAIL
+ * - freemail contacts
+ */
+export function canBulkApprove(app: CanBulkApproveCandidate): {
+  allowed: boolean;
+  reason?: string;
+} {
+  if (app.status === 'needs_review') {
+    return { allowed: false, reason: 'needs_review items cannot be bulk-approved' };
+  }
+
+  if (app.apply_route !== 'auto_email') {
+    return {
+      allowed: false,
+      reason: `Route ${app.apply_route || 'unknown'} cannot be bulk-approved`,
+    };
+  }
+
+  if (app.contact_source === 'guessed' || app.route_reason === 'GUESSED_EMAIL') {
+    return { allowed: false, reason: 'Guessed email contacts cannot be bulk-approved' };
+  }
+  if (app.contact_source !== 'posting' && app.contact_source !== 'finder') {
+    return {
+      allowed: false,
+      reason: `Contact source ${app.contact_source || 'none'} cannot be bulk-approved`,
+    };
+  }
+
+  if (
+    app.route_reason === 'FREEMAIL_CONTACT' ||
+    (app.contact_email && isFreemailContact(app.contact_email, app.company || ''))
+  ) {
+    return { allowed: false, reason: 'Freemail contacts cannot be bulk-approved' };
+  }
+
+  return { allowed: true };
+}
+
 /**
  * Bulk approves multiple applications with strict constraints:
  * - Only route=auto_email and contact_source in (posting, finder)
@@ -116,44 +169,14 @@ export async function bulkApproveApplications(options: {
       continue;
     }
 
-    // Constraint 1: needs_review items cannot be bulk approved
-    if (app.status === 'needs_review') {
-      rejected.push({ id, reason: 'needs_review items cannot be bulk-approved' });
+    // Check bulk approval predicate
+    const bulkCheck = canBulkApprove(app);
+    if (!bulkCheck.allowed) {
+      rejected.push({ id, reason: bulkCheck.reason ?? 'Not eligible for bulk approval' });
       continue;
     }
 
-    // Constraint 2: Only route auto_email
-    if (app.apply_route !== 'auto_email') {
-      rejected.push({
-        id,
-        reason: `Route ${app.apply_route || 'unknown'} cannot be bulk-approved`,
-      });
-      continue;
-    }
-
-    // Constraint 3: contact_source must be posting or finder (not guessed or none)
-    if (app.contact_source === 'guessed' || app.route_reason === 'GUESSED_EMAIL') {
-      rejected.push({ id, reason: 'Guessed email contacts cannot be bulk-approved' });
-      continue;
-    }
-    if (app.contact_source !== 'posting' && app.contact_source !== 'finder') {
-      rejected.push({
-        id,
-        reason: `Contact source ${app.contact_source || 'none'} cannot be bulk-approved`,
-      });
-      continue;
-    }
-
-    // Constraint 4: Freemail contacts cannot be bulk-approved
-    if (
-      app.route_reason === 'FREEMAIL_CONTACT' ||
-      isFreemailContact(app.contact_email, app.company)
-    ) {
-      rejected.push({ id, reason: 'Freemail contacts cannot be bulk-approved' });
-      continue;
-    }
-
-    // Constraint 5: Guardrail validation must pass
+    // Constraint: Guardrail validation must pass
     const validationErrors = validateCoverLetter(
       app.cover_letter || '',
       app.subject || '',

@@ -23,6 +23,11 @@ export const WorkerEnvVarsSchema = z.object({
   GOOGLE_REDIRECT_URI: z.string().optional(),
   GOOGLE_SHEET_ID: z.string().optional(),
   CF_ACCESS_ALLOWED_EMAIL: z.string().email().optional(),
+  OWNER_GMAIL: z.string().email().optional(),
+  ALLOW_INSECURE_DEV_AUTH: z
+    .union([z.enum(['true', 'false']).transform((v) => v === 'true'), z.boolean()])
+    .optional()
+    .default(false),
 });
 
 export const WorkerSecretsSchema = z.object({
@@ -53,8 +58,19 @@ export function isTestEnvironment(env?: Record<string, unknown>): boolean {
   return false;
 }
 
-export function createEnvSchema(_isTest = false) {
-  return WorkerEnvVarsSchema.merge(WorkerSecretsSchema);
+export function createEnvSchema(isTest = false) {
+  return WorkerEnvVarsSchema.merge(WorkerSecretsSchema).superRefine((data, ctx) => {
+    if (!isTest && (data.ENV === 'staging' || data.ENV === 'prod')) {
+      if (!data.GOOGLE_TOKEN_ENCRYPTION_KEY || data.GOOGLE_TOKEN_ENCRYPTION_KEY.length < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['GOOGLE_TOKEN_ENCRYPTION_KEY'],
+          message:
+            'GOOGLE_TOKEN_ENCRYPTION_KEY is required and must be at least 32 characters in staging and prod',
+        });
+      }
+    }
+  });
 }
 
 export function validateEnv(rawEnv: Record<string, unknown>, isTest?: boolean) {

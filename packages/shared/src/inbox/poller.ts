@@ -28,9 +28,9 @@ export async function pollInboxAndTrackOutcomes(options: PollerOptions): Promise
   const gmailClient = options.gmailClient ?? options.gmailSender;
   const classifier = options.classifier ?? new DefaultInboxClassifier(options.llmClient);
 
-  // 1. Auth Health Guard: Skip entirely if health is invalid
+  // 1. Auth Health Guard: Skip entirely if health is not ok
   const health = await getGoogleAuthHealth(config);
-  if (health.status === 'invalid') {
+  if (health.status !== 'ok') {
     return {
       success: false,
       paused: true,
