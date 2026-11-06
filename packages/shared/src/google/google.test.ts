@@ -156,8 +156,11 @@ function createMockDb() {
           if (query.includes('FROM do_not_contact')) {
             const val1 = String(boundParams[0]).toLowerCase();
             const val2 = String(boundParams[1]).toLowerCase();
-            if (doNotContact.has(val1) || doNotContact.has(val2)) {
+            if (doNotContact.has(val1)) {
               return { value: val1 } as unknown as T;
+            }
+            if (doNotContact.has(val2)) {
+              return { value: val2 } as unknown as T;
             }
             return null;
           }
@@ -894,6 +897,518 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
       const workingHourMs = new Date('2026-11-04T06:00:00Z').getTime();
       const okCheck = isInsideSendWindow({ profile: mockProfile, nowMs: workingHourMs });
       expect(okCheck.inside).toBe(true);
+    });
+  });
+
+  describe('Table-driven sendApplicationEmail gate verification (11 Gates)', () => {
+    interface GateTestCase {
+      name: string;
+      setup: (ctx: {
+        app: ApplicationToSend;
+        options: {
+          dryRun: boolean;
+          killSwitch: boolean;
+          nowMs: number;
+        };
+        db: D1LikeDatabase;
+        config: KVLike;
+        applications: Map<string, Record<string, unknown>>;
+        resumes: Map<string, Record<string, unknown>>;
+        companiesContacted: Map<string, Record<string, unknown>>;
+        doNotContact: Set<string>;
+        dailyCounters: Map<string, { sends: number; bounces: number }>;
+        resumesBucket: { get: (key: string) => Promise<{ arrayBuffer: () => Promise<ArrayBuffer> } | null> };
+      }) => void | Promise<void>;
+      expected: {
+        success: boolean;
+        rescheduled?: boolean;
+        dryRun?: boolean;
+        errorContains?: string;
+        finalStatus: 'approved' | 'failed' | 'draft';
+        expectedTransitions?: Array<{ from: string; to: string; reasonMatch?: RegExp | string }>;
+      };
+      extraAssertions?: (ctx: {
+        events: Array<{ entity_id: string; type: string; payload: string }>;
+        dailyCounters: Map<string, { sends: number; bounces: number }>;
+      }) => void;
+    }
+
+    const gateCases: GateTestCase[] = [
+      {
+        name: 'Gate 1: status not approved (draft) -> rejected, no transition, remains draft',
+        setup: ({ app, applications }) => {
+          app.status = 'draft';
+          applications.set(app.id, { id: app.id, status: 'draft' });
+        },
+        expected: {
+          success: false,
+          errorContains: "Application status is 'draft', not approved",
+          finalStatus: 'draft',
+          expectedTransitions: [],
+        },
+      },
+      {
+        name: 'Gate 2a: effective DRY_RUN (via parameter) -> sends nothing, claims no cap, writes email_dry_run event',
+        setup: ({ options }) => {
+          options.dryRun = true;
+        },
+        expected: {
+          success: true,
+          dryRun: true,
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+        extraAssertions: ({ events, dailyCounters }) => {
+          const dryEvents = events.filter((e) => e.type === 'email_dry_run');
+          expect(dryEvents.length).toBe(1);
+          expect(dailyCounters.size).toBe(0); // claims no cap slot
+        },
+      },
+      {
+        name: 'Gate 2b: effective DRY_RUN (via KV override) -> sends nothing, claims no cap, status unchanged',
+        setup: async ({ options, config }) => {
+          options.dryRun = false;
+          await config.put('dry_run', 'true');
+        },
+        expected: {
+          success: true,
+          dryRun: true,
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+        extraAssertions: ({ events, dailyCounters }) => {
+          const dryEvents = events.filter((e) => e.type === 'email_dry_run');
+          expect(dryEvents.length).toBe(1);
+          expect(dailyCounters.size).toBe(0);
+        },
+      },
+      {
+        name: 'Gate 3a: kill switch (via parameter) -> paused, remains approved',
+        setup: ({ options }) => {
+          options.killSwitch = true;
+        },
+        expected: {
+          success: false,
+          errorContains: 'Kill switch is active',
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+      },
+      {
+        name: 'Gate 3b: kill switch (via KV override) -> paused, remains approved',
+        setup: async ({ options, config }) => {
+          options.killSwitch = false;
+          await config.put('kill_switch', 'true');
+        },
+        expected: {
+          success: false,
+          errorContains: 'Kill switch is active',
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+      },
+      {
+        name: 'Gate 4a: auth health not ok (invalid status) -> paused, remains approved',
+        setup: async ({ config }) => {
+          await setGoogleAuthHealth({ config, status: 'invalid', reason: 'Token revoked by user' });
+        },
+        expected: {
+          success: false,
+          errorContains: 'Google auth health is invalid',
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+      },
+      {
+        name: 'Gate 4b: auth health not ok (missing in KV) -> fail closed, remains approved',
+        setup: async ({ config }) => {
+          await config.delete(KV_KEYS.AUTH_HEALTH);
+        },
+        expected: {
+          success: false,
+          errorContains: 'Google auth health is invalid',
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+      },
+      {
+        name: 'Gate 5a: do_not_contact (address match) -> legally transitions approved -> sending -> failed',
+        setup: ({ doNotContact, app }) => {
+          if (app.contact_email) {
+            doNotContact.add(app.contact_email.toLowerCase());
+          }
+        },
+        expected: {
+          success: false,
+          errorContains: 'on do_not_contact list',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /on do_not_contact list/ },
+          ],
+        },
+      },
+      {
+        name: 'Gate 5b: do_not_contact (domain match) -> legally transitions approved -> sending -> failed',
+        setup: ({ doNotContact }) => {
+          doNotContact.add('stripe.com');
+        },
+        expected: {
+          success: false,
+          errorContains: 'on do_not_contact list',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /on do_not_contact list/ },
+          ],
+        },
+      },
+      {
+        name: 'Gate 6: company contacted within 90 days -> legally transitions approved -> sending -> failed',
+        setup: ({ companiesContacted, options }) => {
+          const fifteenDaysAgo = new Date(options.nowMs - 15 * 24 * 60 * 60 * 1000).toISOString();
+          companiesContacted.set('stripe', {
+            company_normalized: 'stripe',
+            last_contacted_at: fifteenDaysAgo,
+          });
+        },
+        expected: {
+          success: false,
+          errorContains: 'recently contacted',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /recently contacted/ },
+          ],
+        },
+      },
+      {
+        name: 'Gate 7: daily cap reached on daily_counters table -> rescheduled, claims no slot, remains approved',
+        setup: ({ dailyCounters }) => {
+          // With no previous sends, ramp formula gives effective cap 5
+          dailyCounters.set('2026-11-04', { sends: 5, bounces: 0 });
+        },
+        expected: {
+          success: false,
+          rescheduled: true,
+          errorContains: 'Daily send cap of 5 reached',
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+        extraAssertions: ({ dailyCounters }) => {
+          expect(dailyCounters.get('2026-11-04')?.sends).toBe(5); // no extra slot claimed
+        },
+      },
+      {
+        name: 'Gate 8a: outside send window (after hours) -> rescheduled, remains approved',
+        setup: ({ options }) => {
+          // Wednesday 16:00 UTC = 21:30 IST (> 18:00 IST)
+          options.nowMs = new Date('2026-11-04T16:00:00Z').getTime();
+        },
+        expected: {
+          success: false,
+          rescheduled: true,
+          errorContains: 'outside allowed send window',
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+      },
+      {
+        name: 'Gate 8b: outside send window (weekend Sunday) -> rescheduled, remains approved',
+        setup: ({ options }) => {
+          // Sunday 2026-11-08 06:00 UTC = 11:30 IST
+          options.nowMs = new Date('2026-11-08T06:00:00Z').getTime();
+        },
+        expected: {
+          success: false,
+          rescheduled: true,
+          errorContains: 'outside allowed send window (weekend)',
+          finalStatus: 'approved',
+          expectedTransitions: [],
+        },
+      },
+      {
+        name: 'Gate 9: letter no longer validates (placeholder detected) -> legally transitions approved -> sending -> failed',
+        setup: ({ app }) => {
+          app.cover_letter =
+            'Dear Hiring Team, I am writing to express my deep interest in the [Company] role. Alex Mercer';
+        },
+        expected: {
+          success: false,
+          errorContains: 'Cover letter validation failed',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /Cover letter validation failed/ },
+          ],
+        },
+      },
+      {
+        name: 'Gate 10: resume missing in R2 -> legally transitions approved -> sending -> failed',
+        setup: ({ resumesBucket }) => {
+          resumesBucket.get = async () => null;
+        },
+        expected: {
+          success: false,
+          errorContains: 'not found in R2 storage',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /not found in R2 storage/ },
+          ],
+        },
+      },
+      {
+        name: 'Gate 11a: CR in subject (header injection) -> legally transitions approved -> sending -> failed',
+        setup: ({ app }) => {
+          app.subject = 'Application for Senior Systems Engineer\rBcc: evil@attacker.com';
+        },
+        expected: {
+          success: false,
+          errorContains: 'carriage return',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /carriage return/i },
+          ],
+        },
+      },
+      {
+        name: 'Gate 11b: LF in contact_email (header injection) -> legally transitions approved -> sending -> failed',
+        setup: ({ app }) => {
+          app.contact_email = 'jobs@stripe.com\nCc: evil@attacker.com';
+        },
+        expected: {
+          success: false,
+          errorContains: 'Invalid contact email',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /Invalid contact email/ },
+          ],
+        },
+      },
+    ];
+
+    for (const testCase of gateCases) {
+      it(testCase.name, async () => {
+        const {
+          db,
+          applications,
+          resumes,
+          companiesContacted,
+          doNotContact,
+          dailyCounters,
+          events,
+        } = createMockDb();
+
+        const config = createMockKV();
+        await setGoogleAuthHealth({ config, status: 'ok' });
+
+        resumes.set('res-valid', {
+          id: 'res-valid',
+          r2_key: 'resumes/valid.pdf',
+          label: 'Valid Resume',
+        });
+
+        const app: ApplicationToSend = {
+          ...targetApp,
+          id: 'app-gate-test',
+          status: 'approved',
+        };
+        applications.set(app.id, {
+          id: app.id,
+          status: 'approved',
+          cover_letter: app.cover_letter,
+          subject: app.subject,
+        });
+
+        const resumesBucket = {
+          async get(_key: string) {
+            return {
+              async arrayBuffer() {
+                return new Uint8Array([1, 2, 3]).buffer;
+              },
+            };
+          },
+        };
+
+        const sentParams: SendEmailParams[] = [];
+        const sender: GmailSender = {
+          async send(p: SendEmailParams) {
+            sentParams.push(p);
+            return { gmailMessageId: 'g-msg-ok', gmailThreadId: 'g-th-ok' };
+          },
+          async searchSentByMessageId() {
+            return null;
+          },
+        };
+
+        const options = {
+          dryRun: false,
+          killSwitch: false,
+          nowMs: new Date('2026-11-04T06:00:00Z').getTime(), // Wednesday 11:30 IST
+        };
+
+        // Run case-specific setup to break only that single gate
+        await testCase.setup({
+          app,
+          options,
+          db,
+          config,
+          applications,
+          resumes,
+          companiesContacted,
+          doNotContact,
+          dailyCounters,
+          resumesBucket,
+        });
+
+        // Execute sendApplicationEmail
+        const res = await sendApplicationEmail({
+          db,
+          config,
+          resumesBucket,
+          gmailSender: sender,
+          profile: mockProfile,
+          dryRun: options.dryRun,
+          killSwitch: options.killSwitch,
+          nowMs: options.nowMs,
+          application: app,
+        });
+
+        // 1. Assert NO Gmail call was made
+        expect(sentParams.length).toBe(0);
+
+        // 2. Assert nothing is marked sent in DB
+        const appRow = applications.get(app.id);
+        expect(appRow?.['sent_at']).toBeUndefined();
+
+        // 3. Assert return result matches expectation
+        expect(res.success).toBe(testCase.expected.success);
+        if (testCase.expected.rescheduled !== undefined) {
+          expect(res.rescheduled).toBe(testCase.expected.rescheduled);
+        }
+        if (testCase.expected.dryRun !== undefined) {
+          expect(res.dryRun).toBe(testCase.expected.dryRun);
+        }
+        if (testCase.expected.errorContains) {
+          expect(res.error).toBeDefined();
+          expect(res.error).toContain(testCase.expected.errorContains);
+        }
+
+        // 4. Assert final status in DB
+        expect(appRow?.['status']).toBe(testCase.expected.finalStatus);
+
+        // 5. Assert transitions
+        if (testCase.expected.expectedTransitions) {
+          const statusEvents = events.filter(
+            (e) => e.entity_id === app.id && e.type === 'status_change',
+          );
+          expect(statusEvents.length).toBe(testCase.expected.expectedTransitions.length);
+
+          testCase.expected.expectedTransitions.forEach((expectedTr, idx) => {
+            const ev = statusEvents[idx];
+            expect(ev).toBeDefined();
+            const payload = JSON.parse(ev?.payload ?? '{}');
+            expect(payload.from).toBe(expectedTr.from);
+            expect(payload.to).toBe(expectedTr.to);
+            if (expectedTr.reasonMatch) {
+              if (typeof expectedTr.reasonMatch === 'string') {
+                expect(payload.reason).toContain(expectedTr.reasonMatch);
+              } else {
+                expect(payload.reason).toMatch(expectedTr.reasonMatch);
+              }
+            }
+          });
+        }
+
+        // 6. Extra assertions if provided
+        if (testCase.extraAssertions) {
+          testCase.extraAssertions({ events, dailyCounters });
+        }
+      });
+    }
+
+    it('baseline test: fully valid approved application passes all gates, calls Gmail, transitions to sent', async () => {
+      const { db, applications, resumes, events, dailyCounters } = createMockDb();
+      const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
+
+      resumes.set('res-valid', {
+        id: 'res-valid',
+        r2_key: 'resumes/valid.pdf',
+        label: 'Valid Resume',
+      });
+
+      const app: ApplicationToSend = {
+        ...targetApp,
+        id: 'app-baseline-ok',
+        status: 'approved',
+      };
+      applications.set(app.id, {
+        id: app.id,
+        status: 'approved',
+        cover_letter: app.cover_letter,
+        subject: app.subject,
+      });
+
+      const resumesBucket = {
+        async get(_key: string) {
+          return {
+            async arrayBuffer() {
+              return new Uint8Array([1, 2, 3]).buffer;
+            },
+          };
+        },
+      };
+
+      const sentParams: SendEmailParams[] = [];
+      const sender: GmailSender = {
+        async send(p: SendEmailParams) {
+          sentParams.push(p);
+          return { gmailMessageId: 'g-msg-ok-123', gmailThreadId: 'g-th-ok-123' };
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      };
+
+      const res = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket,
+        gmailSender: sender,
+        profile: mockProfile,
+        dryRun: false,
+        killSwitch: false,
+        nowMs: new Date('2026-11-04T06:00:00Z').getTime(), // Wednesday 11:30 IST
+        application: app,
+      });
+
+      expect(res.success).toBe(true);
+      expect(sentParams.length).toBe(1);
+      expect(sentParams[0]?.recipientEmail).toBe('jobs@stripe.com');
+
+      const appRow = applications.get(app.id);
+      expect(appRow?.['status']).toBe('sent');
+      expect(appRow?.['sent_at']).toBeDefined();
+      expect(appRow?.['gmail_message_id']).toBe('g-msg-ok-123');
+
+      // Check transitions: approved -> sending -> sent
+      const statusEvents = events.filter(
+        (e) => e.entity_id === app.id && e.type === 'status_change',
+      );
+      expect(statusEvents.length).toBe(2);
+      const ev0 = statusEvents[0];
+      const ev1 = statusEvents[1];
+      expect(ev0).toBeDefined();
+      expect(ev1).toBeDefined();
+      expect(JSON.parse(ev0?.payload ?? '{}').to).toBe('sending');
+      expect(JSON.parse(ev1?.payload ?? '{}').to).toBe('sent');
+
+      // Cap slot was acquired
+      expect(dailyCounters.get('2026-11-04')?.sends).toBe(1);
     });
   });
 

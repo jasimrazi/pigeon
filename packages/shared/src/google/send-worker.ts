@@ -240,7 +240,7 @@ export async function validatePreSend(options: {
     return { valid: false, error: `Contact '${dnc.value}' is on do_not_contact list` };
   }
 
-  // 4. Company cooldown: not contacted in last 30 days (initial applications only)
+  // 4. Company cooldown: not contacted in last 90 days (initial applications only)
   if (app.kind !== 'follow_up') {
     const contacted = await db
       .prepare(
@@ -253,7 +253,7 @@ export async function validatePreSend(options: {
 
     if (contacted) {
       const lastContactMs = new Date(contacted.last_contacted_at).getTime();
-      const cooldownMs = 30 * 24 * 60 * 60 * 1000;
+      const cooldownMs = 90 * 24 * 60 * 60 * 1000;
       if (Date.now() - lastContactMs < cooldownMs) {
         return {
           valid: false,
@@ -321,6 +321,14 @@ export async function sendApplicationEmail(
   } = options;
 
   const nowIso = new Date(nowMs).toISOString();
+
+  // 0. Status Gate: Application must be approved (or sending for crash recovery)
+  if (app.status !== 'approved' && app.status !== 'sending') {
+    return {
+      success: false,
+      error: `Application status is '${app.status}', not approved`,
+    };
+  }
 
   // 1. Safety Gate: Kill Switch
   const isKillActive = await isKillSwitchActive(config, killSwitch);
