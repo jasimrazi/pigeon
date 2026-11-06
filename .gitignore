@@ -26,12 +26,18 @@ wrangler.toml.local
 *.db-wal
 *.db-shm
 .d1/
+d1-export/
+*.d1.sql
 
 # Environment and secrets
 .env
 .env.*
 !.env.example
 !.env.template
+.dev.vars
+.dev.vars.*
+**/.dev.vars
+!.dev.vars.example
 
 # Logs
 logs/
