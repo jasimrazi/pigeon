@@ -15,26 +15,27 @@ describe('packages/shared env validation', () => {
   });
 
   it('parses boolean DRY_RUN', () => {
-    const result = validateEnv({ DRY_RUN: true });
+    const result = validateEnv({ DRY_RUN: true, ENV: 'dev' });
     expect(result.DRY_RUN).toBe(true);
   });
 
   it('rejects a bad DRY_RUN value', () => {
-    expect(() => validateEnv({ DRY_RUN: 'invalid' })).toThrowError(
+    expect(() => validateEnv({ DRY_RUN: 'invalid', ENV: 'dev' })).toThrowError(
       /DRY_RUN must be "true" or "false"/,
     );
-    expect(() => validateEnv({ DRY_RUN: 'yes' })).toThrowError(/DRY_RUN must be "true" or "false"/);
-    expect(() => validateEnv({ DRY_RUN: 123 })).toThrowError(/DRY_RUN must be "true" or "false"/);
+    expect(() => validateEnv({ DRY_RUN: 'yes', ENV: 'dev' })).toThrowError(/DRY_RUN must be "true" or "false"/);
+    expect(() => validateEnv({ DRY_RUN: 123, ENV: 'dev' })).toThrowError(/DRY_RUN must be "true" or "false"/);
   });
 
   it('defaults LLM_PROVIDER to "workers-ai"', () => {
-    const result = validateEnv({ DRY_RUN: 'true' });
+    const result = validateEnv({ DRY_RUN: 'true', ENV: 'dev' });
     expect(result.LLM_PROVIDER).toBe('workers-ai');
   });
 
   it('accepts "gemini" as LLM_PROVIDER and optional GEMINI_API_KEY', () => {
     const result = validateEnv({
       DRY_RUN: 'true',
+      ENV: 'dev',
       LLM_PROVIDER: 'gemini',
       GEMINI_API_KEY: 'test-gemini-key',
     });
@@ -46,6 +47,7 @@ describe('packages/shared env validation', () => {
     expect(() =>
       validateEnv({
         DRY_RUN: 'true',
+        ENV: 'dev',
         LLM_PROVIDER: 'openai',
       }),
     ).toThrowError(/LLM_PROVIDER/);
@@ -53,6 +55,7 @@ describe('packages/shared env validation', () => {
     expect(() =>
       validateEnv({
         DRY_RUN: 'true',
+        ENV: 'dev',
         LLM_PROVIDER: 'claude',
       }),
     ).toThrowError(/LLM_PROVIDER/);
@@ -63,5 +66,10 @@ describe('packages/shared env validation', () => {
     expect(result.GEMINI_API_KEY).toBeUndefined();
     expect(result.LLM_PROVIDER).toBe('workers-ai');
     expect(result).not.toHaveProperty('ANTHROPIC_API_KEY');
+  });
+
+  it('rejects missing or invalid ENV', () => {
+    expect(() => validateEnv({ DRY_RUN: 'true' })).toThrowError(/ENV/);
+    expect(() => validateEnv({ DRY_RUN: 'true', ENV: 'invalid' })).toThrowError(/ENV/);
   });
 });

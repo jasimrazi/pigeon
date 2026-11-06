@@ -7,13 +7,13 @@ export const DryRunSchema = z.union(
   },
 );
 
-export const EnvSchema = z.enum(['dev', 'staging', 'prod', 'test']);
+export const EnvSchema = z.enum(['dev', 'staging', 'prod']);
 
 export const LlmProviderSchema = z.enum(['workers-ai', 'gemini']).default('workers-ai');
 
 export const WorkerEnvVarsSchema = z.object({
   DRY_RUN: DryRunSchema,
-  ENV: EnvSchema.default('dev'),
+  ENV: EnvSchema,
   LLM_PROVIDER: LlmProviderSchema,
   ALERT_FORWARDING_ADDRESS: z.string().email().optional(),
   KILL_SWITCH: z

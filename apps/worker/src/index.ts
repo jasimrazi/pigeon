@@ -71,6 +71,27 @@ app.notFound((c) => {
 
 // Environment validation middleware
 app.use('*', async (c, next) => {
+  const path = c.req.path;
+  if (path.startsWith('/api') || path.startsWith('/auth')) {
+    const envMode = c.env.ENV;
+    if (!envMode || !['dev', 'staging', 'prod'].includes(envMode)) {
+      return c.json({ error: 'Service Unavailable: Missing or invalid ENV configuration' }, 503);
+    }
+    if (envMode === 'staging' || envMode === 'prod') {
+      if (
+        !c.env.CF_ACCESS_AUD ||
+        !c.env.CF_ACCESS_TEAM_DOMAIN ||
+        !c.env.CF_ACCESS_ALLOWED_EMAIL ||
+        !c.env.OWNER_GMAIL
+      ) {
+        return c.json(
+          { error: 'Service Unavailable: Cloudflare Access or Owner configuration missing' },
+          503,
+        );
+      }
+    }
+  }
+
   const validated = validateWorkerEnv(c.env);
   c.set('validatedEnv', validated);
   await next();
@@ -128,9 +149,9 @@ app.use('*', async (c, next) => {
     }
   }
 
-  // Cloudflare Access JWT Assertion check for /api/* and /auth/google/*
-  if (path.startsWith('/api/') || path.startsWith('/auth/google/')) {
-    const envMode = (c.env.ENV as string) || 'dev';
+  // Cloudflare Access JWT Assertion check for /api/* and /auth/*
+  if (path.startsWith('/api') || path.startsWith('/auth')) {
+    const envMode = c.env.ENV as string;
     const isDev = envMode === 'dev';
     const allowInsecureDevAuth =
       c.env.ALLOW_INSECURE_DEV_AUTH === true || c.env.ALLOW_INSECURE_DEV_AUTH === 'true';

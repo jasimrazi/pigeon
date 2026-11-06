@@ -483,23 +483,96 @@ describe('Worker Cloudflare Access & API Security Middleware', () => {
     expect(body.error).toContain('Unsupported Media Type');
   });
 
-  it('returns 503 when ENV=prod and CF_ACCESS vars are missing', async () => {
-    delete workerEnv.CF_ACCESS_AUD;
-    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
+  it('returns 503 when ENV is missing or invalid on /api and /auth', async () => {
     const origEnv = workerEnv.ENV;
-    workerEnv.ENV = 'prod';
     try {
-      const res = await app.fetch(
-        new Request('http://localhost/api/overview', {
-          method: 'GET',
-        }),
+      // 1. Missing ENV
+      delete workerEnv.ENV;
+      const resApiMissing = await app.fetch(
+        new Request('http://localhost/api/overview', { method: 'GET' }),
         workerEnv,
       );
-      expect(res.status).toBe(503);
-      const body = (await res.json()) as { error: string };
-      expect(body.error).toContain('Cloudflare Access not configured');
+      expect(resApiMissing.status).toBe(503);
+
+      const resAuthMissing = await app.fetch(
+        new Request('http://localhost/auth/google/start', { method: 'GET' }),
+        workerEnv,
+      );
+      expect(resAuthMissing.status).toBe(503);
+
+      // 2. Invalid ENV
+      workerEnv.ENV = 'invalid-env';
+      const resApiInvalid = await app.fetch(
+        new Request('http://localhost/api/overview', { method: 'GET' }),
+        workerEnv,
+      );
+      expect(resApiInvalid.status).toBe(503);
+
+      const resAuthInvalid = await app.fetch(
+        new Request('http://localhost/auth/google/start', { method: 'GET' }),
+        workerEnv,
+      );
+      expect(resAuthInvalid.status).toBe(503);
     } finally {
       workerEnv.ENV = origEnv;
+    }
+  });
+
+  it('returns 503 when any required config variable is missing in staging or prod on /api and /auth', async () => {
+    const origEnv = workerEnv.ENV;
+    const origAud = workerEnv.CF_ACCESS_AUD;
+    const origTeamDomain = workerEnv.CF_ACCESS_TEAM_DOMAIN;
+    const origAllowedEmail = workerEnv.CF_ACCESS_ALLOWED_EMAIL;
+    const origOwnerGmail = workerEnv.OWNER_GMAIL;
+
+    const environments = ['staging', 'prod'];
+    const requiredVars = [
+      'CF_ACCESS_AUD',
+      'CF_ACCESS_TEAM_DOMAIN',
+      'CF_ACCESS_ALLOWED_EMAIL',
+      'OWNER_GMAIL',
+    ] as const;
+
+    try {
+      for (const envMode of environments) {
+        for (const varToOmit of requiredVars) {
+          workerEnv.ENV = envMode;
+          workerEnv.CF_ACCESS_AUD = 'worker-aud-tag-999';
+          workerEnv.CF_ACCESS_TEAM_DOMAIN = 'security-team.cloudflareaccess.com';
+          workerEnv.CF_ACCESS_ALLOWED_EMAIL = 'alex@example.com';
+          workerEnv.OWNER_GMAIL = 'alex@example.com';
+
+          // Delete target variable without dynamic delete
+          if (varToOmit === 'CF_ACCESS_AUD') delete workerEnv.CF_ACCESS_AUD;
+          else if (varToOmit === 'CF_ACCESS_TEAM_DOMAIN') delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
+          else if (varToOmit === 'CF_ACCESS_ALLOWED_EMAIL') delete workerEnv.CF_ACCESS_ALLOWED_EMAIL;
+          else if (varToOmit === 'OWNER_GMAIL') delete workerEnv.OWNER_GMAIL;
+
+          const resApi = await app.fetch(
+            new Request('http://localhost/api/overview', { method: 'GET' }),
+            workerEnv,
+          );
+          expect(
+            resApi.status,
+            `Expected 503 for /api/overview when ${varToOmit} is missing in ${envMode}`,
+          ).toBe(503);
+
+          const resAuth = await app.fetch(
+            new Request('http://localhost/auth/google/start', { method: 'GET' }),
+            workerEnv,
+          );
+          expect(
+            resAuth.status,
+            `Expected 503 for /auth/google/start when ${varToOmit} is missing in ${envMode}`,
+          ).toBe(503);
+        }
+      }
+    } finally {
+      workerEnv.ENV = origEnv;
+      if (origAud) workerEnv.CF_ACCESS_AUD = origAud;
+      if (origTeamDomain) workerEnv.CF_ACCESS_TEAM_DOMAIN = origTeamDomain;
+      if (origAllowedEmail) workerEnv.CF_ACCESS_ALLOWED_EMAIL = origAllowedEmail;
+      if (origOwnerGmail) workerEnv.OWNER_GMAIL = origOwnerGmail;
     }
   });
 
