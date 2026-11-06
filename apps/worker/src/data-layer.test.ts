@@ -326,6 +326,71 @@ describe('Pigeon Data Layer & Schema Tests', () => {
   });
 
   describe('Resume Upload API (POST /api/resumes)', () => {
+    it('returns 415 unless Content-Type starts with multipart/form-data', async () => {
+      // 1. application/json
+      const jsonRes = await app.request(
+        '/api/resumes',
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'http://localhost:5173',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ file: 'fake' }),
+        },
+        workerEnv,
+      );
+      expect(jsonRes.status).toBe(415);
+      const jsonErr = await jsonRes.json<{ error: string }>();
+      expect(jsonErr.error).toContain('multipart/form-data');
+
+      // 2. text/plain
+      const textRes = await app.request(
+        '/api/resumes',
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'http://localhost:5173',
+            'Content-Type': 'text/plain',
+          },
+          body: 'hello',
+        },
+        workerEnv,
+      );
+      expect(textRes.status).toBe(415);
+
+      // 3. missing Content-Type
+      const noCtRes = await app.request(
+        '/api/resumes',
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'http://localhost:5173',
+          },
+        },
+        workerEnv,
+      );
+      expect(noCtRes.status).toBe(415);
+    });
+
+    it('returns 400 when formData() parsing fails on malformed multipart payload', async () => {
+      const res = await app.request(
+        '/api/resumes',
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'http://localhost:5173',
+            'Content-Type': 'multipart/form-data; boundary=----WebKitFormBoundaryBroken',
+          },
+          body: 'This is not a valid multipart body with matching boundary markers',
+        },
+        workerEnv,
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json<{ error: string }>();
+      expect(json.error).toMatch(/multipart/i);
+    });
+
     it('rejects non-PDF files', async () => {
       const formData = new FormData();
       const textBlob = new Blob(['Plain text resume content'], {

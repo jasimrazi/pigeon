@@ -139,9 +139,13 @@ app.use('*', async (c, next) => {
       return c.json({ error: 'Forbidden: Origin mismatch' }, 403);
     }
 
-    // Require JSON Content-Type for mutations with bodies (except multipart resumes upload)
-    if (path !== '/api/resumes') {
-      const contentType = c.req.header('content-type') || '';
+    // Require multipart/form-data for /api/resumes, and application/json for other mutations with bodies
+    const contentType = c.req.header('content-type') || '';
+    if (path === '/api/resumes') {
+      if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
+        return c.json({ error: 'Unsupported Media Type: expected multipart/form-data' }, 415);
+      }
+    } else {
       const contentLength = c.req.header('content-length');
       const hasBody =
         (contentLength !== undefined && contentLength !== '0') || c.req.raw.body !== null;
@@ -223,7 +227,17 @@ app.get('/health', (c) => {
 
 // POST /api/resumes: PDF only (%PDF magic bytes), max 5 MB, stored in R2, tags supplied by caller
 app.post('/api/resumes', async (c) => {
-  const formData = await c.req.formData();
+  const contentType = c.req.header('content-type') || '';
+  if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
+    return c.json({ error: 'Unsupported Media Type: expected multipart/form-data' }, 415);
+  }
+
+  let formData: FormData;
+  try {
+    formData = await c.req.formData();
+  } catch {
+    return c.json({ error: 'Failed to parse multipart form data' }, 400);
+  }
   const file = formData.get('file');
 
   if (!file || typeof file === 'string' || !(file instanceof Blob)) {
