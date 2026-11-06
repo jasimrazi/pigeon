@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+// @ts-expect-error Node fs import in shared package
+import fs from 'node:fs';
+// @ts-expect-error Node path import in shared package
+import path from 'node:path';
 import {
   APPLICATION_STATUSES,
   APPLICATION_TRANSITIONS,
@@ -7,18 +11,49 @@ import {
   validateTransition,
   transition,
   type D1LikeDatabase,
+  type ApplicationStatus,
 } from './state-machine.js';
 
 describe('State Machine - Application Transition Matrix', () => {
-  // Generate the full 15x15 = 225 pairs matrix
+  // Independent literal declaration of the 27 expected transitions
+  const EXPECTED_APPLICATION_TRANSITIONS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
+    draft: ['approved', 'needs_review', 'skipped'],
+    needs_review: ['draft', 'approved', 'manual_applied', 'manual_skipped'],
+    approved: ['sending', 'draft'],
+    sending: ['sent', 'failed', 'approved'],
+    failed: ['approved', 'skipped'],
+    sent: ['bounced', 'replied'],
+    replied: ['interview', 'rejected', 'offer'],
+    interview: ['offer', 'rejected'],
+    manual_pending: ['manual_applied', 'manual_skipped'],
+    manual_applied: ['replied', 'interview', 'rejected', 'offer'],
+    skipped: [],
+    bounced: [],
+    rejected: [],
+    offer: [],
+    manual_skipped: [],
+  };
+
   const allStatuses = APPLICATION_STATUSES;
 
-  it('validates every pair in the 15x15 matrix correctly', () => {
+  it('declares exactly 27 allowed application transitions in the expected literal', () => {
+    const totalAllowed = Object.values(EXPECTED_APPLICATION_TRANSITIONS).reduce(
+      (sum, targets) => sum + targets.length,
+      0,
+    );
+    expect(totalAllowed).toBe(27);
+  });
+
+  it('APPLICATION_TRANSITIONS matches the independently declared literal exactly', () => {
+    expect(APPLICATION_TRANSITIONS).toEqual(EXPECTED_APPLICATION_TRANSITIONS);
+  });
+
+  it('validates every pair in the 15x15 matrix against the independent literal (27 allowed, 198 forbidden)', () => {
     let allowedCount = 0;
     let forbiddenCount = 0;
 
     for (const from of allStatuses) {
-      const allowedTargets = APPLICATION_TRANSITIONS[from];
+      const allowedTargets = EXPECTED_APPLICATION_TRANSITIONS[from];
       for (const to of allStatuses) {
         const isAllowed = allowedTargets.includes(to);
 
@@ -159,5 +194,89 @@ describe('State Machine - transition() execution', () => {
     await expect(transition(mockDb, 'application', 'app_missing', 'approved')).rejects.toThrow(
       "application with id 'app_missing' not found",
     );
+  });
+});
+
+describe('State Machine - Static Enforcement against Status Bypass', () => {
+  function scanDirForStatusUpdates(dir: string): string[] {
+    const violations: string[] = [];
+    if (!fs.existsSync(dir)) return violations;
+
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        violations.push(...scanDirForStatusUpdates(fullPath));
+      } else if (
+        entry.isFile() &&
+        entry.name.endsWith('.ts') &&
+        !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.spec.ts') &&
+        !entry.name.endsWith('state-machine.ts')
+      ) {
+        const content = String(fs.readFileSync(fullPath, 'utf8'));
+
+        // Check 1: Multi-line SQL UPDATE ... SET ... status for applications or jobs
+        const sqlRegex =
+          /\bUPDATE\s+(?:jobs|applications)\b(?:(?!WHERE)[\s\S])*?\bSET\b(?:(?!WHERE)[\s\S])*?\bstatus\s*=/gi;
+        let match;
+        while ((match = sqlRegex.exec(content)) !== null) {
+          const upToMatch = content.slice(0, match.index);
+          const lineNum = upToMatch.split('\n').length;
+          violations.push(
+            `${fullPath}:${lineNum} -> Direct SQL status update: ${match[0].replace(/\s+/g, ' ')}`,
+          );
+        }
+
+        // Check 2: Drizzle ORM .update(jobs|applications).set({ status })
+        const drizzleRegex =
+          /\.update\s*\(\s*(?:jobs|applications)\s*\)[\s\S]*?\.set\s*\(\s*\{[\s\S]*?\bstatus\b/gi;
+        while ((match = drizzleRegex.exec(content)) !== null) {
+          const upToMatch = content.slice(0, match.index);
+          const lineNum = upToMatch.split('\n').length;
+          violations.push(
+            `${fullPath}:${lineNum} -> Drizzle .update().set({ status }): ${match[0].replace(/\s+/g, ' ')}`,
+          );
+        }
+      }
+    }
+    return violations;
+  }
+
+  it('no SQL UPDATE or Drizzle .update() sets status on jobs or applications outside state-machine.ts', () => {
+    const proc = (globalThis as unknown as { process?: { cwd?: () => string } }).process;
+    const rootDir = proc?.cwd ? proc.cwd() : '.';
+    const workerSrc = path.join(rootDir, 'apps/worker/src');
+    const sharedSrc = path.join(rootDir, 'packages/shared/src');
+
+    const violations = [
+      ...scanDirForStatusUpdates(workerSrc),
+      ...scanDirForStatusUpdates(sharedSrc),
+    ];
+
+    expect(
+      violations,
+      `Found status bypasses outside state-machine.ts:\n${violations.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('verifies that the status bypass detector catches direct SQL and Drizzle updates', () => {
+    const testCases = [
+      "UPDATE jobs SET status = 'filtered_out', filter_reason = 'X'",
+      "UPDATE jobs\n SET\n apply_route = 'manual',\n status = 'routed'\n WHERE id = '1'",
+      "UPDATE applications SET status = 'sent', updated_at = 'now' WHERE id = '2'",
+      "await db.update(jobs).set({ status: 'scored', updated_at: now })",
+      "await db.update(applications).set({\n  status: 'approved'\n})",
+    ];
+
+    const sqlRegex =
+      /\bUPDATE\s+(?:jobs|applications)\b(?:(?!WHERE)[\s\S])*?\bSET\b(?:(?!WHERE)[\s\S])*?\bstatus\s*=/i;
+    const drizzleRegex =
+      /\.update\s*\(\s*(?:jobs|applications)\s*\)[\s\S]*?\.set\s*\(\s*\{[\s\S]*?\bstatus\b/i;
+
+    for (const testCase of testCases) {
+      const caught = sqlRegex.test(testCase) || drizzleRegex.test(testCase);
+      expect(caught, `Failed to catch status bypass in: ${testCase}`).toBe(true);
+    }
   });
 });

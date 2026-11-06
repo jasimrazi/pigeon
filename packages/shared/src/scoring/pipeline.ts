@@ -116,7 +116,7 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
       await transition(db, 'job', job.id, 'filtered_out', filterRes.reason);
       await db
         .prepare(
-          `UPDATE jobs SET status = 'filtered_out', filter_reason = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`,
         )
         .bind(filterRes.reason ?? 'FILTERED_OUT', nowIso, job.id)
         .run();
@@ -139,7 +139,7 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
       await transition(db, 'job', job.id, 'skipped', skipRes.reason);
       await db
         .prepare(
-          `UPDATE jobs SET status = 'skipped', filter_reason = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`,
         )
         .bind(skipRes.reason ?? 'SKIPPED', nowIso, job.id)
         .run();
@@ -197,7 +197,7 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
       await transition(db, 'job', job.id, 'skipped', 'LOW_SCORE');
       await db
         .prepare(
-          `UPDATE jobs SET status = 'skipped', filter_reason = 'LOW_SCORE',
+          `UPDATE jobs SET filter_reason = 'LOW_SCORE',
              match_score = ?, match_reasons = ?, red_flags = ?, updated_at = ?
            WHERE id = ?`,
         )
@@ -248,7 +248,6 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
         `UPDATE jobs SET
            apply_route = ?,
            route_reason = ?,
-           status = 'routed',
            contact_email = ?,
            contact_source = ?,
            match_score = ?,

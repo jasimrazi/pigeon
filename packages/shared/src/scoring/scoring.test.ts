@@ -163,40 +163,28 @@ function createMockDb(): {
               j['status'] = newStatus;
               j['updated_at'] = nowIso;
             }
-          } else if (query.startsWith("UPDATE jobs SET status = 'filtered_out'")) {
+          } else if (query.startsWith("UPDATE jobs SET filter_reason = 'LOW_SCORE'")) {
+            const [score, reasons, redFlags, nowIso, id] = boundParams as [
+              number,
+              string,
+              string,
+              string,
+              string,
+            ];
+            const j = jobs.get(id);
+            if (j) {
+              j['filter_reason'] = 'LOW_SCORE';
+              j['match_score'] = score;
+              j['match_reasons'] = reasons;
+              j['red_flags'] = redFlags;
+              j['updated_at'] = nowIso;
+            }
+          } else if (query.startsWith('UPDATE jobs SET filter_reason = ?')) {
             const [reason, nowIso, id] = boundParams as [string, string, string];
             const j = jobs.get(id);
             if (j) {
-              j['status'] = 'filtered_out';
               j['filter_reason'] = reason;
               j['updated_at'] = nowIso;
-            }
-          } else if (query.startsWith("UPDATE jobs SET status = 'skipped'")) {
-            if (query.includes("filter_reason = 'LOW_SCORE'")) {
-              const [score, reasons, redFlags, nowIso, id] = boundParams as [
-                number,
-                string,
-                string,
-                string,
-                string,
-              ];
-              const j = jobs.get(id);
-              if (j) {
-                j['status'] = 'skipped';
-                j['filter_reason'] = 'LOW_SCORE';
-                j['match_score'] = score;
-                j['match_reasons'] = reasons;
-                j['red_flags'] = redFlags;
-                j['updated_at'] = nowIso;
-              }
-            } else {
-              const [reason, nowIso, id] = boundParams as [string, string, string];
-              const j = jobs.get(id);
-              if (j) {
-                j['status'] = 'skipped';
-                j['filter_reason'] = reason;
-                j['updated_at'] = nowIso;
-              }
             }
           } else if (query.startsWith('UPDATE jobs SET')) {
             const [
