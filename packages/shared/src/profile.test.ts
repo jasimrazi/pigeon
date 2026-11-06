@@ -107,6 +107,52 @@ describe('Profile Validation', () => {
     expect(() => ProfileSchema.parse(invalid)).toThrow();
   });
 
+  it('rejects zero or out-of-range daily cap (e.g. 0 or 250)', () => {
+    const zeroCap = {
+      ...validProfileFixture,
+      send_settings: {
+        ...validProfileFixture.send_settings,
+        daily_cap: 0,
+      },
+    };
+    expect(() => ProfileSchema.parse(zeroCap)).toThrow();
+
+    const excessiveCap = {
+      ...validProfileFixture,
+      send_settings: {
+        ...validProfileFixture.send_settings,
+        daily_cap: 250,
+      },
+    };
+    expect(() => ProfileSchema.parse(excessiveCap)).toThrow();
+  });
+
+  it('rejects an invalid send window format', () => {
+    const invalidStart = {
+      ...validProfileFixture,
+      send_settings: {
+        ...validProfileFixture.send_settings,
+        window: {
+          start: '25:00', // invalid hour
+          end: '17:00',
+        },
+      },
+    };
+    expect(() => ProfileSchema.parse(invalidStart)).toThrow();
+
+    const invalidEnd = {
+      ...validProfileFixture,
+      send_settings: {
+        ...validProfileFixture.send_settings,
+        window: {
+          start: '09:00',
+          end: 'not-a-time',
+        },
+      },
+    };
+    expect(() => ProfileSchema.parse(invalidEnd)).toThrow();
+  });
+
   it('rejects auto_approve_above_score out of range', () => {
     const invalid = {
       ...validProfileFixture,

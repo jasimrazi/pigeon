@@ -48,17 +48,26 @@ export const FiltersSchema = z
   })
   .passthrough();
 
+export const TimeStringSchema = z
+  .string()
+  .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Invalid time format: must be HH:MM in 24-hour format');
+
 export const SendSettingsSchema = z
   .object({
-    daily_cap: z.number().int().min(0),
+    daily_cap: z
+      .number()
+      .int()
+      .min(1, 'Daily cap must be between 1 and 200')
+      .max(200, 'Daily cap must be between 1 and 200'),
     window: z.object({
-      start: z.string(), // e.g. "09:00"
-      end: z.string(), // e.g. "17:00"
+      start: TimeStringSchema, // e.g. "09:00"
+      end: TimeStringSchema, // e.g. "17:00"
     }),
     timezone: z.string().min(1),
-    ramp_base: z.number().int().min(0),
-    ramp_step: z.number().int().min(0),
+    ramp_base: z.number().int().min(0).max(100),
+    ramp_step: z.number().int().min(0).max(50),
     auto_approve_above_score: z.number().min(0).max(100),
+    max_follow_ups: z.number().int().min(0).max(5).optional(),
   })
   .passthrough();
 

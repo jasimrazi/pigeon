@@ -91,4 +91,26 @@ export const googleHandlers = [
       resultSizeEstimate: 0,
     });
   }),
+
+  // Gmail Get Thread by ID
+  http.get('https://gmail.googleapis.com/gmail/v1/users/me/threads/:threadId', ({ request, params }) => {
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || authHeader.includes('invalid')) {
+      return HttpResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+
+    const threadId = params.threadId as string;
+    const thread = mockThreadsStore.get(threadId);
+    if (!thread) {
+      return HttpResponse.json({ error: 'Thread not found' }, { status: 404 });
+    }
+
+    return HttpResponse.json(thread);
+  }),
 ];
+
+export const mockThreadsStore = new Map<string, unknown>();
+
+export function resetMockThreadsStore() {
+  mockThreadsStore.clear();
+}

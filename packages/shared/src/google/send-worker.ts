@@ -27,6 +27,7 @@ export interface SendWorkerOptions {
 export interface ApplicationToSend {
   id: string;
   job_id: string;
+  kind?: string | undefined;
   channel: string;
   status: string;
   cover_letter: string | null;
@@ -238,24 +239,26 @@ export async function validatePreSend(options: {
     return { valid: false, error: `Contact '${dnc.value}' is on do_not_contact list` };
   }
 
-  // 4. Company cooldown: not contacted in last 30 days
-  const contacted = await db
-    .prepare(
-      `SELECT company_normalized, last_contacted_at
-       FROM companies_contacted
-       WHERE company_normalized = ?`,
-    )
-    .bind(app.company_normalized)
-    .first<{ company_normalized: string; last_contacted_at: string }>();
+  // 4. Company cooldown: not contacted in last 30 days (initial applications only)
+  if (app.kind !== 'follow_up') {
+    const contacted = await db
+      .prepare(
+        `SELECT company_normalized, last_contacted_at
+         FROM companies_contacted
+         WHERE company_normalized = ?`,
+      )
+      .bind(app.company_normalized)
+      .first<{ company_normalized: string; last_contacted_at: string }>();
 
-  if (contacted) {
-    const lastContactMs = new Date(contacted.last_contacted_at).getTime();
-    const cooldownMs = 30 * 24 * 60 * 60 * 1000;
-    if (Date.now() - lastContactMs < cooldownMs) {
-      return {
-        valid: false,
-        error: `Company '${app.company}' was recently contacted on ${contacted.last_contacted_at}`,
-      };
+    if (contacted) {
+      const lastContactMs = new Date(contacted.last_contacted_at).getTime();
+      const cooldownMs = 30 * 24 * 60 * 60 * 1000;
+      if (Date.now() - lastContactMs < cooldownMs) {
+        return {
+          valid: false,
+          error: `Company '${app.company}' was recently contacted on ${contacted.last_contacted_at}`,
+        };
+      }
     }
   }
 
@@ -319,7 +322,9 @@ export async function sendApplicationEmail(
   const nowIso = new Date(nowMs).toISOString();
 
   // 1. Safety Gate: Kill Switch
-  const kvKillSwitch = (await config.get('kill_switch')) === 'true';
+  const kvKillSwitch =
+    (await config.get('kill_switch')) === 'true' ||
+    (await config.get('KILL_SWITCH')) === 'true';
   if (killSwitch || kvKillSwitch) {
     return { success: false, error: 'Kill switch is active. Sending paused.' };
   }
@@ -449,6 +454,30 @@ export async function sendApplicationEmail(
     }
   }
 
+  // Resolve thread headers for follow-ups
+  let threadId = app.gmail_thread_id || undefined;
+  let inReplyTo: string | undefined;
+  let references: string | undefined;
+
+  if (app.kind === 'follow_up') {
+    const initialApp = await db
+      .prepare(
+        `SELECT message_id_header, gmail_thread_id
+         FROM applications
+         WHERE job_id = ? AND kind = 'initial'`,
+      )
+      .bind(app.job_id)
+      .first<{ message_id_header: string | null; gmail_thread_id: string | null }>();
+
+    if (initialApp?.message_id_header) {
+      inReplyTo = initialApp.message_id_header;
+      references = initialApp.message_id_header;
+    }
+    if (initialApp?.gmail_thread_id) {
+      threadId = initialApp.gmail_thread_id;
+    }
+  }
+
   // 9. DRY RUN Check
   if (dryRun) {
     // Write would-be email to events table; do NOT call Gmail; do NOT mark as sent
@@ -458,7 +487,10 @@ export async function sendApplicationEmail(
         To: app.contact_email,
         Subject: app.subject || `Application for ${app.title}`,
         'Message-ID': messageIdHeader,
+        ...(inReplyTo ? { 'In-Reply-To': inReplyTo } : {}),
+        ...(references ? { References: references } : {}),
       },
+      threadId,
       body: app.cover_letter,
       attachment: {
         name: resumeLabel,
@@ -494,6 +526,9 @@ export async function sendApplicationEmail(
       messageIdHeader,
       resumePdfBytes,
       resumeFileName: resumeLabel,
+      threadId,
+      inReplyTo,
+      references,
     });
 
     // Success: sending -> sent

@@ -23,6 +23,11 @@ export interface Bindings {
   GOOGLE_TOKEN_ENCRYPTION_KEY?: string | undefined;
   GOOGLE_REDIRECT_URI?: string | undefined;
   GOOGLE_SHEET_ID?: string | undefined;
+  CF_ACCESS_AUD?: string | undefined;
+  CF_ACCESS_TEAM_DOMAIN?: string | undefined;
+  DASHBOARD_ORIGIN?: string | undefined;
+  TELEGRAM_BOT_TOKEN?: string | undefined;
+  TELEGRAM_CHAT_ID?: string | undefined;
   [key: string]: unknown;
 }
 

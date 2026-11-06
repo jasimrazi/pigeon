@@ -1,5 +1,10 @@
 import { buildMimeMessage, toBase64Url } from './mime.js';
-import type { GmailSender, SendEmailParams, SendEmailResult } from './types.js';
+import type {
+  GmailSender,
+  SendEmailParams,
+  SendEmailResult,
+  GmailThread,
+} from './types.js';
 
 export class GoogleRateLimitError extends Error {
   constructor(message = 'Rate limit exceeded') {
@@ -36,13 +41,18 @@ export class RestGmailSender implements GmailSender {
     const mimeString = buildMimeMessage(params);
     const raw = toBase64Url(mimeString);
 
+    const bodyPayload: Record<string, unknown> = { raw };
+    if (params.threadId) {
+      bodyPayload['threadId'] = params.threadId;
+    }
+
     const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ raw }),
+      body: JSON.stringify(bodyPayload),
     });
 
     if (res.ok) {
@@ -103,5 +113,38 @@ export class RestGmailSender implements GmailSender {
     }
 
     return null;
+  }
+
+  async getThread(threadId: string, format = 'metadata'): Promise<GmailThread | null> {
+    const token = await this.getAccessToken();
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=${format}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+
+    if (res.status === 404) {
+      return null;
+    }
+
+    if (res.status === 401) {
+      const error = new Error('GoogleAuthError: 401 Unauthorized');
+      error.name = 'GoogleAuthError';
+      throw error;
+    }
+
+    if (res.status === 429) {
+      throw new GoogleRateLimitError('Gmail rate limit exceeded (429)');
+    }
+
+    if (!res.ok) {
+      throw new GoogleServerError(
+        res.status,
+        `Failed to get thread ${threadId}: HTTP ${res.status}`,
+      );
+    }
+
+    return (await res.json()) as GmailThread;
   }
 }

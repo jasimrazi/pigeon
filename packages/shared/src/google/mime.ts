@@ -94,6 +94,16 @@ export function buildMimeMessage(params: SendEmailParams): string {
     `Date: ${new Date().toUTCString()}`,
   ];
 
+  if (params.inReplyTo) {
+    const safeInReplyTo = assertSafeHeader('In-Reply-To', params.inReplyTo);
+    headers.push(`In-Reply-To: ${safeInReplyTo.startsWith('<') ? safeInReplyTo : `<${safeInReplyTo}>`}`);
+  }
+
+  if (params.references) {
+    const safeReferences = assertSafeHeader('References', params.references);
+    headers.push(`References: ${safeReferences.startsWith('<') ? safeReferences : `<${safeReferences}>`}`);
+  }
+
   if (!resumePdfBytes || resumePdfBytes.length === 0) {
     // Single plain text message
     headers.push('Content-Type: text/plain; charset="UTF-8"');

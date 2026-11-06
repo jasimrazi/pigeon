@@ -34,6 +34,9 @@ export interface SendEmailParams {
   messageIdHeader: string;
   resumePdfBytes?: Uint8Array | undefined;
   resumeFileName?: string | undefined;
+  threadId?: string | undefined;
+  inReplyTo?: string | undefined;
+  references?: string | undefined;
 }
 
 export interface SendEmailResult {
@@ -41,11 +44,34 @@ export interface SendEmailResult {
   gmailThreadId: string;
 }
 
+export interface GmailThreadMessagePayload {
+  headers?: Array<{ name: string; value: string }> | undefined;
+  mimeType?: string | undefined;
+}
+
+export interface GmailThreadMessage {
+  id: string;
+  threadId: string;
+  snippet?: string | undefined;
+  internalDate?: string | undefined;
+  payload?: GmailThreadMessagePayload | undefined;
+}
+
+export interface GmailThread {
+  id: string;
+  historyId?: string | undefined;
+  messages: GmailThreadMessage[];
+}
+
 export interface GmailSender {
   send(params: SendEmailParams): Promise<SendEmailResult>;
   searchSentByMessageId(
     messageIdHeader: string,
   ): Promise<{ gmailMessageId: string; gmailThreadId: string } | null>;
+  getThread?(
+    threadId: string,
+    format?: 'metadata' | 'full' | 'minimal',
+  ): Promise<GmailThread | null>;
 }
 
 export interface GoogleProfileResponse {
