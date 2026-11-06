@@ -164,6 +164,43 @@ describe('Profile Validation', () => {
     expect(() => ProfileSchema.parse(invalid)).toThrow();
   });
 
+  it('rejects oversized arrays and records to prevent unbounded memory exhaustion (GHSA-mrhx-c7xc-m3w5 mitigation)', () => {
+    // 1. Oversized skills (> 200 elements)
+    const tooManySkills = {
+      ...validProfileFixture,
+      skills: Array.from({ length: 201 }, (_, i) => `Skill${i}`),
+    };
+    expect(() => ProfileSchema.parse(tooManySkills)).toThrow();
+
+    // 2. Oversized links record (> 100 entries)
+    const tooManyLinks: Record<string, string> = {};
+    for (let i = 0; i < 101; i++) {
+      tooManyLinks[`link_${i}`] = `https://example.com/${i}`;
+    }
+    const profileWithTooManyLinks = {
+      ...validProfileFixture,
+      answers: {
+        ...validProfileFixture.answers,
+        links: tooManyLinks,
+      },
+    };
+    expect(() => ProfileSchema.parse(profileWithTooManyLinks)).toThrow(/100 entries/);
+
+    // 3. Oversized highlights (> 50 items)
+    const firstExp = validProfileFixture.experience[0];
+    const tooManyHighlights = {
+      ...validProfileFixture,
+      experience: [
+        {
+          title: firstExp?.title ?? 'Engineer',
+          company: firstExp?.company ?? 'Acme',
+          highlights: Array.from({ length: 51 }, (_, i) => `Highlight ${i}`),
+        },
+      ],
+    };
+    expect(() => ProfileSchema.parse(tooManyHighlights)).toThrow();
+  });
+
   it('rejects malformed non-object inputs', () => {
     expect(() => ProfileSchema.parse(null)).toThrow();
     expect(() => ProfileSchema.parse('string')).toThrow();

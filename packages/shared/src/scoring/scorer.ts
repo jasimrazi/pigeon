@@ -5,11 +5,11 @@ import { wrapUntrusted } from '../safety.js';
 
 export const ScorerOutputSchema = z.object({
   score: z.number().min(0).max(100),
-  matched_skills: z.array(z.string()).default([]),
-  missing_skills: z.array(z.string()).default([]),
-  red_flags: z.array(z.string()).default([]),
+  matched_skills: z.array(z.string().max(200)).max(100).default([]),
+  missing_skills: z.array(z.string().max(200)).max(100).default([]),
+  red_flags: z.array(z.string().max(500)).max(100).default([]),
   reasons: z
-    .union([z.string(), z.array(z.string())])
+    .union([z.string().max(5000), z.array(z.string().max(1000)).max(100)])
     .transform((val) => (Array.isArray(val) ? val.join('; ') : val)),
 });
 

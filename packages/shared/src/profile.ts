@@ -8,7 +8,7 @@ export const ExperienceItemSchema = z.object({
   end_date: z.string().optional(),
   current: z.boolean().optional(),
   description: z.string().optional(),
-  highlights: z.array(z.string()).optional(),
+  highlights: z.array(z.string().max(1000)).max(50).optional(),
 });
 
 export const EducationItemSchema = z.object({
@@ -21,19 +21,19 @@ export const EducationItemSchema = z.object({
 
 export const PreferencesSchema = z
   .object({
-    locations: z.array(z.string()).default([]),
+    locations: z.array(z.string().max(200)).max(100).default([]),
     remote: z.boolean().default(true),
-    roles: z.array(z.string()).optional(),
+    roles: z.array(z.string().max(200)).max(100).optional(),
     manual_daily_target: z.number().int().min(1).optional(),
   })
   .passthrough();
 
 export const FiltersSchema = z
   .object({
-    titles: z.array(z.string()).default([]),
-    title_include: z.array(z.string()).optional(),
-    title_exclude: z.array(z.string()).optional(),
-    locations: z.array(z.string()).default([]),
+    titles: z.array(z.string().max(200)).max(100).default([]),
+    title_include: z.array(z.string().max(200)).max(100).optional(),
+    title_exclude: z.array(z.string().max(200)).max(100).optional(),
+    locations: z.array(z.string().max(200)).max(100).default([]),
     remote: z.boolean().optional(),
     min_salary: z.number().nullable().optional(),
     experience_range: z
@@ -42,7 +42,7 @@ export const FiltersSchema = z
         max: z.number().min(0).optional(),
       })
       .optional(),
-    company_blacklist: z.array(z.string()).default([]),
+    company_blacklist: z.array(z.string().max(200)).max(500).default([]),
     min_score: z
       .number({ invalid_type_error: 'min_score must be a number' })
       .min(0, 'min_score cannot be negative')
@@ -85,18 +85,28 @@ export const AnswersSchema = z
     current_ctc: z.string(),
     expected_ctc: z.string(),
     work_authorisation: z.string(),
-    links: z.record(z.string(), z.string()).default({}),
-    other: z.record(z.string(), z.string()).default({}),
+    links: z
+      .record(z.string().max(100), z.string().max(2000))
+      .refine((r) => Object.keys(r).length <= 100, {
+        message: 'links exceeds maximum 100 entries',
+      })
+      .default({}),
+    other: z
+      .record(z.string().max(100), z.string().max(2000))
+      .refine((r) => Object.keys(r).length <= 100, {
+        message: 'other exceeds maximum 100 entries',
+      })
+      .default({}),
   })
   .passthrough();
 
 export const ProfileSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
-  skills: z.array(z.string().min(1)).min(1),
+  skills: z.array(z.string().min(1).max(100)).min(1).max(200),
   experience_years: z.number().min(0).optional(),
-  experience: z.array(ExperienceItemSchema).default([]),
-  education: z.array(EducationItemSchema).default([]),
+  experience: z.array(ExperienceItemSchema).max(50).default([]),
+  education: z.array(EducationItemSchema).max(30).default([]),
   preferences: PreferencesSchema.default({}),
   filters: FiltersSchema,
   send_settings: SendSettingsSchema,
