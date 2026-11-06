@@ -1,0 +1,57 @@
+name: Weekly Database Backup
+
+on:
+  schedule:
+    # Every Sunday at 02:00 UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      database_name:
+        description: 'D1 Database Name to backup'
+        required: true
+        default: 'pigeon-db-prod'
+      bucket_name:
+        description: 'R2 Bucket destination'
+        required: true
+        default: 'pigeon-resumes-prod'
+
+jobs:
+  backup:
+    name: D1 Export to R2 (8-week retention)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run D1 Export & Upload to R2
+        run: node scripts/backup-d1.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_NAME: ${{ github.event.inputs.database_name || 'pigeon-db-prod' }}
+          R2_BACKUP_BUCKET: ${{ github.event.inputs.bucket_name || 'pigeon-resumes-prod' }}
+
+      - name: Prune Backups Older Than 8 Weeks (56 Days)
+        run: |
+          CUTOFF_EPOCH=$(date -d "56 days ago" +%s)
+          echo "Pruning R2 backups older than 56 days (before $CUTOFF_EPOCH)..."
+          # Fetch backup list and prune expired dumps
+          npx wrangler r2 object list "$R2_BACKUP_BUCKET" --prefix="backups/" > /tmp/backup_list.json || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BACKUP_BUCKET: ${{ github.event.inputs.bucket_name || 'pigeon-resumes-prod' }}

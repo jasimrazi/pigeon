@@ -41,6 +41,8 @@ import {
   DRY_RUN_KV_KEY,
   isKillSwitchActive,
   getEffectiveDryRun,
+  logger,
+  purgeExpiredJobDescriptions,
   type Notifier,
   type NotificationPayload,
   type CloudflareAiBinding,
@@ -1527,6 +1529,12 @@ app.post('/api/settings/kill-switch', async (c) => {
   return c.json({ ok: true, killSwitch: body.kill_switch });
 });
 
+// 12. POST /api/retention/purge: Manually triggers 90-day job retention purge
+app.post('/api/retention/purge', async (c) => {
+  const result = await purgeExpiredJobDescriptions({ db: c.env.DB });
+  return c.json({ ok: true, ...result });
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Bindings): Promise<void> {
@@ -1536,6 +1544,8 @@ export default {
     }
     // Housekeeping: expire 30-day-old manual_pending items
     await expireStaleManualPending(env.DB);
+    // Housekeeping: purge >90-day job descriptions for unapplied jobs
+    await purgeExpiredJobDescriptions({ db: env.DB });
     // Send daily digest
     const notifier = createWorkerNotifier(env);
     await sendManualDailyDigest({ db: env.DB, notifier });
@@ -1545,7 +1555,7 @@ export default {
       try {
         await env.JOBS_QUEUE.send({ action: 'sync_sheet' });
       } catch (err) {
-        console.error('Error enqueuing scheduled sheet sync:', err);
+        logger.error('Error enqueuing scheduled sheet sync', err);
       }
     }
 
@@ -1554,7 +1564,7 @@ export default {
       try {
         await env.JOBS_QUEUE.send({ action: 'poll_inbox' });
       } catch (err) {
-        console.error('Error enqueuing scheduled inbox poll:', err);
+        logger.error('Error enqueuing scheduled inbox poll', err);
       }
     }
 
@@ -1573,7 +1583,7 @@ export default {
           notifier,
         });
       } catch (err) {
-        console.error('Error during scheduled Google auth health ping:', err);
+        logger.error('Error during scheduled Google auth health ping', err);
       }
     }
   },
@@ -1592,7 +1602,7 @@ export default {
           });
         } catch (err) {
           // Log error so that one source failure does not break other sources in the batch
-          console.error(`Ingestion error for source ${body.source}:`, err);
+          logger.error(`Ingestion error for source ${body.source}`, err);
         }
       } else if (body && body.action === 'score_and_route') {
         try {
@@ -1619,7 +1629,7 @@ export default {
             });
           }
         } catch (err) {
-          console.error('Error during score_and_route queue task:', err);
+          logger.error('Error during score_and_route queue task', err);
         }
       } else if (
         body &&
@@ -1648,7 +1658,7 @@ export default {
             });
           }
         } catch (err) {
-          console.error('Error during create_application queue task:', err);
+          logger.error('Error during create_application queue task', err);
         }
       } else if (
         body &&
@@ -1711,7 +1721,7 @@ export default {
             }
           }
         } catch (err) {
-          console.error('Error during send_application queue task:', err);
+          logger.error('Error during send_application queue task', err);
         }
       } else if (body && body.action === 'sync_sheet') {
         try {
@@ -1739,7 +1749,7 @@ export default {
             notifier,
           });
         } catch (err) {
-          console.error('Error during sync_sheet queue task:', err);
+          logger.error('Error during sync_sheet queue task', err);
         }
       } else if (body && body.action === 'poll_inbox') {
         try {
@@ -1796,7 +1806,7 @@ export default {
             }
           }
         } catch (err) {
-          console.error('Error during poll_inbox queue task:', err);
+          logger.error('Error during poll_inbox queue task', err);
         }
       }
       msg.ack();

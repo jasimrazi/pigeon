@@ -6,3 +6,4 @@ export * from './dedupe.js';
 export * from './circuit-breaker.js';
 export * from './ingest.js';
 export * from './adapters/index.js';
+export * from './retention.js';

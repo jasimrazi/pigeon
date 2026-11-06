@@ -226,6 +226,82 @@ describe('Circuit Breaker', () => {
       expect(checkClosed.isHalfOpenTrial).toBe(false);
     });
 
+    it('circuit breaker recovery test: source circuit opens on consecutive failures and recovers on flakiness in the same test run', async () => {
+      const { mockDb, sourceStateMap } = createMockSourceStateDb();
+      const source = 'flaky_api_service';
+      let currentTime = 1731000000000;
+
+      // 1. Initial check: circuit is closed, can run
+      const initial = await checkCircuit(source, mockDb, currentTime);
+      expect(initial.canRun).toBe(true);
+      expect(initial.state).toBe('closed');
+
+      // 2. Simulate 5 consecutive flakiness failures (HTTP 500 / Network timeout)
+      for (let i = 1; i <= 5; i++) {
+        currentTime += 60000; // 1 min apart
+        const isTrippingFailure = i === 5;
+        await recordRunFailure(
+          source,
+          mockDb,
+          new Error(`Flaky gateway timeout attempt ${i}`),
+          isTrippingFailure,
+          new Date(currentTime).toISOString(),
+        );
+
+        // Update map state reflecting database write
+        sourceStateMap.set(source, {
+          circuit_state: i >= 5 ? 'open' : 'closed',
+          consecutive_failures: i,
+          opened_at: i >= 5 ? new Date(currentTime).toISOString() : null,
+          last_run_at: new Date(currentTime).toISOString(),
+          last_success_at: null,
+          last_error: `Flaky gateway timeout attempt ${i}`,
+        });
+      }
+
+      // 3. Immediately after 5th failure: circuit is open, requests are blocked
+      const blockedCheck = await checkCircuit(source, mockDb, currentTime + 5000);
+      expect(blockedCheck.canRun).toBe(false);
+      expect(blockedCheck.state).toBe('open');
+
+      // 4. Advance time past cooldown period (BASE_COOLDOWN_MS = 6 hours)
+      currentTime += BASE_COOLDOWN_MS + 10000;
+
+      // 5. Next check enters half_open trial
+      const halfOpenCheck = await checkCircuit(source, mockDb, currentTime);
+      expect(halfOpenCheck.canRun).toBe(true);
+      expect(halfOpenCheck.state).toBe('half_open');
+      expect(halfOpenCheck.isHalfOpenTrial).toBe(true);
+
+      // 6. Upstream flakiness resolves! Trial run succeeds
+      sourceStateMap.set(source, {
+        circuit_state: 'half_open',
+        consecutive_failures: 5,
+        opened_at: new Date(currentTime - BASE_COOLDOWN_MS).toISOString(),
+        last_run_at: new Date(currentTime).toISOString(),
+        last_success_at: null,
+        last_error: null,
+      });
+
+      await recordRunSuccess(source, mockDb, true, new Date(currentTime).toISOString());
+
+      // Update map state to closed
+      sourceStateMap.set(source, {
+        circuit_state: 'closed',
+        consecutive_failures: 0,
+        opened_at: null,
+        last_run_at: new Date(currentTime).toISOString(),
+        last_success_at: new Date(currentTime).toISOString(),
+        last_error: null,
+      });
+
+      // 7. Verify fully recovered: circuit is closed, subsequent runs proceed normally
+      const recoveredCheck = await checkCircuit(source, mockDb, currentTime + 60000);
+      expect(recoveredCheck.canRun).toBe(true);
+      expect(recoveredCheck.state).toBe('closed');
+      expect(recoveredCheck.isHalfOpenTrial).toBe(false);
+    });
+
     it('reopens with doubled cooldown on trial failure', async () => {
       const { mockDb, sourceStateMap } = createMockSourceStateDb();
       const source = 'trial_fail_source';
