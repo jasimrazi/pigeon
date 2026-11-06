@@ -73,9 +73,7 @@ app.use('*', async (c, next) => {
 // -------------------------------------------------------------
 app.use('*', async (c, next) => {
   const origin = c.req.header('origin') || '';
-  const dashboardOrigin =
-    (c.env.DASHBOARD_ORIGIN as string) ||
-    'http://localhost:5173';
+  const dashboardOrigin = (c.env.DASHBOARD_ORIGIN as string) || 'http://localhost:5173';
 
   // Allowed origins: dashboardOrigin or localhost dev/test origins
   const isAllowedOrigin =
@@ -89,7 +87,10 @@ app.use('*', async (c, next) => {
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Credentials', 'true');
     c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    c.header('Access-Control-Allow-Headers', 'Content-Type, Cf-Access-Jwt-Assertion, Authorization');
+    c.header(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Cf-Access-Jwt-Assertion, Authorization',
+    );
   }
 
   // Preflight
@@ -111,8 +112,7 @@ app.use('*', async (c, next) => {
       const contentType = c.req.header('content-type') || '';
       const contentLength = c.req.header('content-length');
       const hasBody =
-        (contentLength !== undefined && contentLength !== '0') ||
-        c.req.raw.body !== null;
+        (contentLength !== undefined && contentLength !== '0') || c.req.raw.body !== null;
       if (hasBody && !contentType.includes('application/json')) {
         return c.json({ error: 'Unsupported Media Type: expected application/json' }, 415);
       }
@@ -1157,6 +1157,31 @@ app.get('/api/review-queue', async (c) => {
     }
   }
 
+  interface ReviewQueueDbRow {
+    id: string;
+    job_id: string;
+    status: string;
+    cover_letter: string;
+    subject: string;
+    resume_id: string | null;
+    validator_errors: string | null;
+    updated_at: string;
+    title: string;
+    company: string;
+    location: string | null;
+    salary_raw: string | null;
+    description: string;
+    apply_url: string | null;
+    contact_email: string | null;
+    contact_source: string | null;
+    match_score: number | null;
+    match_reasons: string | null;
+    red_flags: string | null;
+    untrusted: number | boolean | null;
+    route_reason: string | null;
+    resume_label: string | null;
+  }
+
   const { results: rawRows } = await c.env.DB.prepare(
     `SELECT
        a.id, a.job_id, a.status, a.cover_letter, a.subject, a.resume_id, a.validator_errors, a.updated_at,
@@ -1170,7 +1195,7 @@ app.get('/api/review-queue', async (c) => {
      ORDER BY j.match_score DESC, a.updated_at DESC`,
   ).all();
 
-  const items = (rawRows || []).map((row: any) => {
+  const items = ((rawRows || []) as unknown as ReviewQueueDbRow[]).map((row) => {
     let redFlagsList: string[] = [];
     try {
       if (row.red_flags) redFlagsList = JSON.parse(row.red_flags);
@@ -1234,12 +1259,10 @@ app.patch('/api/applications/:id/letter', async (c) => {
   const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
 
   // Run pure guardrail validator
-  const errors = validateCoverLetter(
-    body.cover_letter,
-    appRow.subject || '',
-    profile,
-    { title: appRow.title, company: appRow.company },
-  );
+  const errors = validateCoverLetter(body.cover_letter, appRow.subject || '', profile, {
+    title: appRow.title,
+    company: appRow.company,
+  });
 
   const nowIso = new Date().toISOString();
   await c.env.DB.prepare(
@@ -1247,12 +1270,7 @@ app.patch('/api/applications/:id/letter', async (c) => {
      SET cover_letter = ?, validator_errors = ?, updated_at = ?
      WHERE id = ?`,
   )
-    .bind(
-      body.cover_letter,
-      errors.length > 0 ? JSON.stringify(errors) : null,
-      nowIso,
-      id,
-    )
+    .bind(body.cover_letter, errors.length > 0 ? JSON.stringify(errors) : null, nowIso, id)
     .run();
 
   // Audit event
@@ -1260,12 +1278,7 @@ app.patch('/api/applications/:id/letter', async (c) => {
     `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
      VALUES (?, 'application', ?, 'cover_letter_edited', ?, ?)`,
   )
-    .bind(
-      crypto.randomUUID(),
-      id,
-      JSON.stringify({ error_count: errors.length, errors }),
-      nowIso,
-    )
+    .bind(crypto.randomUUID(), id, JSON.stringify({ error_count: errors.length, errors }), nowIso)
     .run();
 
   return c.json({ ok: true, validator_errors: errors });
@@ -1283,9 +1296,7 @@ app.patch('/api/applications/:id/resume', async (c) => {
   }
 
   const nowIso = new Date().toISOString();
-  await c.env.DB.prepare(
-    'UPDATE applications SET resume_id = ?, updated_at = ? WHERE id = ?',
-  )
+  await c.env.DB.prepare('UPDATE applications SET resume_id = ?, updated_at = ? WHERE id = ?')
     .bind(body.resume_id, nowIso, id)
     .run();
 
@@ -1303,13 +1314,7 @@ app.post('/api/applications/:id/reject', async (c) => {
     return c.json({ error: `Application '${id}' not found` }, 404);
   }
 
-  await transition(
-    c.env.DB,
-    'application',
-    id,
-    'rejected',
-    'Rejected during review',
-  );
+  await transition(c.env.DB, 'application', id, 'rejected', 'Rejected during review');
 
   return c.json({ ok: true });
 });
@@ -1365,13 +1370,24 @@ app.get('/api/applications', async (c) => {
 
 // 7. GET /api/sources: Source circuit and parser health
 app.get('/api/sources', async (c) => {
+  interface SourceStateDbRow {
+    source: string;
+    consecutive_failures: number;
+    circuit_state: string;
+    opened_at: string | null;
+    last_run_at: string | null;
+    error: string | null;
+    parser_empty_streak: number | null;
+    untrusted: number | boolean | null;
+  }
+
   const { results: rawRows } = await c.env.DB.prepare(
     `SELECT source, consecutive_failures, circuit_state, opened_at, last_run_at, error, parser_empty_streak, untrusted
      FROM source_state
      ORDER BY source ASC`,
   ).all();
 
-  const sources = (rawRows || []).map((row: any) => ({
+  const sources = ((rawRows || []) as unknown as SourceStateDbRow[]).map((row) => ({
     ...row,
     parser_suspect: (row.parser_empty_streak ?? 0) >= 3 || Boolean(row.untrusted),
   }));
@@ -1417,9 +1433,7 @@ app.get('/api/settings', async (c) => {
 
 // 9. POST /api/settings: Validates and updates profile settings
 app.post('/api/settings', async (c) => {
-  const body = await c.req
-    .json<{ profile?: unknown }>()
-    .catch(() => ({}) as { profile?: unknown });
+  const body = await c.req.json<{ profile?: unknown }>().catch(() => ({}) as { profile?: unknown });
 
   if (!body.profile || typeof body.profile !== 'object') {
     return c.json({ error: 'Missing profile object in request body' }, 400);
@@ -1428,14 +1442,13 @@ app.post('/api/settings', async (c) => {
   let validatedProfile;
   try {
     validatedProfile = ProfileSchema.parse(body.profile);
-  } catch (err: any) {
-    return c.json({ error: `Invalid profile settings: ${err.message}` }, 400);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ error: `Invalid profile settings: ${msg}` }, 400);
   }
 
   const nowIso = new Date().toISOString();
-  await c.env.DB.prepare(
-    `INSERT OR REPLACE INTO profile (id, data, updated_at) VALUES (?, ?, ?)`,
-  )
+  await c.env.DB.prepare(`INSERT OR REPLACE INTO profile (id, data, updated_at) VALUES (?, ?, ?)`)
     .bind('default', JSON.stringify(validatedProfile), nowIso)
     .run();
 
@@ -1451,9 +1464,7 @@ app.post('/api/settings', async (c) => {
 
 // 10. POST /api/settings/dry-run: Toggles DRY_RUN
 app.post('/api/settings/dry-run', async (c) => {
-  const body = await c.req
-    .json<{ dry_run?: boolean }>()
-    .catch(() => ({}) as { dry_run?: boolean });
+  const body = await c.req.json<{ dry_run?: boolean }>().catch(() => ({}) as { dry_run?: boolean });
   if (typeof body.dry_run !== 'boolean') {
     return c.json({ error: 'Missing or invalid dry_run boolean' }, 400);
   }

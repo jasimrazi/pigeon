@@ -96,12 +96,16 @@ export function buildMimeMessage(params: SendEmailParams): string {
 
   if (params.inReplyTo) {
     const safeInReplyTo = assertSafeHeader('In-Reply-To', params.inReplyTo);
-    headers.push(`In-Reply-To: ${safeInReplyTo.startsWith('<') ? safeInReplyTo : `<${safeInReplyTo}>`}`);
+    headers.push(
+      `In-Reply-To: ${safeInReplyTo.startsWith('<') ? safeInReplyTo : `<${safeInReplyTo}>`}`,
+    );
   }
 
   if (params.references) {
     const safeReferences = assertSafeHeader('References', params.references);
-    headers.push(`References: ${safeReferences.startsWith('<') ? safeReferences : `<${safeReferences}>`}`);
+    headers.push(
+      `References: ${safeReferences.startsWith('<') ? safeReferences : `<${safeReferences}>`}`,
+    );
   }
 
   if (!resumePdfBytes || resumePdfBytes.length === 0) {

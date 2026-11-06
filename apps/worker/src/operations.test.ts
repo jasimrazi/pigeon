@@ -164,9 +164,7 @@ Alex Mercer`;
     expect(sendBody1.error).toContain('Kill switch is active');
 
     // Verify status remains approved (not sent)
-    const checkApp1 = await workerEnv.DB.prepare(
-      'SELECT status FROM applications WHERE id = ?',
-    )
+    const checkApp1 = await workerEnv.DB.prepare('SELECT status FROM applications WHERE id = ?')
       .bind('app-ks-1')
       .first<{ status: string }>();
     expect(checkApp1?.status).toBe('approved');
@@ -194,9 +192,7 @@ Alex Mercer`;
     const sendBody2 = (await sendRes2.json()) as { ok: boolean; status?: string };
     expect(sendBody2.ok).toBe(true);
 
-    const checkApp2 = await workerEnv.DB.prepare(
-      'SELECT status FROM applications WHERE id = ?',
-    )
+    const checkApp2 = await workerEnv.DB.prepare('SELECT status FROM applications WHERE id = ?')
       .bind('app-ks-1')
       .first<{ status: string }>();
     expect(checkApp2?.status).toBe('sent');
@@ -350,7 +346,14 @@ Alex Mercer`;
             education: [],
             preferences: { locations: ['Remote'], remote: true },
             filters: { titles: ['Engineer'], locations: ['Remote'], company_blacklist: [] },
-            answers: { notice_period: '', current_ctc: '', expected_ctc: '', work_authorisation: '', links: {}, other: {} },
+            answers: {
+              notice_period: '',
+              current_ctc: '',
+              expected_ctc: '',
+              work_authorisation: '',
+              links: {},
+              other: {},
+            },
           },
         }),
       }),
@@ -382,7 +385,14 @@ Alex Mercer`;
             education: [],
             preferences: { locations: ['Remote'], remote: true },
             filters: { titles: ['Engineer'], locations: ['Remote'], company_blacklist: [] },
-            answers: { notice_period: '', current_ctc: '', expected_ctc: '', work_authorisation: '', links: {}, other: {} },
+            answers: {
+              notice_period: '',
+              current_ctc: '',
+              expected_ctc: '',
+              work_authorisation: '',
+              links: {},
+              other: {},
+            },
           },
         }),
       }),

@@ -78,13 +78,7 @@ interface InitialApplicationCandidate {
  * creates ONE follow-up application (kind=follow_up) in 'draft' status for approval.
  */
 export async function createPendingFollowUps(options: FollowUpOptions): Promise<FollowUpResult> {
-  const {
-    db,
-    profile,
-    nowMs = Date.now(),
-    businessDaysThreshold = 6,
-    maxFollowUps = 1,
-  } = options;
+  const { db, profile, nowMs = Date.now(), businessDaysThreshold = 6, maxFollowUps = 1 } = options;
 
   const now = new Date(nowMs);
   const nowIso = now.toISOString();

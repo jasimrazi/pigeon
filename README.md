@@ -42,6 +42,15 @@ Vars configured:
 - `ENV`: `"dev"` | `"staging"` | `"prod"`
 - `DRY_RUN`: `"true"` (default) | `"false"`
 
+## Security & Access Control
+
+Pigeon is secured for production deployment with owner-only access controls:
+
+- **Cloudflare Access (Zero Trust)**: Protects both Cloudflare Pages (`apps/dashboard`) and the API Worker (`apps/worker`). The Worker verifies the `Cf-Access-Jwt-Assertion` header on every `/api/*` request against cached Cloudflare Access team JWKS (RS256 signature, audience tag, team issuer, and token expiry).
+- **CORS & Origin Checks**: Outbound headers and origin matching are restricted to the configured dashboard domain (`DASHBOARD_ORIGIN`). State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require an exact Origin match and `application/json` Content-Type.
+- **Kill Switch**: Stored in Cloudflare KV and evaluated dynamically before every outbound email dispatch. The dashboard provides a confirmation-gated toggle to instantly halt all sending.
+- **Safety Defaults**: `DRY_RUN=true` by default. Outbound emails are only transmitted when `DRY_RUN=false`, the Kill Switch is disarmed, and Google OAuth health is valid.
+
 ## CI Workflow
 
 A GitHub Actions workflow is located at [`.github/workflows/ci.yml`](.github/workflows/ci.yml) and runs on all pushes and pull requests to execute:

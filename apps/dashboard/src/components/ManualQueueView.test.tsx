@@ -4,6 +4,10 @@ import { createRoot } from 'react-dom/client';
 import { ManualQueueView } from './ManualQueueView.js';
 import type { ManualQueueResponse, ManualKit } from '@pigeon/shared';
 
+// Suppress React 19 test environment warning
+// @ts-expect-error global IS_REACT_ACT_ENVIRONMENT flag
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 describe('ManualQueueView Component', () => {
   let container: HTMLDivElement | null = null;
   let root: ReturnType<typeof createRoot> | null = null;

@@ -70,7 +70,9 @@ export async function getTeamJwks(
 
   const res = await fetchFn(certsUrl);
   if (!res.ok) {
-    throw new Error(`Failed to fetch Cloudflare Access certs from ${certsUrl}: status ${res.status}`);
+    throw new Error(
+      `Failed to fetch Cloudflare Access certs from ${certsUrl}: status ${res.status}`,
+    );
   }
 
   const jwks = (await res.json()) as JwksResponse;

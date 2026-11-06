@@ -4,12 +4,7 @@ import { app } from './index.js';
 import type { Bindings } from './env.js';
 import { server } from '../fixtures/server.js';
 import { http, HttpResponse } from 'msw';
-import {
-  bytesToBase64Url,
-  clearJwksCache,
-  type JwkKey,
-  type JwksResponse,
-} from '@pigeon/shared';
+import { bytesToBase64Url, clearJwksCache, type JwkKey, type JwksResponse } from '@pigeon/shared';
 
 interface TestEnv extends Bindings {
   TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
@@ -52,7 +47,7 @@ describe('Worker Cloudflare Access & API Security Middleware', () => {
       )
       .run();
 
-    keyPair = await crypto.subtle.generateKey(
+    keyPair = (await crypto.subtle.generateKey(
       {
         name: 'RSASSA-PKCS1-v1_5',
         modulusLength: 2048,
@@ -61,7 +56,7 @@ describe('Worker Cloudflare Access & API Security Middleware', () => {
       },
       true,
       ['sign', 'verify'],
-    );
+    )) as CryptoKeyPair;
 
     const exported = (await crypto.subtle.exportKey('jwk', keyPair.publicKey)) as unknown as JwkKey;
     publicJwk = {

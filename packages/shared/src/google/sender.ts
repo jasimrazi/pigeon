@@ -1,10 +1,5 @@
 import { buildMimeMessage, toBase64Url } from './mime.js';
-import type {
-  GmailSender,
-  SendEmailParams,
-  SendEmailResult,
-  GmailThread,
-} from './types.js';
+import type { GmailSender, SendEmailParams, SendEmailResult, GmailThread } from './types.js';
 
 export class GoogleRateLimitError extends Error {
   constructor(message = 'Rate limit exceeded') {

@@ -323,8 +323,7 @@ export async function sendApplicationEmail(
 
   // 1. Safety Gate: Kill Switch
   const kvKillSwitch =
-    (await config.get('kill_switch')) === 'true' ||
-    (await config.get('KILL_SWITCH')) === 'true';
+    (await config.get('kill_switch')) === 'true' || (await config.get('KILL_SWITCH')) === 'true';
   if (killSwitch || kvKillSwitch) {
     return { success: false, error: 'Kill switch is active. Sending paused.' };
   }

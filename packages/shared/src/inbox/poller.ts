@@ -2,11 +2,7 @@ import { getGoogleAuthHealth } from '../google/auth.js';
 import { transition } from '../state-machine.js';
 import { DefaultInboxClassifier } from './classifier.js';
 import { createPendingFollowUps } from './follow-up.js';
-import type {
-  PollerOptions,
-  PollerResult,
-  ThreadMessage,
-} from './types.js';
+import type { PollerOptions, PollerResult, ThreadMessage } from './types.js';
 
 interface PolledApplicationRow {
   id: string;
@@ -27,14 +23,7 @@ interface PolledApplicationRow {
  * Runs follow-up generator for applications with 6 business days elapsed and no reply.
  */
 export async function pollInboxAndTrackOutcomes(options: PollerOptions): Promise<PollerResult> {
-  const {
-    db,
-    config,
-    notifier,
-    profile,
-    nowMs = Date.now(),
-    maxDaysOld = 30,
-  } = options;
+  const { db, config, notifier, profile, nowMs = Date.now(), maxDaysOld = 30 } = options;
 
   const gmailClient = options.gmailClient ?? options.gmailSender;
   const classifier = options.classifier ?? new DefaultInboxClassifier(options.llmClient);

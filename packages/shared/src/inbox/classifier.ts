@@ -17,7 +17,10 @@ export const OutcomeLlmResponseSchema = z.object({
 export class DefaultInboxClassifier implements InboxClassifier {
   constructor(private readonly llmClient?: LLMClient | undefined) {}
 
-  async classify(message: ThreadMessage, context?: ClassifierContext): Promise<ClassificationResult> {
+  async classify(
+    message: ThreadMessage,
+    context?: ClassifierContext,
+  ): Promise<ClassificationResult> {
     const from = (message.headers['from'] || '').toLowerCase();
     const subject = (message.headers['subject'] || '').toLowerCase();
     const contentType = (message.headers['content-type'] || '').toLowerCase();
@@ -61,12 +64,7 @@ export class DefaultInboxClassifier implements InboxClassifier {
     };
   }
 
-  private isBounce(
-    from: string,
-    subject: string,
-    contentType: string,
-    snippet: string,
-  ): boolean {
+  private isBounce(from: string, subject: string, contentType: string, snippet: string): boolean {
     if (from.includes('mailer-daemon') || from.includes('postmaster')) {
       return true;
     }
@@ -190,7 +188,10 @@ Respond ONLY with valid JSON in this exact structure:
 {"label": "interview" | "rejection" | "other", "confidence": "high" | "medium" | "low", "reason": "short explanation"}`;
 
         const rawLlm = await this.llmClient.generateText(prompt);
-        const cleaned = rawLlm.replace(/^```json/m, '').replace(/^```/m, '').trim();
+        const cleaned = rawLlm
+          .replace(/^```json/m, '')
+          .replace(/^```/m, '')
+          .trim();
         const parsed = OutcomeLlmResponseSchema.safeParse(JSON.parse(cleaned));
 
         if (parsed.success && parsed.data.confidence !== 'low') {

@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { D1LikeDatabase } from '../state-machine.js';
 import type { KVLike } from '../google/auth.js';
 import { setGoogleAuthHealth } from '../google/auth.js';
-import type { GmailSender, SendEmailParams, SendEmailResult, GmailThread } from '../google/types.js';
+import type {
+  GmailSender,
+  SendEmailParams,
+  SendEmailResult,
+  GmailThread,
+} from '../google/types.js';
 import type { Profile } from '../profile.js';
 import {
   addBusinessDays,
@@ -75,7 +80,10 @@ function createMockDb(initialApps: MockAppRow[] = [], initialJobs: MockJobRow[] 
           return stmt;
         },
         async first<T>(): Promise<T | null> {
-          if (query.includes('FROM applications') && query.includes('status FROM applications WHERE id = ?')) {
+          if (
+            query.includes('FROM applications') &&
+            query.includes('status FROM applications WHERE id = ?')
+          ) {
             const id = String(boundParams[0]);
             const a = applications.get(id);
             return (a ? { status: a.status } : null) as unknown as T;
@@ -149,7 +157,10 @@ function createMockDb(initialApps: MockAppRow[] = [], initialJobs: MockJobRow[] 
             }
             return { changes: 1 };
           }
-          if (query.includes('UPDATE applications') && query.includes('follow_up_count = follow_up_count + 1')) {
+          if (
+            query.includes('UPDATE applications') &&
+            query.includes('follow_up_count = follow_up_count + 1')
+          ) {
             const updated_at = String(boundParams[0]);
             const id = String(boundParams[1]);
             const a = applications.get(id);
@@ -404,7 +415,9 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
         db,
         config,
         gmailClient,
-        notifier: notifierMock as unknown as Parameters<typeof pollInboxAndTrackOutcomes>[0]['notifier'],
+        notifier: notifierMock as unknown as Parameters<
+          typeof pollInboxAndTrackOutcomes
+        >[0]['notifier'],
         profile: mockProfile,
         nowMs: new Date('2026-11-02T10:00:00Z').getTime(),
       });
@@ -472,7 +485,8 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
           {
             id: 'ooo-msg',
             threadId: 'thread-ooo',
-            snippet: 'I am currently out of the office on annual leave with limited access to email.',
+            snippet:
+              'I am currently out of the office on annual leave with limited access to email.',
             payload: {
               headers: [
                 { name: 'From', value: 'recruiter@stripe.com' },
@@ -491,7 +505,9 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
         db,
         config,
         gmailClient,
-        notifier: notifierMock as unknown as Parameters<typeof pollInboxAndTrackOutcomes>[0]['notifier'],
+        notifier: notifierMock as unknown as Parameters<
+          typeof pollInboxAndTrackOutcomes
+        >[0]['notifier'],
         profile: mockProfile,
         nowMs: new Date('2026-11-02T10:00:00Z').getTime(),
       });
@@ -558,9 +574,24 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
       ];
 
       const jobs: MockJobRow[] = [
-        { id: 'job-interview', title: 'Lead Engineer', company: 'Linear', contact_email: 'lin@linear.app' },
-        { id: 'job-rejected', title: 'Staff Engineer', company: 'Meta', contact_email: 'rec@meta.com' },
-        { id: 'job-ambiguous', title: 'Principal Engineer', company: 'HashiCorp', contact_email: 'hr@hashi.com' },
+        {
+          id: 'job-interview',
+          title: 'Lead Engineer',
+          company: 'Linear',
+          contact_email: 'lin@linear.app',
+        },
+        {
+          id: 'job-rejected',
+          title: 'Staff Engineer',
+          company: 'Meta',
+          contact_email: 'rec@meta.com',
+        },
+        {
+          id: 'job-ambiguous',
+          title: 'Principal Engineer',
+          company: 'HashiCorp',
+          contact_email: 'hr@hashi.com',
+        },
       ];
 
       const { db, applications } = createMockDb(apps, jobs);
@@ -573,8 +604,14 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
             {
               id: 'm1',
               threadId: 'thread-interview',
-              snippet: 'We loved your profile and would love to schedule a 30-minute interview chat next week!',
-              payload: { headers: [{ name: 'From', value: 'recruiter@linear.app' }, { name: 'Subject', value: 'Re: Role 1' }] },
+              snippet:
+                'We loved your profile and would love to schedule a 30-minute interview chat next week!',
+              payload: {
+                headers: [
+                  { name: 'From', value: 'recruiter@linear.app' },
+                  { name: 'Subject', value: 'Re: Role 1' },
+                ],
+              },
             },
           ],
         },
@@ -585,8 +622,14 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
             {
               id: 'm1',
               threadId: 'thread-rejected',
-              snippet: 'Thank you for your time. Unfortunately, we have decided not to move forward with your candidacy.',
-              payload: { headers: [{ name: 'From', value: 'recruiting@meta.com' }, { name: 'Subject', value: 'Re: Role 2' }] },
+              snippet:
+                'Thank you for your time. Unfortunately, we have decided not to move forward with your candidacy.',
+              payload: {
+                headers: [
+                  { name: 'From', value: 'recruiting@meta.com' },
+                  { name: 'Subject', value: 'Re: Role 2' },
+                ],
+              },
             },
           ],
         },
@@ -598,7 +641,12 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
               id: 'm1',
               threadId: 'thread-ambiguous',
               snippet: 'Got your email. I have forwarded this over to our engineering department.',
-              payload: { headers: [{ name: 'From', value: 'hr@hashi.com' }, { name: 'Subject', value: 'Re: Role 3' }] },
+              payload: {
+                headers: [
+                  { name: 'From', value: 'hr@hashi.com' },
+                  { name: 'Subject', value: 'Re: Role 3' },
+                ],
+              },
             },
           ],
         },
@@ -611,7 +659,9 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
         db,
         config,
         gmailClient,
-        notifier: notifierMock as unknown as Parameters<typeof pollInboxAndTrackOutcomes>[0]['notifier'],
+        notifier: notifierMock as unknown as Parameters<
+          typeof pollInboxAndTrackOutcomes
+        >[0]['notifier'],
         profile: mockProfile,
         nowMs: new Date('2026-11-02T10:00:00Z').getTime(),
       });
@@ -735,7 +785,12 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
         notes: null,
         updated_at: sentAt,
       };
-      const repliedJob: MockJobRow = { id: 'job-replied', title: 'Role', company: 'Co', contact_email: 'e@co.com' };
+      const repliedJob: MockJobRow = {
+        id: 'job-replied',
+        title: 'Role',
+        company: 'Co',
+        contact_email: 'e@co.com',
+      };
       const { db: dbReplied, applications: appsReplied } = createMockDb([repliedApp], [repliedJob]);
 
       const resAfterReply = await createPendingFollowUps({
@@ -793,7 +848,10 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
       expect(followUp?.gmail_thread_id).toBe('thread-abc-xyz');
 
       // Notes contain in_reply_to and references matching initial message_id_header
-      const notes = JSON.parse(followUp?.notes || '{}') as { in_reply_to?: string; references?: string };
+      const notes = JSON.parse(followUp?.notes || '{}') as {
+        in_reply_to?: string;
+        references?: string;
+      };
       expect(notes.in_reply_to).toBe('<original-unique-id-999@pigeon.local>');
       expect(notes.references).toBe('<original-unique-id-999@pigeon.local>');
     });
@@ -894,7 +952,12 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
         notes: null,
         updated_at: '2026-11-01T10:00:00Z',
       };
-      const job: MockJobRow = { id: 'job-1', title: 'Role', company: 'Co', contact_email: 'e@co.com' };
+      const job: MockJobRow = {
+        id: 'job-1',
+        title: 'Role',
+        company: 'Co',
+        contact_email: 'e@co.com',
+      };
 
       const { db } = createMockDb([app], [job]);
       const gmailClient = createMockGmailClient();
@@ -946,7 +1009,12 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
             id: 'm2',
             threadId: 'thread-notify-test',
             snippet: 'We would love to invite you to an interview!',
-            payload: { headers: [{ name: 'From', value: 'hr@vercel.com' }, { name: 'Subject', value: 'Re: Role' }] },
+            payload: {
+              headers: [
+                { name: 'From', value: 'hr@vercel.com' },
+                { name: 'Subject', value: 'Re: Role' },
+              ],
+            },
           },
         ],
       };
@@ -959,7 +1027,9 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
         db,
         config,
         gmailClient,
-        notifier: notifierMock as unknown as Parameters<typeof pollInboxAndTrackOutcomes>[0]['notifier'],
+        notifier: notifierMock as unknown as Parameters<
+          typeof pollInboxAndTrackOutcomes
+        >[0]['notifier'],
         profile: mockProfile,
       });
 
@@ -982,7 +1052,9 @@ describe('Phase 9: Outcome Tracking & Polite Follow-ups', () => {
         db,
         config,
         gmailClient,
-        notifier: notifierMock as unknown as Parameters<typeof pollInboxAndTrackOutcomes>[0]['notifier'],
+        notifier: notifierMock as unknown as Parameters<
+          typeof pollInboxAndTrackOutcomes
+        >[0]['notifier'],
         profile: mockProfile,
       });
 
