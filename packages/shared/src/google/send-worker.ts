@@ -139,6 +139,21 @@ export async function applyBounceBrake(options: {
 }
 
 /**
+ * Computes SHA-256 hash of (recipient, subject, body, resume_id) for dry-run event deduplication.
+ */
+export async function computeEmailHash(
+  recipient: string,
+  subject: string,
+  body: string,
+  resumeId: string,
+): Promise<string> {
+  const data = new TextEncoder().encode(`${recipient}|${subject}|${body}|${resumeId}`);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Determines whether the current time is within the allowed send window (weekdays only, 09:00 - 18:00).
  */
 export function isInsideSendWindow(options: { profile: Profile; nowMs?: number | undefined }): {
@@ -465,33 +480,68 @@ export async function sendApplicationEmail(
 
   const messageIdHeader = app.message_id_header || `<${crypto.randomUUID()}@pigeon.local>`;
 
-  // 7. DRY RUN Check (Claims no cap slot, changes no status, only writes email_dry_run event)
+  // 7. DRY RUN Check (Claims no cap slot, changes no status, deduplicates email_dry_run events)
   const effectiveDryRun = await getEffectiveDryRun(dryRun, config);
   if (effectiveDryRun) {
-    const dryRunPayload = {
-      headers: {
-        From: profile.email,
-        To: app.contact_email,
-        Subject: app.subject || `Application for ${app.title}`,
-        'Message-ID': messageIdHeader,
-        ...(inReplyTo ? { 'In-Reply-To': inReplyTo } : {}),
-        ...(references ? { References: references } : {}),
-      },
-      threadId,
-      body: app.cover_letter,
-      attachment: {
-        name: resumeLabel,
-        size: resumePdfBytes?.length ?? 0,
-      },
-    };
+    const recipient = app.contact_email || '';
+    const subject = app.subject || `Application for ${app.title}`;
+    const body = app.cover_letter || '';
+    const resumeId = app.resume_id || '';
+    const emailHash = await computeEmailHash(recipient, subject, body, resumeId);
 
-    await db
+    const latestDryRun = await db
       .prepare(
-        `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
-         VALUES (?, 'application', ?, 'email_dry_run', ?, ?)`,
+        `SELECT payload FROM events
+         WHERE entity = 'application' AND entity_id = ? AND type = 'email_dry_run'
+         ORDER BY created_at DESC
+         LIMIT 1`,
       )
-      .bind(crypto.randomUUID(), app.id, JSON.stringify(dryRunPayload), nowIso)
-      .run();
+      .bind(app.id)
+      .first<{ payload: string }>();
+
+    let shouldInsert = true;
+    if (latestDryRun?.payload) {
+      try {
+        const parsed = JSON.parse(latestDryRun.payload) as {
+          email_hash?: string;
+          content_hash?: string;
+        };
+        if (parsed.email_hash === emailHash || parsed.content_hash === emailHash) {
+          shouldInsert = false;
+        }
+      } catch {
+        // In case of corrupt previous payload, proceed to insert
+      }
+    }
+
+    if (shouldInsert) {
+      const dryRunPayload = {
+        headers: {
+          From: profile.email,
+          To: app.contact_email,
+          Subject: subject,
+          'Message-ID': messageIdHeader,
+          ...(inReplyTo ? { 'In-Reply-To': inReplyTo } : {}),
+          ...(references ? { References: references } : {}),
+        },
+        threadId,
+        body: app.cover_letter,
+        attachment: {
+          name: resumeLabel,
+          size: resumePdfBytes?.length ?? 0,
+        },
+        email_hash: emailHash,
+        content_hash: emailHash,
+      };
+
+      await db
+        .prepare(
+          `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+           VALUES (?, 'application', ?, 'email_dry_run', ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), app.id, JSON.stringify(dryRunPayload), nowIso)
+        .run();
+    }
 
     return { success: true, dryRun: true };
   }

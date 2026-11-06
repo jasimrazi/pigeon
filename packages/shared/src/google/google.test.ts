@@ -184,6 +184,16 @@ function createMockDb() {
             const a = applications.get(id);
             return (a ? { status: a['status'] } : null) as unknown as T;
           }
+          if (query.includes('FROM events') && query.includes("type = 'email_dry_run'")) {
+            const appId = String(boundParams[0]);
+            for (let i = events.length - 1; i >= 0; i--) {
+              const ev = events[i];
+              if (ev && ev.entity_id === appId && ev.type === 'email_dry_run') {
+                return { payload: ev.payload } as unknown as T;
+              }
+            }
+            return null;
+          }
           if (query.includes('MIN(sent_at)')) {
             let minSent: string | null = null;
             for (const a of applications.values()) {
@@ -1661,7 +1671,7 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
       expect(applications.get('app-perm-fail')?.['status']).toBe('failed');
     });
 
-    it('DRY_RUN claims no cap slot, changes no status, and writes exactly one email_dry_run event row', async () => {
+    it('DRY_RUN claims no cap slot, changes no status, and deduplicates events (two passes -> 1 event; edit letter -> 2nd event)', async () => {
       const { db, resumes, applications, events, dailyCounters } = createMockDb();
       const config = createMockKV();
       await setGoogleAuthHealth({ config, status: 'ok' });
@@ -1669,6 +1679,11 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
         id: 'res-valid',
         r2_key: 'resumes/valid.pdf',
         label: 'Valid Resume',
+      });
+      resumes.set('res-valid-2', {
+        id: 'res-valid-2',
+        r2_key: 'resumes/valid2.pdf',
+        label: 'Resume v2',
       });
       applications.set('app-dry', { id: 'app-dry', status: 'approved' });
 
@@ -1684,7 +1699,10 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
         },
       };
 
-      const res = await sendApplicationEmail({
+      const dryApp: ApplicationToSend = { ...targetApp, id: 'app-dry' };
+
+      // Pass 1: First dry run
+      const res1 = await sendApplicationEmail({
         db,
         config,
         resumesBucket: dummyR2,
@@ -1693,23 +1711,107 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
         dryRun: true,
         killSwitch: false,
         nowMs: sendTimeMs,
-        application: { ...targetApp, id: 'app-dry' },
+        application: dryApp,
       });
 
-      expect(res.success).toBe(true);
-      expect(res.dryRun).toBe(true);
+      expect(res1.success).toBe(true);
+      expect(res1.dryRun).toBe(true);
       expect(emailSent).toBe(false);
-
-      // Status remains approved (no status transition)
       expect(applications.get('app-dry')?.['status']).toBe('approved');
-
-      // daily_counters is untouched
       expect(dailyCounters.size).toBe(0);
 
-      // Writes exactly one email_dry_run event
-      const appEvents = events.filter((e) => e.entity_id === 'app-dry');
-      expect(appEvents.length).toBe(1);
-      expect(appEvents[0]?.type).toBe('email_dry_run');
+      // Writes exactly one email_dry_run event with hash
+      const appEventsPass1 = events.filter((e) => e.entity_id === 'app-dry');
+      expect(appEventsPass1.length).toBe(1);
+      expect(appEventsPass1[0]?.type).toBe('email_dry_run');
+      const payload1 = JSON.parse(appEventsPass1[0]?.payload ?? '{}') as {
+        content_hash?: string;
+        email_hash?: string;
+      };
+      expect(payload1.content_hash).toBeDefined();
+      expect(payload1.email_hash).toBe(payload1.content_hash);
+
+      // Pass 2: Second dry run with identical application content -> skips insert
+      const res2 = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket: dummyR2,
+        gmailSender: dummySender,
+        profile: mockProfile,
+        dryRun: true,
+        killSwitch: false,
+        nowMs: sendTimeMs,
+        application: dryApp,
+      });
+
+      expect(res2.success).toBe(true);
+      expect(res2.dryRun).toBe(true);
+      expect(emailSent).toBe(false);
+      expect(applications.get('app-dry')?.['status']).toBe('approved');
+      expect(dailyCounters.size).toBe(0);
+
+      // Still exactly 1 event (deduplicated)
+      const appEventsPass2 = events.filter((e) => e.entity_id === 'app-dry');
+      expect(appEventsPass2.length).toBe(1);
+
+      // Pass 3: Edit the cover letter -> writes a second event
+      const updatedLetter = `${dryApp.cover_letter}\n\nPS: I have also authored open-source TypeScript libraries.`;
+      const editedApp: ApplicationToSend = {
+        ...dryApp,
+        cover_letter: updatedLetter,
+      };
+
+      const res3 = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket: dummyR2,
+        gmailSender: dummySender,
+        profile: mockProfile,
+        dryRun: true,
+        killSwitch: false,
+        nowMs: sendTimeMs,
+        application: editedApp,
+      });
+
+      expect(res3.success).toBe(true);
+      expect(res3.dryRun).toBe(true);
+      expect(emailSent).toBe(false);
+      expect(applications.get('app-dry')?.['status']).toBe('approved');
+      expect(dailyCounters.size).toBe(0);
+
+      // Now exactly 2 events
+      const appEventsPass3 = events.filter((e) => e.entity_id === 'app-dry');
+      expect(appEventsPass3.length).toBe(2);
+      const payload2 = JSON.parse(appEventsPass3[1]?.payload ?? '{}') as {
+        content_hash?: string;
+        body?: string;
+      };
+      expect(payload2.content_hash).toBeDefined();
+      expect(payload2.content_hash).not.toBe(payload1.content_hash);
+      expect(payload2.body).toBe(updatedLetter);
+
+      // Pass 4: Change resume id -> writes a third event
+      const appWithNewResume: ApplicationToSend = {
+        ...editedApp,
+        resume_id: 'res-valid-2',
+      };
+
+      const res4 = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket: dummyR2,
+        gmailSender: dummySender,
+        profile: mockProfile,
+        dryRun: true,
+        killSwitch: false,
+        nowMs: sendTimeMs,
+        application: appWithNewResume,
+      });
+
+      expect(res4.success).toBe(true);
+      expect(res4.dryRun).toBe(true);
+      const appEventsPass4 = events.filter((e) => e.entity_id === 'app-dry');
+      expect(appEventsPass4.length).toBe(3);
     });
 
     it('retrying after 429/5xx transitions sending -> approved with reason retry and writes exactly one event row', async () => {
