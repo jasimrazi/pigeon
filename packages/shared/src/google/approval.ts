@@ -82,31 +82,61 @@ export async function approveApplication(options: {
 }
 
 export interface CanBulkApproveCandidate {
+  id?: string | null | undefined;
+  job_id?: string | null | undefined;
   status?: string | null | undefined;
   apply_route?: string | null | undefined;
   contact_source?: string | null | undefined;
   route_reason?: string | null | undefined;
   contact_email?: string | null | undefined;
   company?: string | null | undefined;
+  title?: string | null | undefined;
+  cover_letter?: string | null | undefined;
+  subject?: string | null | undefined;
+  red_flags?: string[] | string | null | undefined;
+  untrusted?: boolean | number | null | undefined;
+  match_score?: number | null | undefined;
+  is_on_dnc?: boolean | undefined;
+}
+
+export interface CanBulkApproveOptions {
+  profile?: Profile | undefined;
+  minScore?: number | undefined;
+  doNotContact?: Set<string> | string[] | Array<{ value: string }> | undefined;
+  isDoNotContact?: boolean | undefined;
 }
 
 /**
  * Predicate determining whether an application is eligible for bulk approval.
- * Rejects:
- * - status needs_review
- * - route not auto_email (e.g. manual_review, manual_portal)
- * - contact_source guessed or none or missing
- * - route_reason GUESSED_EMAIL
- * - freemail contacts
+ * Allows an application ONLY if all hold, otherwise returns the first failing reason:
+ * - status is exactly 'draft'
+ * - job route is auto_email
+ * - contact_source is 'posting' or 'finder'
+ * - job red_flags is empty
+ * - job untrusted is false
+ * - job match_score >= profile.filters.min_score
+ * - contact is not on do_not_contact
+ * - the letter validates
  */
-export function canBulkApprove(app: CanBulkApproveCandidate): {
+export function canBulkApprove(
+  app: CanBulkApproveCandidate & { profile?: Profile | undefined },
+  options?: CanBulkApproveOptions,
+): {
   allowed: boolean;
   reason?: string;
 } {
-  if (app.status === 'needs_review') {
-    return { allowed: false, reason: 'needs_review items cannot be bulk-approved' };
+  // 1. status is exactly 'draft'
+  if (app.status !== 'draft') {
+    return {
+      allowed: false,
+      reason:
+        app.status === 'needs_review'
+          ? 'needs_review items cannot be bulk-approved'
+          : `Only draft applications can be bulk-approved (found: ${app.status || 'unknown'})`,
+    };
   }
 
+  // 2. job route is auto_email
   if (app.apply_route !== 'auto_email') {
     return {
       allowed: false,
@@ -114,6 +144,7 @@ export function canBulkApprove(app: CanBulkApproveCandidate): {
     };
   }
 
+  // 3. contact_source is 'posting' or 'finder'
   if (app.contact_source === 'guessed' || app.route_reason === 'GUESSED_EMAIL') {
     return { allowed: false, reason: 'Guessed email contacts cannot be bulk-approved' };
   }
@@ -123,12 +154,104 @@ export function canBulkApprove(app: CanBulkApproveCandidate): {
       reason: `Contact source ${app.contact_source || 'none'} cannot be bulk-approved`,
     };
   }
-
   if (
     app.route_reason === 'FREEMAIL_CONTACT' ||
     (app.contact_email && isFreemailContact(app.contact_email, app.company || ''))
   ) {
     return { allowed: false, reason: 'Freemail contacts cannot be bulk-approved' };
+  }
+
+  // 4. job red_flags is empty
+  let redFlagsList: string[] = [];
+  if (Array.isArray(app.red_flags)) {
+    redFlagsList = app.red_flags;
+  } else if (typeof app.red_flags === 'string' && app.red_flags.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(app.red_flags);
+      if (Array.isArray(parsed)) {
+        redFlagsList = parsed;
+      } else {
+        redFlagsList = [app.red_flags];
+      }
+    } catch {
+      redFlagsList = [app.red_flags];
+    }
+  }
+  if (redFlagsList.length > 0) {
+    return { allowed: false, reason: `Job has red flags: ${redFlagsList.join(', ')}` };
+  }
+
+  // 5. job untrusted is false
+  if (app.untrusted) {
+    return { allowed: false, reason: 'Untrusted job posting cannot be bulk-approved' };
+  }
+
+  // 6. job match_score >= profile.filters.min_score
+  const profile = options?.profile ?? app.profile;
+  const minScore = options?.minScore ?? profile?.filters?.min_score ?? 70;
+  if (typeof app.match_score !== 'number' || app.match_score < minScore) {
+    return {
+      allowed: false,
+      reason: `Match score (${app.match_score ?? 'null'}) is below minimum score (${minScore})`,
+    };
+  }
+
+  // 7. contact is not on do_not_contact
+  if (app.is_on_dnc || options?.isDoNotContact) {
+    return {
+      allowed: false,
+      reason: `Contact '${app.contact_email || ''}' is on do_not_contact list`,
+    };
+  }
+  if (app.contact_email && options?.doNotContact) {
+    const emailLower = app.contact_email.toLowerCase().trim();
+    const domainLower = emailLower.split('@')[1] ?? '';
+    let isOnDnc = false;
+    if (options.doNotContact instanceof Set) {
+      isOnDnc = options.doNotContact.has(emailLower) || options.doNotContact.has(domainLower);
+    } else if (Array.isArray(options.doNotContact)) {
+      isOnDnc = options.doNotContact.some((item) => {
+        const val = (typeof item === 'string' ? item : item.value).toLowerCase().trim();
+        return val === emailLower || val === domainLower;
+      });
+    }
+    if (isOnDnc) {
+      return {
+        allowed: false,
+        reason: `Contact '${app.contact_email}' is on do_not_contact list`,
+      };
+    }
+  }
+
+  // 8. the letter validates
+  if (!app.cover_letter || !app.cover_letter.trim()) {
+    return {
+      allowed: false,
+      reason: 'Cover letter validation failed: Cover letter is empty',
+    };
+  }
+  if (!app.subject || !app.subject.trim()) {
+    return {
+      allowed: false,
+      reason: 'Cover letter validation failed: Subject is empty',
+    };
+  }
+  if (profile) {
+    const letterErrors = validateCoverLetter(
+      app.cover_letter || '',
+      app.subject || '',
+      profile,
+      {
+        title: app.title || '',
+        company: app.company || '',
+      },
+    );
+    if (letterErrors.length > 0) {
+      return {
+        allowed: false,
+        reason: `Cover letter validation failed: ${letterErrors.join('; ')}`,
+      };
+    }
   }
 
   return { allowed: true };
@@ -138,6 +261,7 @@ export function canBulkApprove(app: CanBulkApproveCandidate): {
  * Bulk approves multiple applications with strict constraints:
  * - Only route=auto_email and contact_source in (posting, finder)
  * - Guessed, freemail, manual_review routes and needs_review status are rejected
+ * - Red flags empty, untrusted false, match_score >= min_score, not on DNC
  * - Letter validation must pass
  */
 export async function bulkApproveApplications(options: {
@@ -157,42 +281,45 @@ export async function bulkApproveApplications(options: {
       SELECT
         a.id, a.status, a.channel, a.cover_letter, a.subject, a.job_id,
         j.title, j.company, j.apply_route, j.contact_email, j.contact_source,
-        j.route_reason, j.match_score
+        j.route_reason, j.match_score, j.red_flags, j.untrusted
       FROM applications a
       JOIN jobs j ON a.job_id = j.id
       WHERE a.id = ?
     `;
 
-    const app = await db.prepare(query).bind(id).first<RawAppRow>();
+    const app = await db.prepare(query).bind(id).first<RawAppRow & { red_flags?: string | null; untrusted?: number | boolean | null }>();
     if (!app) {
       rejected.push({ id, reason: 'Application not found' });
       continue;
     }
 
-    // Check bulk approval predicate
-    const bulkCheck = canBulkApprove(app);
-    if (!bulkCheck.allowed) {
-      rejected.push({ id, reason: bulkCheck.reason ?? 'Not eligible for bulk approval' });
-      continue;
+    // Check DNC
+    let isOnDnc = false;
+    if (app.contact_email) {
+      const emailLower = app.contact_email.toLowerCase().trim();
+      const domainLower = emailLower.split('@')[1] ?? '';
+      const dnc = await db
+        .prepare(`SELECT value FROM do_not_contact WHERE lower(value) IN (?, ?)`)
+        .bind(emailLower, domainLower)
+        .first<{ value: string }>();
+      if (dnc) {
+        isOnDnc = true;
+      }
     }
 
-    // Constraint: Guardrail validation must pass
-    const validationErrors = validateCoverLetter(
-      app.cover_letter || '',
-      app.subject || '',
+    // Check bulk approval predicate
+    const bulkCheck = canBulkApprove(app, {
       profile,
-      { title: app.title, company: app.company },
-    );
-
-    if (validationErrors.length > 0) {
-      await db
-        .prepare(`UPDATE applications SET validator_errors = ?, updated_at = ? WHERE id = ?`)
-        .bind(JSON.stringify(validationErrors), nowIso, id)
-        .run();
-      rejected.push({
-        id,
-        reason: `Cover letter validation failed: ${validationErrors.join('; ')}`,
-      });
+      isDoNotContact: isOnDnc,
+    });
+    if (!bulkCheck.allowed) {
+      if (bulkCheck.reason?.startsWith('Cover letter validation failed:')) {
+        await db
+          .prepare(`UPDATE applications SET validator_errors = ?, updated_at = ? WHERE id = ?`)
+          .bind(JSON.stringify([bulkCheck.reason]), nowIso, id)
+          .run();
+      }
+      rejected.push({ id, reason: bulkCheck.reason ?? 'Not eligible for bulk approval' });
       continue;
     }
 

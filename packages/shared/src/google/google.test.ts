@@ -228,6 +228,8 @@ function createMockDb() {
               contact_source: j['contact_source'],
               route_reason: j['route_reason'],
               match_score: j['match_score'],
+              red_flags: j['red_flags'] ?? null,
+              untrusted: j['untrusted'] ?? false,
             } as unknown as T;
           }
           return null;
@@ -604,6 +606,9 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
         apply_route: 'auto_email',
         contact_source: 'posting',
         contact_email: 'jobs@stripe.com',
+        match_score: 85,
+        red_flags: '[]',
+        untrusted: false,
       });
       applications.set('app-valid', {
         id: 'app-valid',
@@ -1327,52 +1332,212 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
     });
   });
 
-  describe('Security Audits: canBulkApprove Invariant Property Tests', () => {
-    it('property test: no application with manual route, guessed/none contact, or needs_review can be bulk-approved', () => {
+  describe('Security Audits: canBulkApprove Invariants', () => {
+    const cleanDraft = {
+      id: 'app-clean-1',
+      job_id: 'job-clean-1',
+      status: 'draft',
+      apply_route: 'auto_email',
+      contact_source: 'posting',
+      contact_email: 'jobs@stripe.com',
+      company: 'Stripe',
+      title: 'Senior Systems Engineer',
+      cover_letter: validCoverLetter,
+      subject: 'Application for Senior Systems Engineer',
+      red_flags: [] as string[],
+      untrusted: false,
+      match_score: 85,
+      is_on_dnc: false,
+    };
+
+    it('blocks application if status is approved, needs_review, sent, or rejected', () => {
+      for (const st of ['approved', 'needs_review', 'sent', 'rejected', 'failed', 'manual_pending']) {
+        const res = canBulkApprove({ ...cleanDraft, status: st }, { profile: mockProfile });
+        expect(res.allowed).toBe(false);
+        expect(res.reason).toBeTruthy();
+      }
+    });
+
+    it('blocks application if red flags are present', () => {
+      const resArray = canBulkApprove(
+        { ...cleanDraft, red_flags: ['suspicious_recruiter'] },
+        { profile: mockProfile },
+      );
+      expect(resArray.allowed).toBe(false);
+      expect(resArray.reason).toContain('Job has red flags');
+
+      const resJson = canBulkApprove(
+        { ...cleanDraft, red_flags: JSON.stringify(['red_flag']) },
+        { profile: mockProfile },
+      );
+      expect(resJson.allowed).toBe(false);
+      expect(resJson.reason).toContain('Job has red flags');
+    });
+
+    it('blocks application if job is untrusted', () => {
+      const resBool = canBulkApprove({ ...cleanDraft, untrusted: true }, { profile: mockProfile });
+      expect(resBool.allowed).toBe(false);
+      expect(resBool.reason).toContain('Untrusted');
+
+      const resNum = canBulkApprove({ ...cleanDraft, untrusted: 1 }, { profile: mockProfile });
+      expect(resNum.allowed).toBe(false);
+      expect(resNum.reason).toContain('Untrusted');
+    });
+
+    it('blocks application if match score is below minimum threshold', () => {
+      // mockProfile min_score is 70
+      const resBelow = canBulkApprove(
+        { ...cleanDraft, match_score: 69 },
+        { profile: mockProfile },
+      );
+      expect(resBelow.allowed).toBe(false);
+      expect(resBelow.reason).toContain('below minimum score');
+
+      const resNull = canBulkApprove(
+        { ...cleanDraft, match_score: null },
+        { profile: mockProfile },
+      );
+      expect(resNull.allowed).toBe(false);
+      expect(resNull.reason).toContain('below minimum score');
+    });
+
+    it('blocks application if contact source is guessed or none', () => {
+      const resGuessed = canBulkApprove(
+        { ...cleanDraft, contact_source: 'guessed' },
+        { profile: mockProfile },
+      );
+      expect(resGuessed.allowed).toBe(false);
+      expect(resGuessed.reason).toContain('Guessed email contacts cannot be bulk-approved');
+
+      const resNone = canBulkApprove(
+        { ...cleanDraft, contact_source: 'none' },
+        { profile: mockProfile },
+      );
+      expect(resNone.allowed).toBe(false);
+      expect(resNone.reason).toContain('cannot be bulk-approved');
+    });
+
+    it('blocks application if apply route is not auto_email', () => {
+      const resPortal = canBulkApprove(
+        { ...cleanDraft, apply_route: 'manual_portal' },
+        { profile: mockProfile },
+      );
+      expect(resPortal.allowed).toBe(false);
+      expect(resPortal.reason).toContain('manual_portal cannot be bulk-approved');
+
+      const resReview = canBulkApprove(
+        { ...cleanDraft, apply_route: 'manual_review' },
+        { profile: mockProfile },
+      );
+      expect(resReview.allowed).toBe(false);
+      expect(resReview.reason).toContain('manual_review cannot be bulk-approved');
+    });
+
+    it('blocks application if contact email or domain is on do_not_contact list', () => {
+      const resDncFlag = canBulkApprove(
+        { ...cleanDraft, is_on_dnc: true },
+        { profile: mockProfile },
+      );
+      expect(resDncFlag.allowed).toBe(false);
+      expect(resDncFlag.reason).toContain('do_not_contact');
+
+      const resDncList = canBulkApprove(cleanDraft, {
+        profile: mockProfile,
+        doNotContact: new Set(['jobs@stripe.com']),
+      });
+      expect(resDncList.allowed).toBe(false);
+      expect(resDncList.reason).toContain('do_not_contact');
+
+      const resDncDomain = canBulkApprove(cleanDraft, {
+        profile: mockProfile,
+        doNotContact: new Set(['stripe.com']),
+      });
+      expect(resDncDomain.allowed).toBe(false);
+      expect(resDncDomain.reason).toContain('do_not_contact');
+    });
+
+    it('blocks application if cover letter is invalid or missing', () => {
+      const resEmpty = canBulkApprove(
+        { ...cleanDraft, cover_letter: '' },
+        { profile: mockProfile },
+      );
+      expect(resEmpty.allowed).toBe(false);
+      expect(resEmpty.reason).toContain('Cover letter validation failed');
+
+      const resPlaceholder = canBulkApprove(
+        { ...cleanDraft, cover_letter: 'Dear [Company], I want job.' },
+        { profile: mockProfile },
+      );
+      expect(resPlaceholder.allowed).toBe(false);
+      expect(resPlaceholder.reason).toContain('Cover letter validation failed');
+    });
+
+    it('allows a clean draft application meeting all conditions', () => {
+      const resPosting = canBulkApprove(cleanDraft, { profile: mockProfile });
+      expect(resPosting.allowed).toBe(true);
+      expect(resPosting.reason).toBeUndefined();
+
+      const resFinder = canBulkApprove(
+        { ...cleanDraft, contact_source: 'finder' },
+        { profile: mockProfile },
+      );
+      expect(resFinder.allowed).toBe(true);
+      expect(resFinder.reason).toBeUndefined();
+    });
+
+    it('exhaustive property test: generated combination over all fields is allowed ONLY for clean combinations', () => {
+      const statuses = ['draft', 'needs_review', 'approved', 'rejected', 'sent'];
       const routes = ['auto_email', 'manual_portal', 'manual_review'];
       const contactSources = ['posting', 'finder', 'guessed', 'none'];
-      const statuses = ['draft', 'needs_review', 'approved', 'rejected'];
-      const scores = [60, 85, 95];
-      const redFlagsOptions = [[], ['flag_1']];
+      const redFlagsOptions: string[][] = [[], ['flag_1']];
       const untrustedOptions = [false, true];
+      const scores = [85, 50]; // threshold is 70
+      const dncOptions = [false, true];
+      const letterOptions = [validCoverLetter, ''];
 
-      for (const apply_route of routes) {
-        for (const contact_source of contactSources) {
-          for (const status of statuses) {
-            for (const score of scores) {
-              for (const red_flags of redFlagsOptions) {
-                for (const untrusted of untrustedOptions) {
-                  const item = {
-                    id: 'app-prop-test',
-                    job_id: 'job-prop-test',
-                    status,
-                    cover_letter: 'valid letter',
-                    subject: 'subject',
-                    title: 'Title',
-                    company: 'Company',
-                    apply_route,
-                    contact_email: 'jobs@company.com',
-                    contact_source,
-                    match_score: score,
-                    red_flags,
-                    untrusted,
-                  };
+      for (const status of statuses) {
+        for (const apply_route of routes) {
+          for (const contact_source of contactSources) {
+            for (const red_flags of redFlagsOptions) {
+              for (const untrusted of untrustedOptions) {
+                for (const match_score of scores) {
+                  for (const is_on_dnc of dncOptions) {
+                    for (const cover_letter of letterOptions) {
+                      const item = {
+                        status,
+                        apply_route,
+                        contact_source,
+                        red_flags,
+                        untrusted,
+                        match_score,
+                        is_on_dnc,
+                        cover_letter,
+                        subject: 'Application for Senior Systems Engineer',
+                        title: 'Senior Systems Engineer',
+                        company: 'Stripe',
+                        contact_email: 'jobs@stripe.com',
+                      };
 
-                  const canApprove = canBulkApprove(item);
+                      const result = canBulkApprove(item, { profile: mockProfile });
+                      const expectedAllowed =
+                        status === 'draft' &&
+                        apply_route === 'auto_email' &&
+                        (contact_source === 'posting' || contact_source === 'finder') &&
+                        red_flags.length === 0 &&
+                        !untrusted &&
+                        match_score >= mockProfile.filters.min_score &&
+                        !is_on_dnc &&
+                        cover_letter === validCoverLetter;
 
-                  // Invariant: If apply_route is manual, contact_source is guessed/none,
-                  // or status is needs_review, it MUST NEVER be approved.
-                  if (
-                    apply_route === 'manual_review' ||
-                    apply_route === 'manual_portal' ||
-                    contact_source === 'guessed' ||
-                    contact_source === 'none' ||
-                    status === 'needs_review'
-                  ) {
-                    expect(
-                      canApprove.allowed,
-                      `Invariant violation: item with route=${apply_route}, contact=${contact_source}, status=${status} was allowed to bulk approve`,
-                    ).toBe(false);
+                      expect(
+                        result.allowed,
+                        `Invariant failed for status=${status}, route=${apply_route}, contact=${contact_source}, red_flags=${red_flags.length}, untrusted=${untrusted}, score=${match_score}, dnc=${is_on_dnc}, letterValid=${cover_letter === validCoverLetter}`,
+                      ).toBe(expectedAllowed);
+
+                      if (!expectedAllowed) {
+                        expect(result.reason).toBeDefined();
+                      }
+                    }
                   }
                 }
               }

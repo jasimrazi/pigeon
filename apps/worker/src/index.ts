@@ -26,6 +26,7 @@ import {
   pingGoogleAuthHealth,
   approveApplication,
   bulkApproveApplications,
+  canBulkApprove,
   getTokenKey,
   sendApplicationEmail,
   RestGmailSender,
@@ -48,6 +49,7 @@ import {
   type CloudflareAiBinding,
   type GoogleOAuthSecrets,
   type ApplicationToSend,
+  type Profile,
 } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
 
@@ -1223,15 +1225,18 @@ app.get('/api/review-queue', async (c) => {
     .bind('default')
     .first<{ data: string }>();
 
-  let autoApproveThreshold = 85;
+  let profile: Profile | undefined;
   if (profileRow?.data) {
     try {
-      const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
-      autoApproveThreshold = profile.send_settings?.auto_approve_above_score ?? 85;
+      profile = ProfileSchema.parse(JSON.parse(profileRow.data));
     } catch {
       // fallback
     }
   }
+
+  // Pre-fetch DNC list for bulk predicate
+  const dncRows = await c.env.DB.prepare('SELECT value FROM do_not_contact').all<{ value: string }>();
+  const dncSet = new Set((dncRows.results || []).map((r) => r.value.toLowerCase().trim()));
 
   interface ReviewQueueDbRow {
     id: string;
@@ -1248,6 +1253,7 @@ app.get('/api/review-queue', async (c) => {
     salary_raw: string | null;
     description: string;
     apply_url: string | null;
+    apply_route: string | null;
     contact_email: string | null;
     contact_source: string | null;
     match_score: number | null;
@@ -1261,7 +1267,7 @@ app.get('/api/review-queue', async (c) => {
   const { results: rawRows } = await c.env.DB.prepare(
     `SELECT
        a.id, a.job_id, a.status, a.cover_letter, a.subject, a.resume_id, a.validator_errors, a.updated_at,
-       j.title, j.company, j.location, j.salary_raw, j.description, j.apply_url, j.contact_email, j.contact_source,
+       j.title, j.company, j.location, j.salary_raw, j.description, j.apply_url, j.apply_route, j.contact_email, j.contact_source,
        j.match_score, j.match_reasons, j.red_flags, j.untrusted, j.route_reason,
        r.label AS resume_label
      FROM applications a
@@ -1279,22 +1285,15 @@ app.get('/api/review-queue', async (c) => {
       // fallback
     }
 
-    const hasRedFlags = redFlagsList.length > 0;
-    const isUntrusted = Boolean(row.untrusted);
-    const score = Number(row.match_score ?? 0);
-    const hasSafeContact =
-      row.contact_source &&
-      row.contact_source !== 'guessed' &&
-      row.contact_source !== 'none' &&
-      Boolean(row.contact_email);
-
-    const isSafeForBulk =
-      score >= autoApproveThreshold && hasSafeContact && !hasRedFlags && !isUntrusted;
+    const bulkCheck = canBulkApprove(row, {
+      profile,
+      doNotContact: dncSet,
+    });
 
     return {
       ...row,
       red_flags: redFlagsList,
-      is_safe_for_bulk: isSafeForBulk,
+      is_safe_for_bulk: bulkCheck.allowed,
     };
   });
 

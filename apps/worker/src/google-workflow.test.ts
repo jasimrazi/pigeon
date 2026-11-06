@@ -280,8 +280,8 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
 
     // App 1: Valid
     await workerEnv.DB.prepare(
-      `INSERT OR REPLACE INTO jobs (id, dedupe_key, source, source_kind, title, company, company_normalized, description, contact_email, contact_source, status, apply_route, updated_at, fetched_at)
-       VALUES ('job-bulk-1', 'd-b-1', 'ats', 'ats', 'Senior Systems Engineer', 'Stripe', 'stripe', 'Desc', 'jobs@stripe.com', 'posting', 'routed', 'auto_email', ?, ?)`,
+      `INSERT OR REPLACE INTO jobs (id, dedupe_key, source, source_kind, title, company, company_normalized, description, contact_email, contact_source, status, apply_route, match_score, updated_at, fetched_at)
+       VALUES ('job-bulk-1', 'd-b-1', 'ats', 'ats', 'Senior Systems Engineer', 'Stripe', 'stripe', 'Desc', 'jobs@stripe.com', 'posting', 'routed', 'auto_email', 85, ?, ?)`,
     )
       .bind(nowIso, nowIso)
       .run();
