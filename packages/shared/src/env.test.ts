@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateEnv } from './env.js';
+import { validateEnv, getGoogleClient, ConfigError } from './env.js';
 
 describe('packages/shared env validation', () => {
   it('parses valid DRY_RUN string "true" to boolean true', () => {
@@ -71,5 +71,28 @@ describe('packages/shared env validation', () => {
   it('rejects missing or invalid ENV', () => {
     expect(() => validateEnv({ DRY_RUN: 'true' })).toThrowError(/ENV/);
     expect(() => validateEnv({ DRY_RUN: 'true', ENV: 'invalid' })).toThrowError(/ENV/);
+  });
+
+  describe('getGoogleClient helper', () => {
+    it('throws ConfigError when GOOGLE_CLIENT_ID is missing', () => {
+      expect(() => getGoogleClient({ GOOGLE_CLIENT_SECRET: 'sec' })).toThrow(ConfigError);
+      expect(() => getGoogleClient({ GOOGLE_CLIENT_SECRET: 'sec' })).toThrow(/GOOGLE_CLIENT_ID/);
+    });
+
+    it('throws ConfigError when GOOGLE_CLIENT_SECRET is missing', () => {
+      expect(() => getGoogleClient({ GOOGLE_CLIENT_ID: 'id' })).toThrow(ConfigError);
+      expect(() => getGoogleClient({ GOOGLE_CLIENT_ID: 'id' })).toThrow(/GOOGLE_CLIENT_SECRET/);
+    });
+
+    it('returns clientId and clientSecret when both are present', () => {
+      const client = getGoogleClient({
+        GOOGLE_CLIENT_ID: 'my-client-id',
+        GOOGLE_CLIENT_SECRET: 'my-client-secret',
+      });
+      expect(client).toEqual({
+        clientId: 'my-client-id',
+        clientSecret: 'my-client-secret',
+      });
+    });
   });
 });

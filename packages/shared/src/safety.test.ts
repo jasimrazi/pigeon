@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+// @ts-expect-error Node.js fs module is available in Vitest node test runner
+import * as fs from 'node:fs';
+// @ts-expect-error Node.js path module is available in Vitest node test runner
+import * as path from 'node:path';
 import {
   getEffectiveDryRun,
   isKillSwitchActive,
@@ -329,6 +333,86 @@ describe('Safety Controls: DRY_RUN & Kill Switch', () => {
       expect(fetchSpy).toHaveBeenCalled();
       expect(sentBody).toContain('s***@hiring.org');
       expect(sentBody).not.toContain(rawEmail);
+    });
+  });
+
+  describe('Permanent Static Analysis: No Secret Fallbacks', () => {
+    function scanDirForSecretFallbacks(dir: string, allowlist: string[] = []): string[] {
+      const violations: string[] = [];
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== 'node_modules' && entry.name !== 'dist') {
+            violations.push(...scanDirForSecretFallbacks(fullPath, allowlist));
+          }
+        } else if (
+          entry.isFile() &&
+          entry.name.endsWith('.ts') &&
+          !entry.name.endsWith('.test.ts') &&
+          !entry.name.endsWith('.spec.ts')
+        ) {
+          const content = String(fs.readFileSync(fullPath, 'utf8'));
+          const lines = content.split('\n');
+          lines.forEach((line: string, idx: number) => {
+            const regex =
+              /(?<![!a-zA-Z0-9_])(?:c\.)?env\.([a-zA-Z0-9_]+)(?:\s+as\s+[^)|?]+)?\s*(\)\s*)?(\|\||\?\?)/g;
+            let match;
+            while ((match = regex.exec(line)) !== null) {
+              const varName = match[1];
+              if (varName && /SECRET|KEY|TOKEN|CLIENT_ID|PASSWORD/.test(varName)) {
+                const loc = `${fullPath}:${idx + 1}`;
+                if (!allowlist.includes(loc)) {
+                  violations.push(`${loc} -> ${line.trim()}`);
+                }
+              }
+            }
+          });
+        }
+      }
+      return violations;
+    }
+
+    it('scans apps/worker/src and packages/shared/src for || or ?? applied to env.<NAME> matching /SECRET|KEY|TOKEN|CLIENT_ID|PASSWORD/', () => {
+      const allowlist: string[] = [];
+      const proc = (globalThis as unknown as { process?: { cwd?: () => string } }).process;
+      const rootDir = proc?.cwd ? proc.cwd() : '.';
+      const workerSrc = path.join(rootDir, 'apps/worker/src');
+      const sharedSrc = path.join(rootDir, 'packages/shared/src');
+
+      const violations = [
+        ...scanDirForSecretFallbacks(workerSrc, allowlist),
+        ...scanDirForSecretFallbacks(sharedSrc, allowlist),
+      ];
+
+      expect(violations, `Found secret fallbacks in codebase:\n${violations.join('\n')}`).toEqual([]);
+    });
+
+    it('verifies the fallback detector fails on the old vulnerable code patterns', () => {
+      const oldCodeSnippet = [
+        "clientId: env.GOOGLE_CLIENT_ID || 'client-id',",
+        "clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',",
+        "tokenEncryptionKey = c.env.GOOGLE_TOKEN_ENCRYPTION_KEY ?? 'fallback-key';",
+      ].join('\n');
+
+      const regex =
+        /(?<![!a-zA-Z0-9_])(?:c\.)?env\.([a-zA-Z0-9_]+)(?:\s+as\s+[^)|?]+)?\s*(\)\s*)?(\|\||\?\?)/g;
+      const detected: string[] = [];
+      oldCodeSnippet.split('\n').forEach((line) => {
+        let match;
+        while ((match = regex.exec(line)) !== null) {
+          const varName = match[1];
+          if (varName && /SECRET|KEY|TOKEN|CLIENT_ID|PASSWORD/.test(varName)) {
+            detected.push(varName);
+          }
+        }
+      });
+
+      expect(detected).toEqual([
+        'GOOGLE_CLIENT_ID',
+        'GOOGLE_CLIENT_SECRET',
+        'GOOGLE_TOKEN_ENCRYPTION_KEY',
+      ]);
     });
   });
 });

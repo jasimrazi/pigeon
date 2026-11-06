@@ -64,9 +64,17 @@ describe('Job Source Adapters - Fixture Normalization', () => {
         headers: { 'Content-Type': 'application/json' },
       }),
     );
-    const fetched = await adzunaAdapter.fetch({ fetchFn: mockFetch });
+    const fetched = await adzunaAdapter.fetch({
+      secrets: { ADZUNA_APP_ID: 'mock-adzuna-id', ADZUNA_APP_KEY: 'mock-adzuna-key' },
+      fetchFn: mockFetch,
+    });
     expect(fetched).toHaveLength(1);
     expect(mockFetch).toHaveBeenCalled();
+
+    // Verify it throws ConfigError if secrets are missing
+    await expect(adzunaAdapter.fetch({ fetchFn: mockFetch })).rejects.toThrow(
+      'Missing required Adzuna credentials',
+    );
   });
 
   it('RemoteOK normalizes fixture correctly and skips legal disclaimer', async () => {

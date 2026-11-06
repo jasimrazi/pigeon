@@ -27,6 +27,8 @@ import {
   approveApplication,
   bulkApproveApplications,
   canBulkApprove,
+  ConfigError,
+  getGoogleClient,
   getTokenKey,
   sendApplicationEmail,
   RestGmailSender,
@@ -754,8 +756,14 @@ app.get('/api/resumes/:id/download', async (c) => {
 
 app.get('/auth/google/start', async (c) => {
   const env = c.get('validatedEnv');
-  if (!env.GOOGLE_CLIENT_ID) {
-    return c.json({ error: 'GOOGLE_CLIENT_ID is not configured' }, 400);
+  let googleClient: { clientId: string; clientSecret: string };
+  try {
+    googleClient = getGoogleClient(env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      return c.json({ error: err.message }, 503);
+    }
+    throw err;
   }
 
   const redirectUri =
@@ -766,7 +774,7 @@ app.get('/auth/google/start', async (c) => {
   await c.env.CONFIG.put(`oauth_state:${state}`, 'valid', { expirationTtl: 600 });
 
   const authUrl = getGoogleAuthUrl({
-    clientId: env.GOOGLE_CLIENT_ID,
+    clientId: googleClient.clientId,
     redirectUri,
     state,
   });
@@ -799,8 +807,14 @@ app.get('/auth/google/callback', async (c) => {
   // Single-use: delete state immediately
   await c.env.CONFIG.delete(`oauth_state:${state}`);
 
-  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-    return c.json({ error: 'Google client credentials not configured' }, 400);
+  let googleClient: { clientId: string; clientSecret: string };
+  try {
+    googleClient = getGoogleClient(env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      return c.json({ error: err.message }, 503);
+    }
+    throw err;
   }
 
   let tokenEncryptionKey: string;
@@ -813,8 +827,8 @@ app.get('/auth/google/callback', async (c) => {
   const redirectUri =
     env.GOOGLE_REDIRECT_URI || new URL('/auth/google/callback', c.req.url).toString();
   const secrets: GoogleOAuthSecrets = {
-    clientId: env.GOOGLE_CLIENT_ID,
-    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    clientId: googleClient.clientId,
+    clientSecret: googleClient.clientSecret,
     tokenEncryptionKey,
     redirectUri,
   };
@@ -852,8 +866,14 @@ app.get('/api/auth/google/health', async (c) => {
 
 app.post('/api/auth/google/ping', async (c) => {
   const env = c.get('validatedEnv');
-  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-    return c.json({ error: 'Google client credentials not configured' }, 400);
+  let googleClient: { clientId: string; clientSecret: string };
+  try {
+    googleClient = getGoogleClient(env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      return c.json({ error: err.message }, 503);
+    }
+    throw err;
   }
 
   let tokenEncryptionKey: string;
@@ -864,8 +884,8 @@ app.post('/api/auth/google/ping', async (c) => {
   }
 
   const secrets: GoogleOAuthSecrets = {
-    clientId: env.GOOGLE_CLIENT_ID,
-    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    clientId: googleClient.clientId,
+    clientSecret: googleClient.clientSecret,
     tokenEncryptionKey,
   };
 
@@ -988,9 +1008,19 @@ app.post('/api/applications/:id/send', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
   }
 
+  let googleClient: { clientId: string; clientSecret: string };
+  try {
+    googleClient = getGoogleClient(c.env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      return c.json({ error: err.message }, 503);
+    }
+    throw err;
+  }
+
   const secrets: GoogleOAuthSecrets = {
-    clientId: env.GOOGLE_CLIENT_ID || 'client-id',
-    clientSecret: env.GOOGLE_CLIENT_SECRET || 'client-secret',
+    clientId: googleClient.clientId,
+    clientSecret: googleClient.clientSecret,
     tokenEncryptionKey,
   };
 
@@ -1039,9 +1069,19 @@ app.post('/api/sync/sheet', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
   }
 
+  let googleClient: { clientId: string; clientSecret: string };
+  try {
+    googleClient = getGoogleClient(c.env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      return c.json({ error: err.message }, 503);
+    }
+    throw err;
+  }
+
   const secrets: GoogleOAuthSecrets = {
-    clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
-    clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+    clientId: googleClient.clientId,
+    clientSecret: googleClient.clientSecret,
     tokenEncryptionKey,
   };
 
@@ -1088,9 +1128,19 @@ app.post('/api/inbox/poll', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
   }
 
+  let googleClient: { clientId: string; clientSecret: string };
+  try {
+    googleClient = getGoogleClient(c.env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      return c.json({ error: err.message }, 503);
+    }
+    throw err;
+  }
+
   const secrets: GoogleOAuthSecrets = {
-    clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
-    clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+    clientId: googleClient.clientId,
+    clientSecret: googleClient.clientSecret,
     tokenEncryptionKey,
   };
 
@@ -1707,9 +1757,10 @@ export default {
 
             if (appRow) {
               const tokenEncryptionKey = getTokenKey(env);
+              const googleClient = getGoogleClient(env);
               const secrets: GoogleOAuthSecrets = {
-                clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
-                clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+                clientId: googleClient.clientId,
+                clientSecret: googleClient.clientSecret,
                 tokenEncryptionKey,
               };
 
@@ -1746,9 +1797,10 @@ export default {
       } else if (body && body.action === 'sync_sheet') {
         try {
           const tokenEncryptionKey = getTokenKey(env);
+          const googleClient = getGoogleClient(env);
           const secrets: GoogleOAuthSecrets = {
-            clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
-            clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+            clientId: googleClient.clientId,
+            clientSecret: googleClient.clientSecret,
             tokenEncryptionKey,
           };
 
@@ -1780,9 +1832,10 @@ export default {
           if (profileRow?.data) {
             const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
             const tokenEncryptionKey = getTokenKey(env);
+            const googleClient = getGoogleClient(env);
             const secrets: GoogleOAuthSecrets = {
-              clientId: (env.GOOGLE_CLIENT_ID as string) || 'client-id',
-              clientSecret: (env.GOOGLE_CLIENT_SECRET as string) || 'client-secret',
+              clientId: googleClient.clientId,
+              clientSecret: googleClient.clientSecret,
               tokenEncryptionKey,
             };
 

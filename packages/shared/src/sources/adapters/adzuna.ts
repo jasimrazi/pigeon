@@ -3,14 +3,18 @@ import { normalizeCompanyName } from '../dedupe.js';
 import { extractContactEmail } from '../email-extractor.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
+import { ConfigError } from '../../env.js';
 
 export const adzunaAdapter: JobSource = {
   name: 'adzuna',
   kind: 'api',
 
   async fetch(config?: JobSourceConfig): Promise<RawJob[]> {
-    const appId = config?.secrets?.ADZUNA_APP_ID || 'mock-adzuna-id';
-    const appKey = config?.secrets?.ADZUNA_APP_KEY || 'mock-adzuna-key';
+    const appId = config?.secrets?.ADZUNA_APP_ID;
+    const appKey = config?.secrets?.ADZUNA_APP_KEY;
+    if (!appId || !appKey) {
+      throw new ConfigError('Missing required Adzuna credentials: ADZUNA_APP_ID and ADZUNA_APP_KEY must be configured');
+    }
     const userAgent =
       config?.userAgent || 'Pigeon/1.0 (Job Application Assistant; +https://github.com/pigeon)';
 

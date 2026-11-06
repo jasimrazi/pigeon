@@ -1,5 +1,28 @@
 import { z } from 'zod';
 
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConfigError';
+  }
+}
+
+export interface GoogleClientEnv {
+  GOOGLE_CLIENT_ID?: string | undefined;
+  GOOGLE_CLIENT_SECRET?: string | undefined;
+}
+
+export function getGoogleClient(env: GoogleClientEnv): { clientId: string; clientSecret: string } {
+  const clientId = env.GOOGLE_CLIENT_ID;
+  const clientSecret = env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new ConfigError(
+      'Missing required Google OAuth credentials: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured',
+    );
+  }
+  return { clientId, clientSecret };
+}
+
 export const DryRunSchema = z.union(
   [z.enum(['true', 'false']).transform((val) => val === 'true'), z.boolean()],
   {
