@@ -5,6 +5,7 @@ import type { Notifier } from '../notifier.js';
 import { validateCoverLetter } from '../applications/validator.js';
 import { assertSafeHeader } from './mime.js';
 import { getGoogleAuthHealth, type KVLike, GoogleAuthError, setGoogleAuthHealth } from './auth.js';
+import { isKillSwitchActive, getEffectiveDryRun } from '../safety.js';
 import { GoogleRateLimitError, GoogleServerError, GoogleRecipientError } from './sender.js';
 import type { GmailSender, SendEmailResult } from './types.js';
 
@@ -322,9 +323,8 @@ export async function sendApplicationEmail(
   const nowIso = new Date(nowMs).toISOString();
 
   // 1. Safety Gate: Kill Switch
-  const kvKillSwitch =
-    (await config.get('kill_switch')) === 'true' || (await config.get('KILL_SWITCH')) === 'true';
-  if (killSwitch || kvKillSwitch) {
+  const isKillActive = await isKillSwitchActive(config, killSwitch);
+  if (isKillActive) {
     return { success: false, error: 'Kill switch is active. Sending paused.' };
   }
 
@@ -478,7 +478,8 @@ export async function sendApplicationEmail(
   }
 
   // 9. DRY RUN Check
-  if (dryRun) {
+  const effectiveDryRun = await getEffectiveDryRun(dryRun, config);
+  if (effectiveDryRun) {
     // Write would-be email to events table; do NOT call Gmail; do NOT mark as sent
     const dryRunPayload = {
       headers: {

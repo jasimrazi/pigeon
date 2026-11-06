@@ -24,9 +24,10 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
     null,
   );
 
-  // Kill Switch modal state
+  // Kill Switch & Dry Run modal state
   const [showKsModal, setShowKsModal] = useState(false);
   const [targetKsState, setTargetKsState] = useState(false);
+  const [showDryRunModal, setShowDryRunModal] = useState(false);
 
   // Form input fields
   const [name, setName] = useState('');
@@ -38,6 +39,7 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
   const [windowStart, setWindowStart] = useState('09:00');
   const [windowEnd, setWindowEnd] = useState('18:00');
   const [timezone, setTimezone] = useState('UTC');
+  const [minScore, setMinScore] = useState(0);
   const [autoApproveScore, setAutoApproveScore] = useState(85);
   const [titleFiltersText, setTitleFiltersText] = useState('');
   const [companyBlacklistText, setCompanyBlacklistText] = useState('');
@@ -66,6 +68,7 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
         setWindowStart(data.profile.send_settings?.window?.start ?? '09:00');
         setWindowEnd(data.profile.send_settings?.window?.end ?? '18:00');
         setTimezone(data.profile.send_settings?.timezone ?? 'UTC');
+        setMinScore(data.profile.filters?.min_score ?? 0);
         setAutoApproveScore(data.profile.send_settings?.auto_approve_above_score ?? 85);
         setTitleFiltersText((data.profile.filters?.titles || []).join(', '));
         setCompanyBlacklistText((data.profile.filters?.company_blacklist || []).join(', '));
@@ -115,13 +118,13 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
     }
   };
 
-  const handleToggleDryRun = async (activate: boolean) => {
+  const handleToggleDryRun = async (activate: boolean, confirmed = false) => {
     try {
       setSaving(true);
       const res = await fetch(`${apiBase}/api/settings/dry-run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dry_run: activate }),
+        body: JSON.stringify({ dry_run: activate, confirmed: activate ? true : confirmed }),
       });
       if (!res.ok) {
         const errJson = (await res.json().catch(() => ({}))) as { error?: string };
@@ -142,6 +145,7 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
       });
     } finally {
       setSaving(false);
+      setShowDryRunModal(false);
     }
   };
 
@@ -189,6 +193,7 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
           ...profile.filters,
           titles: parsedTitles,
           company_blacklist: parsedBlacklist,
+          min_score: Number(minScore),
           locations: profile.filters?.locations ?? ['Remote'],
         },
       };
@@ -308,7 +313,13 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
             <div className="mt-4">
               <button
                 type="button"
-                onClick={() => void handleToggleDryRun(!dryRun)}
+                onClick={() => {
+                  if (dryRun) {
+                    setShowDryRunModal(true);
+                  } else {
+                    void handleToggleDryRun(true);
+                  }
+                }}
                 disabled={saving}
                 className={`w-full py-2 px-4 rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer ${
                   dryRun
@@ -466,7 +477,24 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+              Minimum Score Threshold (0 - 100)
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={minScore}
+              onChange={(e) => setMinScore(Number(e.target.value))}
+              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">
+              Jobs with fit score below min_score are filtered out during evaluation.
+            </p>
+          </div>
+
           <div>
             <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
               Auto-Approve Threshold Score (0 - 100)
@@ -523,6 +551,20 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
         isDanger={targetKsState}
         onConfirm={() => void handleToggleKillSwitch(targetKsState)}
         onCancel={() => setShowKsModal(false)}
+      />
+
+      {/* DRY_RUN Live Mode Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDryRunModal}
+        title="Switch to LIVE Sending Mode?"
+        message="Disabling DRY_RUN will activate live email dispatch. Outgoing applications will be transmitted directly to employer inboxes via Gmail API. Are you sure you want to proceed?"
+        confirmLabel="Switch to LIVE"
+        isDanger={true}
+        onConfirm={() => {
+          setShowDryRunModal(false);
+          void handleToggleDryRun(false, true);
+        }}
+        onCancel={() => setShowDryRunModal(false)}
       />
     </div>
   );

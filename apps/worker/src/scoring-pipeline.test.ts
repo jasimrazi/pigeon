@@ -84,7 +84,11 @@ describe('Worker Scoring & Routing Pipeline Integration', () => {
   it('POST /api/pipeline/run returns 400 when profile is not configured', async () => {
     await workerEnv.DB.prepare('DELETE FROM profile WHERE id = ?').bind('default').run();
 
-    const res = await app.request('/api/pipeline/run', { method: 'POST' }, workerEnv);
+    const res = await app.request(
+      '/api/pipeline/run',
+      { method: 'POST', headers: { Origin: 'http://localhost:5173' } },
+      workerEnv,
+    );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain('Profile not configured');
@@ -227,7 +231,7 @@ describe('Worker Scoring & Routing Pipeline Integration', () => {
 
     const res = await app.request(
       '/api/pipeline/run',
-      { method: 'POST' },
+      { method: 'POST', headers: { Origin: 'http://localhost:5173' } },
       { ...workerEnv, AI: mockAi, LLM_PROVIDER: 'workers-ai' },
     );
 

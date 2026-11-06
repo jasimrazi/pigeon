@@ -25,6 +25,7 @@ export interface Bindings {
   GOOGLE_SHEET_ID?: string | undefined;
   CF_ACCESS_AUD?: string | undefined;
   CF_ACCESS_TEAM_DOMAIN?: string | undefined;
+  CF_ACCESS_ALLOWED_EMAIL?: string | undefined;
   DASHBOARD_ORIGIN?: string | undefined;
   TELEGRAM_BOT_TOKEN?: string | undefined;
   TELEGRAM_CHAT_ID?: string | undefined;

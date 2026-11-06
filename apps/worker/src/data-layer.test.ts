@@ -338,6 +338,7 @@ describe('Pigeon Data Layer & Schema Tests', () => {
         '/api/resumes',
         {
           method: 'POST',
+          headers: { Origin: 'http://localhost:5173' },
           body: formData,
         },
         workerEnv,
@@ -359,6 +360,7 @@ describe('Pigeon Data Layer & Schema Tests', () => {
         '/api/resumes',
         {
           method: 'POST',
+          headers: { Origin: 'http://localhost:5173' },
           body: formData,
         },
         workerEnv,
@@ -385,6 +387,7 @@ describe('Pigeon Data Layer & Schema Tests', () => {
         '/api/resumes',
         {
           method: 'POST',
+          headers: { Origin: 'http://localhost:5173' },
           body: formData,
         },
         workerEnv,
@@ -409,6 +412,7 @@ describe('Pigeon Data Layer & Schema Tests', () => {
         '/api/resumes',
         {
           method: 'POST',
+          headers: { Origin: 'http://localhost:5173' },
           body: formData,
         },
         workerEnv,
@@ -477,7 +481,7 @@ describe('Pigeon Data Layer & Schema Tests', () => {
         '/api/profile',
         {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
           body: JSON.stringify(malformedBody),
         },
         workerEnv,
@@ -493,7 +497,7 @@ describe('Pigeon Data Layer & Schema Tests', () => {
         '/api/profile',
         {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
           body: JSON.stringify(validProfileFixture),
         },
         workerEnv,

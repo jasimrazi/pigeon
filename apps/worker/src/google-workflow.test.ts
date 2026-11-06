@@ -138,7 +138,10 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
 
   it('POST /api/auth/google/ping pings Gmail users.getProfile successfully', async () => {
     const res = await app.fetch(
-      new Request('http://localhost/api/auth/google/ping', { method: 'POST' }),
+      new Request('http://localhost/api/auth/google/ping', {
+        method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
+      }),
       workerEnv,
     );
     expect(res.status).toBe(200);
@@ -173,7 +176,7 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
     const failRes = await app.fetch(
       new Request('http://localhost/api/applications/app-appr-w1/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ confirm_risk: false }),
       }),
       workerEnv,
@@ -184,7 +187,7 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
     const okRes = await app.fetch(
       new Request('http://localhost/api/applications/app-appr-w1/approve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ confirm_risk: true }),
       }),
       workerEnv,
@@ -233,7 +236,7 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
     const res = await app.fetch(
       new Request('http://localhost/api/applications/approve-bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ ids: ['app-bulk-good', 'app-bulk-bad'] }),
       }),
       workerEnv,
@@ -265,7 +268,10 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
     // 1. DRY_RUN=true: writes event and keeps status approved
     workerEnv.DRY_RUN = 'true';
     const dryRes = await app.fetch(
-      new Request('http://localhost/api/applications/app-send-w1/send', { method: 'POST' }),
+      new Request('http://localhost/api/applications/app-send-w1/send', {
+        method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
+      }),
       workerEnv,
     );
     expect(dryRes.status).toBe(200);
@@ -281,7 +287,10 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
     // 2. DRY_RUN=false: sends live via Gmail REST API mock, sets status sent, records gmail IDs
     workerEnv.DRY_RUN = 'false';
     const liveRes = await app.fetch(
-      new Request('http://localhost/api/applications/app-send-w1/send', { method: 'POST' }),
+      new Request('http://localhost/api/applications/app-send-w1/send', {
+        method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
+      }),
       workerEnv,
     );
     expect(liveRes.status).toBe(200);

@@ -43,7 +43,11 @@ export const FiltersSchema = z
       })
       .optional(),
     company_blacklist: z.array(z.string()).default([]),
-    min_score: z.number().min(0).default(0),
+    min_score: z
+      .number({ invalid_type_error: 'min_score must be a number' })
+      .min(0, 'min_score cannot be negative')
+      .max(100, 'min_score cannot exceed 100')
+      .default(0),
     require_salary: z.boolean().default(false),
   })
   .passthrough();
@@ -56,13 +60,17 @@ export const SendSettingsSchema = z
   .object({
     daily_cap: z
       .number()
-      .int()
+      .int('Daily cap must be an integer')
       .min(1, 'Daily cap must be between 1 and 200')
       .max(200, 'Daily cap must be between 1 and 200'),
-    window: z.object({
-      start: TimeStringSchema, // e.g. "09:00"
-      end: TimeStringSchema, // e.g. "17:00"
-    }),
+    window: z
+      .object({
+        start: TimeStringSchema, // e.g. "09:00"
+        end: TimeStringSchema, // e.g. "17:00"
+      })
+      .refine((w) => w.start < w.end, {
+        message: 'Send window start time must be earlier than end time',
+      }),
     timezone: z.string().min(1),
     ramp_base: z.number().int().min(0).max(100),
     ramp_step: z.number().int().min(0).max(50),

@@ -8,6 +8,7 @@
     "lint:fix": "eslint . --fix",
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
+    "test:e2e": "pnpm --filter @pigeon/dashboard test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "parse-eml": "node scripts/parse-eml.mjs"

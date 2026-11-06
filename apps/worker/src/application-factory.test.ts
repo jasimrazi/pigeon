@@ -169,7 +169,7 @@ describe('Worker Application Factory Integration', () => {
       '/api/applications/create',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ job_id: 'job-app-worker-1' }),
       },
       { ...workerEnv, AI: mockAi, LLM_PROVIDER: 'workers-ai' },
@@ -201,7 +201,7 @@ describe('Worker Application Factory Integration', () => {
       '/api/applications/create',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ job_id: 'job-app-worker-1' }),
       },
       { ...workerEnv, AI: mockAi, LLM_PROVIDER: 'workers-ai' },
@@ -221,7 +221,7 @@ describe('Worker Application Factory Integration', () => {
       `/api/applications/${body.application.id}/letter`,
       {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({
           cover_letter: validLetterBody,
           subject: 'Updated Subject - Alex Mercer',

@@ -35,6 +35,7 @@ export function OverviewView({
   const [error, setError] = useState<string | null>(null);
   const [showKsModal, setShowKsModal] = useState(false);
   const [targetKsState, setTargetKsState] = useState(false);
+  const [showDryRunModal, setShowDryRunModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
   const loadOverview = useCallback(async () => {
@@ -79,16 +80,17 @@ export function OverviewView({
     }
   };
 
-  const handleToggleDryRun = async (dryRun: boolean) => {
+  const handleToggleDryRun = async (dryRun: boolean, confirmed = false) => {
     try {
       setActionLoading(true);
       const res = await fetch(`${apiBase}/api/settings/dry-run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dry_run: dryRun }),
+        body: JSON.stringify({ dry_run: dryRun, confirmed: dryRun ? true : confirmed }),
       });
       if (!res.ok) {
-        throw new Error(`Failed to update DRY_RUN (${res.status})`);
+        const errJson = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errJson.error || `Failed to update DRY_RUN (${res.status})`);
       }
       await loadOverview();
       onDataRefresh?.();
@@ -284,7 +286,13 @@ export function OverviewView({
               </p>
             </div>
             <button
-              onClick={() => void handleToggleDryRun(!data.dryRun)}
+              onClick={() => {
+                if (data.dryRun) {
+                  setShowDryRunModal(true);
+                } else {
+                  void handleToggleDryRun(true);
+                }
+              }}
               disabled={actionLoading}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                 data.dryRun
@@ -380,6 +388,20 @@ export function OverviewView({
         isDanger={targetKsState}
         onConfirm={() => void handleToggleKillSwitch(targetKsState)}
         onCancel={() => setShowKsModal(false)}
+      />
+
+      {/* DRY_RUN Live Mode Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDryRunModal}
+        title="Switch to LIVE Sending Mode?"
+        message="Disabling DRY_RUN will activate live email sending. Outgoing applications will be transmitted directly to employer inboxes via Gmail API. Are you sure you want to proceed?"
+        confirmLabel="Switch to LIVE"
+        isDanger={true}
+        onConfirm={() => {
+          setShowDryRunModal(false);
+          void handleToggleDryRun(false, true);
+        }}
+        onCancel={() => setShowDryRunModal(false)}
       />
     </div>
   );

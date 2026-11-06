@@ -205,6 +205,245 @@ describe('Worker Cloudflare Access & API Security Middleware', () => {
     expect(body.authHealth).toBeDefined();
   });
 
+  it('rejects access token with non-RS256 algorithm (401)', async () => {
+    const header = { alg: 'HS256', kid: keyId, typ: 'JWT' };
+    const payload = {
+      iss: `https://${teamDomain}`,
+      aud: audience,
+      email: 'alex@example.com',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    };
+    const headerB64 = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(header)));
+    const payloadB64 = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+    const token = `${headerB64}.${payloadB64}.fakeSignature`;
+
+    const res = await app.fetch(
+      new Request('http://localhost/api/overview', {
+        method: 'GET',
+        headers: { 'Cf-Access-Jwt-Assertion': token },
+      }),
+      workerEnv,
+    );
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('Unsupported algorithm: expected RS256');
+  });
+
+  it('Access middleware refreshes JWKS once on unknown kid (200)', async () => {
+    // Generate rotated key pair
+    const keyPairRotated = (await crypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify'],
+    )) as CryptoKeyPair;
+
+    const exportedRotated = (await crypto.subtle.exportKey(
+      'jwk',
+      keyPairRotated.publicKey,
+    )) as unknown as JwkKey;
+    const publicJwkRotated: JwkKey = {
+      ...exportedRotated,
+      kid: 'rotated-worker-key-2',
+      alg: 'RS256',
+      use: 'sig',
+    };
+
+    // Sign token with rotated key
+    const nowSec = Math.floor(Date.now() / 1000);
+    const header = { alg: 'RS256', kid: 'rotated-worker-key-2', typ: 'JWT' };
+    const payload = {
+      iss: `https://${teamDomain}`,
+      aud: audience,
+      sub: 'alex@example.com',
+      email: 'alex@example.com',
+      exp: nowSec + 3600,
+    };
+    const headerB64 = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(header)));
+    const payloadB64 = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+    const dataToSign = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const sigBytes = new Uint8Array(
+      await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keyPairRotated.privateKey, dataToSign),
+    );
+    const rotatedToken = `${headerB64}.${payloadB64}.${bytesToBase64Url(sigBytes)}`;
+
+    // MSW handler returns refreshed key set on subsequent call
+    let fetchCount = 0;
+    server.use(
+      http.get(`https://${teamDomain}/cdn-cgi/access/certs`, () => {
+        fetchCount++;
+        if (fetchCount === 1) {
+          // Cached response initially only has key 1
+          return HttpResponse.json({ keys: [publicJwk] });
+        }
+        // Refreshed response includes key 2
+        return HttpResponse.json({ keys: [publicJwk, publicJwkRotated] });
+      }),
+    );
+
+    const res = await app.fetch(
+      new Request('http://localhost/api/overview', {
+        method: 'GET',
+        headers: { 'Cf-Access-Jwt-Assertion': rotatedToken },
+      }),
+      workerEnv,
+    );
+    expect(res.status).toBe(200);
+    expect(fetchCount).toBe(2);
+  });
+
+  it('Access middleware requires email claim to match CF_ACCESS_ALLOWED_EMAIL', async () => {
+    workerEnv.CF_ACCESS_ALLOWED_EMAIL = 'owner@example.com';
+    try {
+      // 1. Token with matching email succeeds
+      const tokenMatching = await createSignedJwt({ email: 'owner@example.com' });
+      const resOk = await app.fetch(
+        new Request('http://localhost/api/overview', {
+          method: 'GET',
+          headers: { 'Cf-Access-Jwt-Assertion': tokenMatching },
+        }),
+        workerEnv,
+      );
+      expect(resOk.status).toBe(200);
+
+      // 2. Token with mismatched email fails with 401
+      const tokenMismatched = await createSignedJwt({ email: 'intruder@example.com' });
+      const resFail = await app.fetch(
+        new Request('http://localhost/api/overview', {
+          method: 'GET',
+          headers: { 'Cf-Access-Jwt-Assertion': tokenMismatched },
+        }),
+        workerEnv,
+      );
+      expect(resFail.status).toBe(401);
+      const failJson = (await resFail.json()) as { error: string };
+      expect(failJson.error).toContain('Forbidden email');
+    } finally {
+      delete workerEnv.CF_ACCESS_ALLOWED_EMAIL;
+    }
+  });
+
+  it('rejects missing or wrong Origin on every state-changing route including multipart /api/resumes (403)', async () => {
+    const validToken = await createSignedJwt();
+
+    const stateChangingRoutes: Array<{ method: string; path: string; body?: string }> = [
+      { method: 'POST', path: '/api/settings/dry-run', body: JSON.stringify({ dry_run: true }) },
+      {
+        method: 'POST',
+        path: '/api/settings/kill-switch',
+        body: JSON.stringify({ kill_switch: true, confirmed: true }),
+      },
+      {
+        method: 'POST',
+        path: '/api/settings',
+        body: JSON.stringify({ profile: { name: 'A', email: 'a@b.com' } }),
+      },
+      {
+        method: 'POST',
+        path: '/api/applications/bulk-approve',
+        body: JSON.stringify({ application_ids: [] }),
+      },
+      {
+        method: 'PATCH',
+        path: '/api/applications/app-test/letter',
+        body: JSON.stringify({ cover_letter: 'text' }),
+      },
+      {
+        method: 'PATCH',
+        path: '/api/applications/app-test/resume',
+        body: JSON.stringify({ resume_id: 'res-1' }),
+      },
+      { method: 'POST', path: '/api/applications/app-test/approve', body: '{}' },
+      {
+        method: 'POST',
+        path: '/api/applications/app-test/reject',
+        body: JSON.stringify({ reason: 'not interested' }),
+      },
+      { method: 'POST', path: '/api/applications/app-test/send', body: '{}' },
+      {
+        method: 'POST',
+        path: '/api/manual/app-test/applied',
+        body: JSON.stringify({ channel: 'manual' }),
+      },
+      { method: 'POST', path: '/api/manual/app-test/snooze', body: JSON.stringify({ days: 3 }) },
+      {
+        method: 'POST',
+        path: '/api/manual/app-test/reject',
+        body: JSON.stringify({ reason: 'skip' }),
+      },
+      {
+        method: 'POST',
+        path: '/api/manual/app-test/send-by-email',
+        body: JSON.stringify({ confirm_risk: true }),
+      },
+      { method: 'POST', path: '/api/sheets/sync', body: '{}' },
+      { method: 'POST', path: '/api/inbox/poll', body: '{}' },
+      // Multipart /api/resumes
+      { method: 'POST', path: '/api/resumes' },
+    ];
+
+    for (const route of stateChangingRoutes) {
+      // 1. Missing Origin -> 403
+      const headersMissingOrigin: Record<string, string> = {
+        'Cf-Access-Jwt-Assertion': validToken,
+      };
+      if (route.body) {
+        headersMissingOrigin['Content-Type'] = 'application/json';
+      }
+
+      const reqInitMissing: RequestInit = {
+        method: route.method,
+        headers: headersMissingOrigin,
+      };
+      if (route.body) {
+        reqInitMissing.body = route.body;
+      }
+
+      const resMissing = await app.fetch(
+        new Request(`http://localhost${route.path}`, reqInitMissing),
+        workerEnv,
+      );
+      expect(
+        resMissing.status,
+        `Expected 403 for missing Origin on ${route.method} ${route.path}, got ${resMissing.status}`,
+      ).toBe(403);
+      const jsonMissing = (await resMissing.json()) as { error: string };
+      expect(jsonMissing.error).toContain('Origin mismatch');
+
+      // 2. Wrong Origin -> 403
+      const headersWrongOrigin: Record<string, string> = {
+        'Cf-Access-Jwt-Assertion': validToken,
+        Origin: 'https://malicious-attacker.com',
+      };
+      if (route.body) {
+        headersWrongOrigin['Content-Type'] = 'application/json';
+      }
+
+      const reqInitWrong: RequestInit = {
+        method: route.method,
+        headers: headersWrongOrigin,
+      };
+      if (route.body) {
+        reqInitWrong.body = route.body;
+      }
+
+      const resWrong = await app.fetch(
+        new Request(`http://localhost${route.path}`, reqInitWrong),
+        workerEnv,
+      );
+      expect(
+        resWrong.status,
+        `Expected 403 for wrong Origin on ${route.method} ${route.path}, got ${resWrong.status}`,
+      ).toBe(403);
+      const jsonWrong = (await resWrong.json()) as { error: string };
+      expect(jsonWrong.error).toContain('Origin mismatch');
+    }
+  });
+
   it('rejects state-changing endpoint with mismatched Origin (403)', async () => {
     const validToken = await createSignedJwt();
     const res = await app.fetch(

@@ -203,7 +203,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const snoozeRes = await app.fetch(
       new Request('http://localhost/api/manual/app-m-1/snooze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ days: 3 }),
       }),
       workerEnv,
@@ -225,7 +225,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const failRes = await app.fetch(
       new Request('http://localhost/api/manual/app-m-2/send-by-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ confirm_risk: false }),
       }),
       workerEnv,
@@ -238,7 +238,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const okRes = await app.fetch(
       new Request('http://localhost/api/manual/app-m-2/send-by-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ confirm_risk: true }),
       }),
       workerEnv,
@@ -262,7 +262,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const res = await app.fetch(
       new Request('http://localhost/api/manual/app-m-1/applied', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ note: 'Applied via Stripe Greenhouse form' }),
       }),
       workerEnv,
@@ -284,7 +284,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const badRes = await app.fetch(
       new Request('http://localhost/api/applications/app-m-1/outcome', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ status: 'invalid_status' }),
       }),
       workerEnv,
@@ -295,7 +295,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const goodRes = await app.fetch(
       new Request('http://localhost/api/applications/app-m-1/outcome', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ status: 'interview' }),
       }),
       workerEnv,
@@ -313,7 +313,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const badRes = await app.fetch(
       new Request('http://localhost/api/manual/bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ action: 'applied' }),
       }),
       workerEnv,
@@ -332,7 +332,7 @@ describe('Worker Manual Apply Workflow API', () => {
     const goodRes = await app.fetch(
       new Request('http://localhost/api/manual/bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ ids: ['app-bulk-1'], action: 'skip', reason: 'Not interested' }),
       }),
       workerEnv,

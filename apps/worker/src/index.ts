@@ -37,6 +37,10 @@ import {
   calculateEffectiveCap,
   transition,
   TelegramNotifier,
+  KILL_SWITCH_KV_KEY,
+  DRY_RUN_KV_KEY,
+  isKillSwitchActive,
+  getEffectiveDryRun,
   type Notifier,
   type NotificationPayload,
   type CloudflareAiBinding,
@@ -76,12 +80,13 @@ app.use('*', async (c, next) => {
   const dashboardOrigin = (c.env.DASHBOARD_ORIGIN as string) || 'http://localhost:5173';
 
   // Allowed origins: dashboardOrigin or localhost dev/test origins
-  const isAllowedOrigin =
-    origin === dashboardOrigin ||
-    origin === 'http://localhost:5173' ||
-    origin === 'http://127.0.0.1:5173' ||
-    origin === 'http://localhost:3000' ||
-    !origin; // Non-browser or same-origin
+  const allowedOrigins = [
+    dashboardOrigin,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+  ];
+  const isAllowedOrigin = origin ? allowedOrigins.includes(origin) : false;
 
   if (origin && isAllowedOrigin) {
     c.header('Access-Control-Allow-Origin', origin);
@@ -103,7 +108,7 @@ app.use('*', async (c, next) => {
 
   // State-changing endpoint Origin check
   if (isStateChanging && path.startsWith('/api/')) {
-    if (origin && !isAllowedOrigin) {
+    if (!origin || !isAllowedOrigin) {
       return c.json({ error: 'Forbidden: Origin mismatch' }, 403);
     }
 
@@ -123,6 +128,7 @@ app.use('*', async (c, next) => {
   if (path.startsWith('/api/')) {
     const cfAccessAud = (c.env.CF_ACCESS_AUD as string) || undefined;
     const cfAccessTeamDomain = (c.env.CF_ACCESS_TEAM_DOMAIN as string) || undefined;
+    const cfAccessAllowedEmail = (c.env.CF_ACCESS_ALLOWED_EMAIL as string) || undefined;
 
     // Enforce when Cloudflare Access is configured
     if (cfAccessAud && cfAccessTeamDomain) {
@@ -134,6 +140,7 @@ app.use('*', async (c, next) => {
       const verifyRes = await verifyCfAccessJwt(assertion, {
         teamDomain: cfAccessTeamDomain,
         audience: cfAccessAud,
+        allowedEmail: cfAccessAllowedEmail,
       });
 
       if (!verifyRes.valid) {
@@ -1116,15 +1123,11 @@ app.get('/api/overview', async (c) => {
   // Auth health
   const authHealth = await getGoogleAuthHealth(c.env.CONFIG);
 
-  // Kill switch from KV or env
-  const kvKillSwitch =
-    (await c.env.CONFIG.get('kill_switch')) === 'true' ||
-    (await c.env.CONFIG.get('KILL_SWITCH')) === 'true';
-  const killSwitch = kvKillSwitch || env.KILL_SWITCH;
+  // Kill switch from KV or env (single spelling KILL_SWITCH_KV_KEY)
+  const killSwitch = await isKillSwitchActive(c.env.CONFIG, env.KILL_SWITCH);
 
-  // Dry run from KV or env
-  const kvDryRun = await c.env.CONFIG.get('DRY_RUN');
-  const dryRun = kvDryRun !== null ? kvDryRun === 'true' : env.DRY_RUN;
+  // Effective dry run = (wrangler var is true) OR (KV override is true)
+  const dryRun = await getEffectiveDryRun(env.DRY_RUN, c.env.CONFIG);
 
   return c.json({
     sendsToday,
@@ -1415,13 +1418,8 @@ app.get('/api/settings', async (c) => {
     'SELECT id, label, tags, is_default, created_at FROM resumes ORDER BY created_at DESC',
   ).all();
 
-  const kvKillSwitch =
-    (await c.env.CONFIG.get('kill_switch')) === 'true' ||
-    (await c.env.CONFIG.get('KILL_SWITCH')) === 'true';
-  const killSwitch = kvKillSwitch || env.KILL_SWITCH;
-
-  const kvDryRun = await c.env.CONFIG.get('DRY_RUN');
-  const dryRun = kvDryRun !== null ? kvDryRun === 'true' : env.DRY_RUN;
+  const killSwitch = await isKillSwitchActive(c.env.CONFIG, env.KILL_SWITCH);
+  const dryRun = await getEffectiveDryRun(env.DRY_RUN, c.env.CONFIG);
 
   return c.json({
     profile,
@@ -1464,12 +1462,18 @@ app.post('/api/settings', async (c) => {
 
 // 10. POST /api/settings/dry-run: Toggles DRY_RUN
 app.post('/api/settings/dry-run', async (c) => {
-  const body = await c.req.json<{ dry_run?: boolean }>().catch(() => ({}) as { dry_run?: boolean });
+  const body = await c.req
+    .json<{ dry_run?: boolean; confirmed?: boolean }>()
+    .catch(() => ({}) as { dry_run?: boolean; confirmed?: boolean });
   if (typeof body.dry_run !== 'boolean') {
     return c.json({ error: 'Missing or invalid dry_run boolean' }, 400);
   }
 
-  await c.env.CONFIG.put('DRY_RUN', body.dry_run ? 'true' : 'false');
+  if (body.dry_run === false && body.confirmed !== true) {
+    return c.json({ error: 'Disabling DRY_RUN requires confirmed: true' }, 400);
+  }
+
+  await c.env.CONFIG.put(DRY_RUN_KV_KEY, body.dry_run ? 'true' : 'false');
 
   const nowIso = new Date().toISOString();
   await c.env.DB.prepare(
@@ -1479,7 +1483,8 @@ app.post('/api/settings/dry-run', async (c) => {
     .bind(crypto.randomUUID(), JSON.stringify({ dry_run: body.dry_run }), nowIso)
     .run();
 
-  return c.json({ ok: true, dryRun: body.dry_run });
+  const effectiveDryRun = await getEffectiveDryRun(c.get('validatedEnv').DRY_RUN, c.env.CONFIG);
+  return c.json({ ok: true, dryRun: effectiveDryRun });
 });
 
 // 11. POST /api/settings/kill-switch: Toggles KILL SWITCH with confirmation
@@ -1497,8 +1502,7 @@ app.post('/api/settings/kill-switch', async (c) => {
   }
 
   const val = body.kill_switch ? 'true' : 'false';
-  await c.env.CONFIG.put('kill_switch', val);
-  await c.env.CONFIG.put('KILL_SWITCH', val);
+  await c.env.CONFIG.put(KILL_SWITCH_KV_KEY, val);
 
   const nowIso = new Date().toISOString();
   await c.env.DB.prepare(

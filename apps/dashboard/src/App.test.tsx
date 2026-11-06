@@ -348,4 +348,179 @@ describe('Dashboard App & Operations Components', () => {
     // Modal should close
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
+
+  it('opens confirmation modal before switching DRY_RUN to false in Overview', async () => {
+    let dryRunPayloadSent: { dry_run?: boolean; confirmed?: boolean } | null = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        const u = url.toString();
+        if (u.includes('/api/settings/dry-run') && init?.method === 'POST') {
+          dryRunPayloadSent = JSON.parse(init.body as string);
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, dryRun: false }),
+          });
+        }
+        if (u.includes('/api/overview')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              sendsToday: 3,
+              effectiveCap: 15,
+              dailyCap: 20,
+              bounceRate: 0,
+              failureRate: 0,
+              jobsByStatus: { routed: 5 },
+              jobsByRoute: { auto_email: 2 },
+              manualWaitingCount: 4,
+              authHealth: { status: 'ok', reason: null, checked_at: new Date().toISOString() },
+              dryRun: true,
+              killSwitch: false,
+            }),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }),
+    );
+
+    await act(async () => {
+      root?.render(<App />);
+    });
+
+    // Find DRY RUN toggle button in Overview
+    const dryRunBtn = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+      b.textContent?.includes('DRY RUN: ON'),
+    );
+    expect(dryRunBtn).toBeDefined();
+
+    // Clicking toggle to switch to false opens ConfirmationModal
+    await act(async () => {
+      dryRunBtn?.click();
+    });
+
+    const modal = document.querySelector('[role="dialog"]');
+    expect(modal).not.toBeNull();
+    expect(modal?.textContent).toContain('Switch to LIVE Sending Mode?');
+    expect(modal?.textContent).toContain('Disabling DRY_RUN will activate live email sending');
+
+    // Confirm action
+    const confirmBtn = Array.from(modal?.querySelectorAll('button') || []).find((b) =>
+      b.textContent?.includes('Switch to LIVE'),
+    );
+    expect(confirmBtn).toBeDefined();
+
+    await act(async () => {
+      confirmBtn?.click();
+    });
+
+    // Modal closes and confirmed: true is sent
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(dryRunPayloadSent).toEqual({ dry_run: false, confirmed: true });
+  });
+
+  it('renders score threshold (min_score) in Settings and requires confirmation when switching DRY_RUN to false', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        const u = url.toString();
+        if (u.includes('/api/overview')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              sendsToday: 0,
+              effectiveCap: 20,
+              dailyCap: 20,
+              bounceRate: 0,
+              failureRate: 0,
+              jobsByStatus: {},
+              jobsByRoute: {},
+              manualWaitingCount: 0,
+              authHealth: { status: 'ok', reason: null, checked_at: null },
+              dryRun: true,
+              killSwitch: false,
+            }),
+          });
+        }
+        if (u.includes('/api/settings') && init?.method === 'POST') {
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
+        }
+        if (u.includes('/api/settings')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ok: true,
+              dryRun: true,
+              killSwitch: false,
+              profile: {
+                name: 'Alex Mercer',
+                email: 'alex@example.com',
+                skills: ['TypeScript'],
+                send_settings: {
+                  daily_cap: 20,
+                  ramp_base: 5,
+                  ramp_step: 2,
+                  window: { start: '09:00', end: '18:00' },
+                  timezone: 'UTC',
+                  auto_approve_above_score: 85,
+                },
+                filters: {
+                  titles: ['Engineer'],
+                  company_blacklist: [],
+                  min_score: 75,
+                },
+              },
+            }),
+          });
+        }
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+      }),
+    );
+
+    await act(async () => {
+      root?.render(<App />);
+    });
+
+    // Navigate to Settings
+    const settingsTab = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+      b.textContent?.includes('Settings'),
+    );
+    expect(settingsTab).toBeDefined();
+
+    await act(async () => {
+      settingsTab?.click();
+    });
+
+    // Verify min_score score threshold is rendered
+    expect(container?.textContent).toContain('Minimum Score Threshold');
+    const minScoreInput = container?.querySelector('input[type="number"]') as HTMLInputElement;
+    expect(minScoreInput).not.toBeNull();
+
+    // Verify DRY_RUN toggle in Settings opens modal
+    const dryRunBtn = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+      b.textContent?.includes('DRY_RUN: ENABLED'),
+    );
+    expect(dryRunBtn).toBeDefined();
+
+    await act(async () => {
+      dryRunBtn?.click();
+    });
+
+    const modal = document.querySelector('[role="dialog"]');
+    expect(modal).not.toBeNull();
+    expect(modal?.textContent).toContain('Switch to LIVE Sending Mode?');
+
+    // Close modal
+    const cancelBtn = Array.from(modal?.querySelectorAll('button') || []).find((b) =>
+      b.textContent?.includes('Cancel'),
+    );
+    await act(async () => {
+      cancelBtn?.click();
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
 });

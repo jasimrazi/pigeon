@@ -261,6 +261,7 @@ describe('Worker Inbox Poller & Outcome Tracking Workflow', () => {
     const res = await app.fetch(
       new Request('http://localhost/api/inbox/poll', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );
@@ -308,6 +309,7 @@ describe('Worker Inbox Poller & Outcome Tracking Workflow', () => {
     const res2 = await app.fetch(
       new Request('http://localhost/api/inbox/poll', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );
@@ -381,6 +383,7 @@ describe('Worker Inbox Poller & Outcome Tracking Workflow', () => {
     const res = await app.fetch(
       new Request('http://localhost/api/inbox/poll', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );
@@ -451,6 +454,7 @@ describe('Worker Inbox Poller & Outcome Tracking Workflow', () => {
     const res = await app.fetch(
       new Request('http://localhost/api/inbox/poll', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );

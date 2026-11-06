@@ -166,6 +166,7 @@ describe('Worker Google Sheets One-Way Sync Workflow', () => {
     const res = await app.fetch(
       new Request('http://localhost/api/sync/sheet', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );
@@ -204,6 +205,7 @@ describe('Worker Google Sheets One-Way Sync Workflow', () => {
     const res2 = await app.fetch(
       new Request('http://localhost/api/sync/sheet', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );

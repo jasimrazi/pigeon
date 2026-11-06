@@ -14,6 +14,7 @@ export interface JwksResponse {
 export interface VerifyJwtOptions {
   teamDomain: string;
   audience: string;
+  allowedEmail?: string | undefined;
   jwks?: JwksResponse | undefined;
   fetchFn?: typeof fetch | undefined;
   nowMs?: number | undefined;
@@ -58,10 +59,16 @@ export function clearJwksCache(): void {
 export async function getTeamJwks(
   teamDomain: string,
   fetchFn: typeof fetch = globalThis.fetch.bind(globalThis),
+  forceRefresh = false,
 ): Promise<JwksResponse> {
   const cached = jwksCache.get(teamDomain);
   const now = Date.now();
-  if (cached && typeof cached.fetchedAt === 'number' && now - cached.fetchedAt < 60 * 60 * 1000) {
+  if (
+    !forceRefresh &&
+    cached &&
+    typeof cached.fetchedAt === 'number' &&
+    now - cached.fetchedAt < 60 * 60 * 1000
+  ) {
     return { keys: cached.keys };
   }
 
@@ -157,7 +164,19 @@ export async function verifyCfAccessJwt(
     };
   }
 
-  // 6. Find JWK
+  // 6. Validate Allowed Email if specified
+  if (options.allowedEmail) {
+    const emailClaim = typeof payload.email === 'string' ? payload.email : undefined;
+    if (!emailClaim || emailClaim.toLowerCase() !== options.allowedEmail.toLowerCase()) {
+      return {
+        valid: false,
+        reason: `Forbidden email: expected ${options.allowedEmail}, got ${payload.email}`,
+        payload,
+      };
+    }
+  }
+
+  // 7. Find JWK
   let jwks = options.jwks;
   if (!jwks) {
     try {
@@ -167,12 +186,22 @@ export async function verifyCfAccessJwt(
     }
   }
 
-  const matchingKey = jwks.keys.find((k) => k.kid === header.kid);
+  let matchingKey = jwks.keys.find((k) => k.kid === header.kid);
+  // If unknown kid and not using a static jwks override, refresh JWKS once
+  if (!matchingKey && !options.jwks) {
+    try {
+      jwks = await getTeamJwks(options.teamDomain, options.fetchFn, true);
+      matchingKey = jwks.keys.find((k) => k.kid === header.kid);
+    } catch (err) {
+      return { valid: false, reason: `Failed to refresh JWKS: ${(err as Error).message}` };
+    }
+  }
+
   if (!matchingKey) {
     return { valid: false, reason: `Public key with kid '${header.kid}' not found in JWKS` };
   }
 
-  // 7. Verify Signature with WebCrypto
+  // 8. Verify Signature with WebCrypto
   try {
     const cryptoKey = await crypto.subtle.importKey(
       'jwk',

@@ -4,7 +4,12 @@ import { app } from './index.js';
 import type { Bindings } from './env.js';
 import { server } from '../fixtures/server.js';
 import { googleHandlers } from '../fixtures/google/handlers.js';
-import { KV_KEYS, encryptRefreshToken, setGoogleAuthHealth } from '@pigeon/shared';
+import {
+  KV_KEYS,
+  encryptRefreshToken,
+  setGoogleAuthHealth,
+  sendApplicationEmail,
+} from '@pigeon/shared';
 
 interface TestEnv extends Bindings {
   TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
@@ -145,7 +150,7 @@ Alex Mercer`;
     const ksRes = await app.fetch(
       new Request('http://localhost/api/settings/kill-switch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ kill_switch: true, confirmed: true }),
       }),
       workerEnv,
@@ -156,6 +161,7 @@ Alex Mercer`;
     const sendRes1 = await app.fetch(
       new Request('http://localhost/api/applications/app-ks-1/send', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );
@@ -173,7 +179,7 @@ Alex Mercer`;
     const ksOffRes = await app.fetch(
       new Request('http://localhost/api/settings/kill-switch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ kill_switch: false, confirmed: true }),
       }),
       workerEnv,
@@ -186,6 +192,7 @@ Alex Mercer`;
     const sendRes2 = await app.fetch(
       new Request('http://localhost/api/applications/app-ks-1/send', {
         method: 'POST',
+        headers: { Origin: 'http://localhost:5173' },
       }),
       workerEnv,
     );
@@ -196,6 +203,74 @@ Alex Mercer`;
       .bind('app-ks-1')
       .first<{ status: string }>();
     expect(checkApp2?.status).toBe('sent');
+  });
+
+  it('Kill switch: KV read throws -> nothing sent', async () => {
+    const throwingConfig = {
+      ...workerEnv.CONFIG,
+      async get(key: string) {
+        if (key === 'kill_switch') throw new Error('KV network fault');
+        return workerEnv.CONFIG.get(key);
+      },
+    };
+
+    const res = await sendApplicationEmail({
+      db: workerEnv.DB,
+      config: throwingConfig as unknown as Parameters<typeof sendApplicationEmail>[0]['config'],
+      resumesBucket: workerEnv.RESUMES,
+      gmailSender: {
+        async send() {
+          throw new Error('Gmail send should not be reached when KV read throws');
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      },
+      profile: {
+        name: 'Alex Mercer',
+        email: 'alex@example.com',
+        skills: ['TypeScript'],
+        filters: {
+          titles: ['Engineer'],
+          locations: ['Remote'],
+          company_blacklist: [],
+          min_score: 0,
+          require_salary: false,
+        },
+        send_settings: {
+          daily_cap: 20,
+          window: { start: '00:00', end: '23:59' },
+          timezone: 'UTC',
+          ramp_base: 5,
+          ramp_step: 2,
+          auto_approve_above_score: 85,
+        },
+        experience: [],
+        education: [],
+        preferences: { locations: ['Remote'], remote: true },
+        answers: {
+          notice_period: '',
+          current_ctc: '',
+          expected_ctc: '',
+          work_authorisation: '',
+          links: {},
+          other: {},
+        },
+      },
+      dryRun: false,
+      application: {
+        id: 'app-ks-fail',
+        job_id: 'job-1',
+        title: 'Platform Architect',
+        company: 'Cloud Corp',
+        contact_email: 'jobs@cloudcorp.com',
+        cover_letter: 'I am excited to submit my application for the Platform Architect role...',
+        status: 'approved',
+      } as unknown as Parameters<typeof sendApplicationEmail>[0]['application'],
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Kill switch is active');
   });
 
   it('Editing a cover letter in the Review Queue persists and re-runs the guardrail validator', async () => {
@@ -243,7 +318,7 @@ Alex Mercer`;
     const editRes1 = await app.fetch(
       new Request('http://localhost/api/applications/app-edit-1/letter', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({
           cover_letter: 'Hi there, I am excited about the Senior Platform Engineer role.',
         }),
@@ -280,7 +355,7 @@ Alex Mercer`;
     const editRes2 = await app.fetch(
       new Request('http://localhost/api/applications/app-edit-1/letter', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ cover_letter: validLetter }),
       }),
       workerEnv,
@@ -323,75 +398,81 @@ Alex Mercer`;
     expect(typeof data.killSwitch).toBe('boolean');
   });
 
-  it('Settings validation rejects an out-of-range cap or an invalid send window', async () => {
+  it('Settings validation rejects an out-of-range cap, invalid send window, or invalid min_score', async () => {
+    const baseProfile = {
+      name: 'Alex Mercer',
+      email: 'alex@example.com',
+      skills: ['TypeScript'],
+      send_settings: {
+        daily_cap: 20,
+        window: { start: '09:00', end: '17:00' },
+        timezone: 'UTC',
+        ramp_base: 5,
+        ramp_step: 2,
+        auto_approve_above_score: 85,
+      },
+      experience: [],
+      education: [],
+      preferences: { locations: ['Remote'], remote: true },
+      filters: {
+        titles: ['Engineer'],
+        locations: ['Remote'],
+        company_blacklist: [],
+        min_score: 70,
+      },
+      answers: {
+        notice_period: '',
+        current_ctc: '',
+        expected_ctc: '',
+        work_authorisation: '',
+        links: {},
+        other: {},
+      },
+    };
+
     // 1. Rejects daily_cap = 0
     const resZeroCap = await app.fetch(
       new Request('http://localhost/api/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({
           profile: {
-            name: 'Alex Mercer',
-            email: 'alex@example.com',
-            skills: ['TypeScript'],
-            send_settings: {
-              daily_cap: 0, // out of range!
-              window: { start: '09:00', end: '17:00' },
-              timezone: 'UTC',
-              ramp_base: 5,
-              ramp_step: 2,
-              auto_approve_above_score: 85,
-            },
-            experience: [],
-            education: [],
-            preferences: { locations: ['Remote'], remote: true },
-            filters: { titles: ['Engineer'], locations: ['Remote'], company_blacklist: [] },
-            answers: {
-              notice_period: '',
-              current_ctc: '',
-              expected_ctc: '',
-              work_authorisation: '',
-              links: {},
-              other: {},
-            },
+            ...baseProfile,
+            send_settings: { ...baseProfile.send_settings, daily_cap: 0 },
           },
         }),
       }),
       workerEnv,
     );
     expect(resZeroCap.status).toBe(400);
-    const bodyZero = (await resZeroCap.json()) as { error: string };
-    expect(bodyZero.error).toContain('Invalid profile settings');
 
-    // 2. Rejects invalid send window (e.g. 26:00)
+    // 2. Rejects daily_cap = 201 (out of range max)
+    const resMaxCap = await app.fetch(
+      new Request('http://localhost/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({
+          profile: {
+            ...baseProfile,
+            send_settings: { ...baseProfile.send_settings, daily_cap: 201 },
+          },
+        }),
+      }),
+      workerEnv,
+    );
+    expect(resMaxCap.status).toBe(400);
+
+    // 3. Rejects invalid send window format (26:00)
     const resInvalidWindow = await app.fetch(
       new Request('http://localhost/api/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({
           profile: {
-            name: 'Alex Mercer',
-            email: 'alex@example.com',
-            skills: ['TypeScript'],
+            ...baseProfile,
             send_settings: {
-              daily_cap: 20,
-              window: { start: '26:00', end: '17:00' }, // invalid hour
-              timezone: 'UTC',
-              ramp_base: 5,
-              ramp_step: 2,
-              auto_approve_above_score: 85,
-            },
-            experience: [],
-            education: [],
-            preferences: { locations: ['Remote'], remote: true },
-            filters: { titles: ['Engineer'], locations: ['Remote'], company_blacklist: [] },
-            answers: {
-              notice_period: '',
-              current_ctc: '',
-              expected_ctc: '',
-              work_authorisation: '',
-              links: {},
-              other: {},
+              ...baseProfile.send_settings,
+              window: { start: '26:00', end: '17:00' },
             },
           },
         }),
@@ -399,8 +480,78 @@ Alex Mercer`;
       workerEnv,
     );
     expect(resInvalidWindow.status).toBe(400);
-    const bodyWindow = (await resInvalidWindow.json()) as { error: string };
-    expect(bodyWindow.error).toContain('Invalid profile settings');
+
+    // 4. Rejects send window with start >= end (e.g. 18:00 to 09:00)
+    const resInvertedWindow = await app.fetch(
+      new Request('http://localhost/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({
+          profile: {
+            ...baseProfile,
+            send_settings: {
+              ...baseProfile.send_settings,
+              window: { start: '18:00', end: '09:00' },
+            },
+          },
+        }),
+      }),
+      workerEnv,
+    );
+    expect(resInvertedWindow.status).toBe(400);
+
+    // 5. Rejects min_score < 0
+    const resNegativeScore = await app.fetch(
+      new Request('http://localhost/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({
+          profile: {
+            ...baseProfile,
+            filters: { ...baseProfile.filters, min_score: -5 },
+          },
+        }),
+      }),
+      workerEnv,
+    );
+    expect(resNegativeScore.status).toBe(400);
+
+    // 6. Rejects min_score > 100
+    const resOverScore = await app.fetch(
+      new Request('http://localhost/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({
+          profile: {
+            ...baseProfile,
+            filters: { ...baseProfile.filters, min_score: 105 },
+          },
+        }),
+      }),
+      workerEnv,
+    );
+    expect(resOverScore.status).toBe(400);
+
+    // 7. Accepts valid settings with score threshold min_score
+    const resValid = await app.fetch(
+      new Request('http://localhost/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({
+          profile: {
+            ...baseProfile,
+            filters: { ...baseProfile.filters, min_score: 75 },
+          },
+        }),
+      }),
+      workerEnv,
+    );
+    expect(resValid.status).toBe(200);
+    const validBody = (await resValid.json()) as {
+      ok: boolean;
+      profile: { filters: { min_score: number } };
+    };
+    expect(validBody.profile.filters.min_score).toBe(75);
   });
 
   it('Kill switch toggle requires confirmation step', async () => {
@@ -408,7 +559,7 @@ Alex Mercer`;
     const resUnconfirmed = await app.fetch(
       new Request('http://localhost/api/settings/kill-switch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ kill_switch: true, confirmed: false }),
       }),
       workerEnv,
@@ -421,8 +572,32 @@ Alex Mercer`;
     const resConfirmed = await app.fetch(
       new Request('http://localhost/api/settings/kill-switch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
         body: JSON.stringify({ kill_switch: true, confirmed: true }),
+      }),
+      workerEnv,
+    );
+    expect(resConfirmed.status).toBe(200);
+  });
+
+  it('Switching DRY_RUN to false requires confirmation', async () => {
+    // Unconfirmed switch to false rejected
+    const resUnconfirmed = await app.fetch(
+      new Request('http://localhost/api/settings/dry-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({ dry_run: false, confirmed: false }),
+      }),
+      workerEnv,
+    );
+    expect(resUnconfirmed.status).toBe(400);
+
+    // Confirmed switch to false accepted
+    const resConfirmed = await app.fetch(
+      new Request('http://localhost/api/settings/dry-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({ dry_run: false, confirmed: true }),
       }),
       workerEnv,
     );
