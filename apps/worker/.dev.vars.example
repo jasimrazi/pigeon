@@ -1,0 +1,58 @@
+# ==============================================================================
+# Pigeon Worker - Local Development Environment Variables (.dev.vars)
+# Copy this file to .dev.vars for local testing.
+# NEVER commit real credentials to source control.
+# ==============================================================================
+
+# Execution Environment: 'dev', 'staging', or 'prod'. In dev, security relaxations like ALLOW_INSECURE_DEV_AUTH are permitted.
+ENV="dev"
+
+# Dry run mode: 'true' or 'false'. When true, emails are simulated and not sent live.
+DRY_RUN="true"
+
+# Global emergency kill switch: 'true' or 'false'. When true, all sending operations halt immediately.
+KILL_SWITCH="false"
+
+# Development auth bypass: 'true' allows unauthenticated access to /api/* and /auth/* locally. Honoured ONLY when ENV=dev.
+ALLOW_INSECURE_DEV_AUTH="true"
+
+# LLM provider: 'workers-ai' (default) or 'gemini'.
+# Note: Workers AI in local Miniflare may show "Binding AI needs to be run remotely" unless logged into Cloudflare.
+# For free local testing, switch to:
+#   LLM_PROVIDER="gemini"
+#   GEMINI_API_KEY="AIzaSy..." (get a free key at https://aistudio.google.com/app/apikey)
+LLM_PROVIDER="workers-ai"
+
+# Google Gemini API key (required only if LLM_PROVIDER="gemini")
+GEMINI_API_KEY=""
+
+# Safe recipient allowlist in dev: comma-separated list of allowed emails or @domains (e.g. "you@domain.com, @yourdomain.com").
+# When ENV=dev, sending to any address not on this list is blocked with POLICY_RECIPIENT_NOT_ALLOWED.
+# An empty string blocks ALL sends in dev as a fail-safe.
+DEV_RECIPIENT_ALLOWLIST="recruiter@example.test, @example.test"
+
+# Google OAuth 2.0 Credentials (for Gmail API and Google Sheets sync)
+GOOGLE_CLIENT_ID="dev-google-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="dev-google-client-secret"
+GOOGLE_REDIRECT_URI="http://localhost:8787/auth/google/callback"
+
+# AES-GCM 256-bit encryption key (hex or base64 string, minimum 32 characters) for encrypting stored Google OAuth refresh tokens.
+GOOGLE_TOKEN_ENCRYPTION_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+# Google Spreadsheet ID for one-way sync of job applications
+GOOGLE_SHEET_ID="dev-google-sheet-id"
+
+# Job seeker / candidate profile email address
+OWNER_GMAIL="user@example.com"
+
+# Inbound email alert forwarding address (e.g. jobs@yourdomain.workers.dev)
+ALERT_FORWARDING_ADDRESS="alerts@example.test"
+
+# Adzuna Job Search API credentials (optional job source)
+ADZUNA_APP_ID=""
+ADZUNA_APP_KEY=""
+
+# Cloudflare Access Configuration (enforced when ENV is staging or prod, or when ALLOW_INSECURE_DEV_AUTH=false)
+CF_ACCESS_AUD=""
+CF_ACCESS_TEAM_DOMAIN=""
+CF_ACCESS_ALLOWED_EMAIL=""

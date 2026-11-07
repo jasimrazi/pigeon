@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 // @ts-expect-error Node.js path module is available in Vitest node test runner
 import * as path from 'node:path';
+import { WorkerEnvVarsSchema, WorkerSecretsSchema } from './env.js';
 
 describe('Developer Tools & Local Run Kit Verification', () => {
   const proc = (globalThis as unknown as { process?: { cwd?: () => string } }).process;
@@ -29,6 +30,35 @@ describe('Developer Tools & Local Run Kit Verification', () => {
       expect(content).toContain("'/auth'");
       expect(content).toContain("'/health'");
       expect(content).toContain('http://127.0.0.1:8787');
+    });
+  });
+
+  describe('.dev.vars.example Parity Verification', () => {
+    it('.dev.vars.example lists every key in WorkerEnvVarsSchema and WorkerSecretsSchema', () => {
+      const devVarsExamplePath = path.join(rootDir, 'apps/worker/.dev.vars.example');
+      expect(fs.existsSync(devVarsExamplePath)).toBe(true);
+
+      const content = fs.readFileSync(devVarsExamplePath, 'utf8');
+
+      const foundKeys = new Set<string>();
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const match = trimmed.match(/^([A-Z0-9_]+)\s*=/);
+        if (match && match[1]) {
+          foundKeys.add(match[1]);
+        }
+      }
+
+      const envVarKeys = Object.keys(WorkerEnvVarsSchema.shape);
+      const secretKeys = Object.keys(WorkerSecretsSchema.shape);
+      const allRequiredKeys = [...envVarKeys, ...secretKeys];
+
+      const missingKeys = allRequiredKeys.filter((k) => !foundKeys.has(k));
+      expect(
+        missingKeys,
+        `apps/worker/.dev.vars.example is missing schema keys:\n${missingKeys.join(', ')}`,
+      ).toEqual([]);
     });
   });
 });
