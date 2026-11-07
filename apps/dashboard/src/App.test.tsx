@@ -523,4 +523,97 @@ describe('Dashboard App & Operations Components', () => {
     });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
+
+  describe('Dashboard Header Status Badges', () => {
+    it('header badges show grey unknown/loading state while overview API is pending', async () => {
+      // Mock fetch that hangs (never resolves)
+      vi.stubGlobal('fetch', () => new Promise(() => {}));
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const googleLoading = container?.querySelector('[data-testid="badge-google-loading"]');
+      const dryRunLoading = container?.querySelector('[data-testid="badge-dryrun-loading"]');
+      const ksLoading = container?.querySelector('[data-testid="badge-killswitch-loading"]');
+
+      expect(googleLoading).not.toBeNull();
+      expect(googleLoading?.textContent).toContain('Google: Loading...');
+      expect(googleLoading?.className).toContain('bg-gray-100');
+
+      expect(dryRunLoading).not.toBeNull();
+      expect(dryRunLoading?.textContent).toContain('DRY_RUN: Loading...');
+      expect(dryRunLoading?.className).toContain('bg-gray-100');
+
+      expect(ksLoading).not.toBeNull();
+      expect(ksLoading?.textContent).toContain('Kill Switch: Loading...');
+      expect(ksLoading?.className).toContain('bg-gray-100');
+
+      // Verify it does NOT default to "Google OK" or "Kill Switch Off"
+      expect(container?.textContent).not.toContain('✅ Google OK');
+      expect(container?.textContent).not.toContain('🛡️ Kill Switch Off');
+    });
+
+    it('header badges show "API unreachable" on error instead of defaulting to OK/Off', async () => {
+      // Mock fetch rejecting with error
+      vi.stubGlobal('fetch', () => Promise.reject(new Error('Connection refused')));
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const googleError = container?.querySelector('[data-testid="badge-google-error"]');
+      const dryRunError = container?.querySelector('[data-testid="badge-dryrun-error"]');
+      const ksError = container?.querySelector('[data-testid="badge-killswitch-error"]');
+
+      expect(googleError).not.toBeNull();
+      expect(googleError?.textContent).toContain('Google: API unreachable');
+
+      expect(dryRunError).not.toBeNull();
+      expect(dryRunError?.textContent).toContain('DRY_RUN: API unreachable');
+
+      expect(ksError).not.toBeNull();
+      expect(ksError?.textContent).toContain('Kill Switch: API unreachable');
+
+      // Verify it does NOT default to "Google OK" or "Kill Switch Off"
+      expect(container?.textContent).not.toContain('✅ Google OK');
+      expect(container?.textContent).not.toContain('🛡️ Kill Switch Off');
+    });
+
+    it('header badges show healthy status when overview API responds ok', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          if (url.includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 0,
+                effectiveCap: 15,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                killSwitch: false,
+                dryRun: true,
+                authHealth: { status: 'ok' },
+              }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      expect(container?.textContent).toContain('✅ Google OK');
+      expect(container?.textContent).toContain('DRY_RUN');
+      expect(container?.textContent).toContain('🛡️ Kill Switch Off');
+    });
+  });
 });

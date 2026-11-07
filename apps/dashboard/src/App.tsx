@@ -13,9 +13,10 @@ export type TabKey =
 
 export function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
-  const [killSwitch, setKillSwitch] = useState<boolean>(false);
-  const [dryRun, setDryRun] = useState<boolean>(true);
-  const [authHealth, setAuthHealth] = useState<'ok' | 'invalid'>('ok');
+  const [headerState, setHeaderState] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [killSwitch, setKillSwitch] = useState<boolean | null>(null);
+  const [dryRun, setDryRun] = useState<boolean | null>(null);
+  const [authHealth, setAuthHealth] = useState<'ok' | 'invalid' | 'unknown' | null>(null);
   const [showKsModal, setShowKsModal] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -26,14 +27,17 @@ export function App(): React.JSX.Element {
         const data = (await res.json()) as {
           killSwitch?: boolean;
           dryRun?: boolean;
-          authHealth?: { status: 'ok' | 'invalid' };
+          authHealth?: { status: 'ok' | 'invalid' | 'unknown' };
         };
         if (typeof data.killSwitch === 'boolean') setKillSwitch(data.killSwitch);
         if (typeof data.dryRun === 'boolean') setDryRun(data.dryRun);
         if (data.authHealth?.status) setAuthHealth(data.authHealth.status);
+        setHeaderState('ready');
+      } else {
+        setHeaderState('error');
       }
     } catch {
-      // Non-fatal for dev
+      setHeaderState('error');
     }
   }, []);
 
@@ -108,47 +112,102 @@ export function App(): React.JSX.Element {
 
           {/* Right Header Status Indicators */}
           <div className="flex items-center space-x-2.5">
-            {/* Google Auth Status Badge */}
-            {authHealth === 'invalid' ? (
-              <a
-                href="/auth/google/start"
-                className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors"
-                title="Google OAuth expired or revoked. Click to reconnect."
-              >
-                ⚠️ Google Auth Invalid
-              </a>
+            {headerState === 'loading' ? (
+              <>
+                <span
+                  data-testid="badge-google-loading"
+                  className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-gray-100 text-gray-500 border border-gray-200"
+                  title="Checking Google OAuth status..."
+                >
+                  ⚪ Google: Loading...
+                </span>
+                <span
+                  data-testid="badge-dryrun-loading"
+                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-gray-100 text-gray-500 border border-gray-200"
+                  title="Checking DRY_RUN mode..."
+                >
+                  DRY_RUN: Loading...
+                </span>
+                <button
+                  type="button"
+                  disabled
+                  data-testid="badge-killswitch-loading"
+                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed"
+                >
+                  Kill Switch: Loading...
+                </button>
+              </>
+            ) : headerState === 'error' ? (
+              <>
+                <span
+                  data-testid="badge-google-error"
+                  className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-rose-50 text-rose-700 border border-rose-200"
+                  title="Backend API is unreachable"
+                >
+                  ⚠️ Google: API unreachable
+                </span>
+                <span
+                  data-testid="badge-dryrun-error"
+                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200"
+                  title="Backend API is unreachable"
+                >
+                  DRY_RUN: API unreachable
+                </span>
+                <button
+                  type="button"
+                  disabled
+                  data-testid="badge-killswitch-error"
+                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200 cursor-not-allowed"
+                  title="Backend API is unreachable"
+                >
+                  Kill Switch: API unreachable
+                </button>
+              </>
             ) : (
-              <span
-                className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
-                title="Google OAuth token healthy"
-              >
-                ✅ Google OK
-              </span>
+              <>
+                {/* Google Auth Status Badge */}
+                {authHealth === 'invalid' ? (
+                  <a
+                    href="/auth/google/start"
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors"
+                    title="Google OAuth expired or revoked. Click to reconnect."
+                  >
+                    ⚠️ Google Auth Invalid
+                  </a>
+                ) : (
+                  <span
+                    className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    title="Google OAuth token healthy"
+                  >
+                    ✅ Google OK
+                  </span>
+                )}
+
+                {/* DRY RUN Badge */}
+                <span
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-full border ${
+                    dryRun
+                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  }`}
+                >
+                  {dryRun ? 'DRY_RUN' : 'LIVE'}
+                </span>
+
+                {/* Kill Switch Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowKsModal(true)}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-full border shadow-xs cursor-pointer transition-colors ${
+                    killSwitch
+                      ? 'bg-rose-600 text-white border-rose-700 animate-pulse'
+                      : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
+                  }`}
+                >
+                  {killSwitch ? '🚨 KILL SWITCH ON' : '🛡️ Kill Switch Off'}
+                </button>
+              </>
             )}
-
-            {/* DRY RUN Badge */}
-            <span
-              className={`px-2.5 py-1 text-[11px] font-bold rounded-full border ${
-                dryRun
-                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              }`}
-            >
-              {dryRun ? 'DRY_RUN' : 'LIVE'}
-            </span>
-
-            {/* Kill Switch Toggle Button */}
-            <button
-              type="button"
-              onClick={() => setShowKsModal(true)}
-              className={`px-2.5 py-1 text-[11px] font-bold rounded-full border shadow-xs cursor-pointer transition-colors ${
-                killSwitch
-                  ? 'bg-rose-600 text-white border-rose-700 animate-pulse'
-                  : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
-              }`}
-            >
-              {killSwitch ? '🚨 KILL SWITCH ON' : '🛡️ Kill Switch Off'}
-            </button>
           </div>
         </div>
 
