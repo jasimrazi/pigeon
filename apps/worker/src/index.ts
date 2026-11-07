@@ -1497,10 +1497,39 @@ app.get('/api/sources', async (c) => {
      ORDER BY source ASC`,
   ).all();
 
-  const sources = ((rawRows || []) as unknown as SourceStateDbRow[]).map((row) => ({
-    ...row,
-    parser_suspect: (row.parser_empty_streak ?? 0) >= 3 || Boolean(row.untrusted),
-  }));
+  const { results: recentRunEvents } = await c.env.DB.prepare(
+    `SELECT entity_id as source, payload
+     FROM events
+     WHERE type = 'source_run'
+     ORDER BY created_at DESC`,
+  ).all<{ source: string; payload: string }>();
+
+  const latestStatsBySource = new Map<string, { boards_total?: number; boards_failed?: number }>();
+  for (const ev of recentRunEvents || []) {
+    if (!latestStatsBySource.has(ev.source) && ev.payload) {
+      try {
+        const parsed = JSON.parse(ev.payload);
+        if (typeof parsed.boards_total === 'number') {
+          latestStatsBySource.set(ev.source, {
+            boards_total: parsed.boards_total,
+            boards_failed: parsed.boards_failed ?? 0,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const sources = ((rawRows || []) as unknown as SourceStateDbRow[]).map((row) => {
+    const slugStats = latestStatsBySource.get(row.source);
+    return {
+      ...row,
+      parser_suspect: (row.parser_empty_streak ?? 0) >= 3 || Boolean(row.untrusted),
+      boards_total: slugStats?.boards_total,
+      boards_failed: slugStats?.boards_failed,
+    };
+  });
 
   return c.json({ sources });
 });

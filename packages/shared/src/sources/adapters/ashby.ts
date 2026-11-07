@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { JobSource, JobSourceConfig, RawJob, NormalizedJob } from '../types.js';
 import { normalizeCompanyName } from '../dedupe.js';
 import { extractContactEmail } from '../email-extractor.js';
@@ -17,32 +18,37 @@ export const ashbyAdapter: JobSource = {
 
     const slugs = await getAtsSlugs('ashby', config, ['linear']);
     const allJobs: RawJob[] = [];
+    const failedSlugs: string[] = [];
 
     for (const slug of slugs) {
-      try {
-        const url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}`;
+      const url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}`;
 
-        const res = await fetchWithRetry(
-          url,
-          {
-            headers: {
-              'User-Agent': userAgent,
-              Accept: 'application/json',
-            },
+      // 429s (honouring Retry-After), 5xx responses and network errors follow the source-level retry
+      // and failure path and are not swallowed.
+      const res = await fetchWithRetry(
+        url,
+        {
+          headers: {
+            'User-Agent': userAgent,
+            Accept: 'application/json',
           },
-          { fetchFn: config?.fetchFn },
-        );
+        },
+        { fetchFn: config?.fetchFn, delayFn: config?.delayFn },
+      );
 
-        if (res.status === 404) {
-          // Slug returns 404 -> disable in KV
-          await disableAtsSlug('ashby', slug, config);
-          continue;
-        }
+      if (res.status === 404) {
+        // Slug returns 404 -> disable in KV
+        await disableAtsSlug('ashby', slug, config);
+        failedSlugs.push(slug);
+        continue;
+      }
 
-        if (!res.ok) {
-          throw new Error(`Ashby API for ${slug} returned HTTP ${res.status}`);
-        }
+      if (!res.ok) {
+        throw new Error(`Ashby API for ${slug} returned HTTP ${res.status}`);
+      }
 
+      // Isolate per slug ONLY validation failures (ZodError)
+      try {
         const data = AshbyResponseSchema.parse(await res.json());
         for (const job of data.jobs || []) {
           allJobs.push({
@@ -52,8 +58,39 @@ export const ashbyAdapter: JobSource = {
           });
         }
       } catch (err) {
-        console.warn(`[ashby] Failed to fetch or parse jobs for company slug '${slug}':`, err);
+        if (err instanceof z.ZodError) {
+          console.warn(`[ashby] Validation failed for company slug '${slug}':`, err);
+          failedSlugs.push(slug);
+        } else {
+          throw err;
+        }
       }
+    }
+
+    const total = slugs.length;
+    const failedCount = failedSlugs.length;
+
+    // Throw so the run counts as a source failure if every configured slug fails,
+    // or if half or more fail when there are 4 or more slugs.
+    if (total > 0) {
+      const allFailed = failedCount === total;
+      const halfOrMoreFailed = total >= 4 && failedCount >= Math.ceil(total / 2);
+
+      if (allFailed || halfOrMoreFailed) {
+        throw new Error(
+          `ATS source ashby failed: ${failedCount} of ${total} boards failed (${failedSlugs.join(', ')})`,
+        );
+      }
+    }
+
+    const slugStats = {
+      total,
+      failed: failedCount,
+      failedSlugs,
+    };
+    Object.assign(allJobs, { slugStats });
+    if (typeof config?.onSlugStats === 'function') {
+      config.onSlugStats(slugStats);
     }
 
     return allJobs;

@@ -1115,27 +1115,27 @@ describe('Phase 4: Rule Filters, Skip Checks, Scorer, and Router', () => {
       expect(j?.['apply_route']).toBe('auto_email');
     });
 
-    it('picks up jobs stuck in status scored on the next run and routes them without calling scorer again', async () => {
+    it('a below-threshold scored job is skipped on recovery with no scorer call', async () => {
       const { db, jobs } = createMockDb();
 
-      // Seed a job stuck in 'scored' status (e.g. after a crash between scoring and routing)
-      jobs.set('job-stuck', {
-        id: 'job-stuck',
+      // Seed a job stuck in 'scored' status with score 55 (< min_score 70)
+      jobs.set('job-stuck-low', {
+        id: 'job-stuck-low',
         source: 'greenhouse',
         source_kind: 'ats',
-        title: 'Senior Systems Engineer',
+        title: 'Junior Developer',
         company: 'Stripe',
         company_normalized: 'stripe',
         location: 'Remote',
         remote: 1,
-        salary_min: 160000,
-        salary_max: 200000,
-        description: 'TypeScript and distributed systems. Contact: jobs@stripe.com',
+        salary_min: 100000,
+        salary_max: 120000,
+        description: 'Basic dev role. Contact: jobs@stripe.com',
         apply_url: 'https://stripe.com/jobs/1',
         contact_email: 'jobs@stripe.com',
         contact_source: 'posting',
-        match_score: 95,
-        match_reasons: 'Strong match',
+        match_score: 55,
+        match_reasons: 'Weak match for senior profile',
         red_flags: '[]',
         scorer_failed: 0,
         status: 'scored',
@@ -1150,22 +1150,73 @@ describe('Phase 4: Rule Filters, Skip Checks, Scorer, and Router', () => {
 
       const stats = await processJobPipeline({
         db,
-        profile: mockProfile,
+        profile: mockProfile, // min_score is 70
         scorer,
       });
 
-      // Scorer must NOT be called for stuck 'scored' jobs
+      // Scorer must NOT be called
       expect(scoreJobSpy).not.toHaveBeenCalled();
 
-      // Job must be transitioned to routed with correct route
-      const j = jobs.get('job-stuck');
+      // Must be transitioned from scored to skipped with LOW_SCORE
+      const j = jobs.get('job-stuck-low');
+      expect(j?.['status']).toBe('skipped');
+      expect(j?.['filter_reason']).toBe('LOW_SCORE');
+      expect(j?.['apply_route']).toBeUndefined();
+      expect(stats.low_score_skipped).toBe(1);
+      expect(stats.routed).toBe(0);
+      expect(stats.scored).toBe(0);
+    });
+
+    it('an at-threshold scored job is routed on recovery without calling scorer', async () => {
+      const { db, jobs } = createMockDb();
+
+      // Seed a job stuck in 'scored' status with score exactly at min_score (70)
+      jobs.set('job-stuck-threshold', {
+        id: 'job-stuck-threshold',
+        source: 'greenhouse',
+        source_kind: 'ats',
+        title: 'Systems Engineer',
+        company: 'Stripe',
+        company_normalized: 'stripe',
+        location: 'Remote',
+        remote: 1,
+        salary_min: 160000,
+        salary_max: 200000,
+        description: 'TypeScript systems. Contact: jobs@stripe.com',
+        apply_url: 'https://stripe.com/jobs/1',
+        contact_email: 'jobs@stripe.com',
+        contact_source: 'posting',
+        match_score: 70, // Exactly min_score
+        match_reasons: 'Satisfactory match',
+        red_flags: '[]',
+        scorer_failed: 0,
+        status: 'scored',
+        fetched_at: '2026-11-05T08:00:00Z',
+        updated_at: '2026-11-05T08:05:00Z',
+      });
+
+      const scoreJobSpy = vi.fn();
+      const scorer: Scorer = {
+        scoreJob: scoreJobSpy,
+      };
+
+      const stats = await processJobPipeline({
+        db,
+        profile: mockProfile, // min_score is 70
+        scorer,
+      });
+
+      expect(scoreJobSpy).not.toHaveBeenCalled();
+
+      const j = jobs.get('job-stuck-threshold');
       expect(j?.['status']).toBe('routed');
       expect(j?.['apply_route']).toBe('auto_email');
       expect(stats.routed).toBe(1);
-      expect(stats.scored).toBe(0); // Did not score any new jobs
+      expect(stats.low_score_skipped).toBe(0);
+      expect(stats.scored).toBe(0);
     });
 
-    it('recovers stuck scored job where scorer had failed and routes to manual_review without re-scoring', async () => {
+    it('a scorer_failed scored job goes to manual_review on recovery without calling scorer', async () => {
       const { db, jobs } = createMockDb();
 
       jobs.set('job-stuck-failed', {
@@ -1205,6 +1256,7 @@ describe('Phase 4: Rule Filters, Skip Checks, Scorer, and Router', () => {
       const j = jobs.get('job-stuck-failed');
       expect(j?.['status']).toBe('routed');
       expect(j?.['apply_route']).toBe('manual_review');
+      expect(j?.['route_reason']).toBe('SCORER_FAILED');
       expect(stats.routed).toBe(1);
       expect(stats.scored).toBe(0);
     });

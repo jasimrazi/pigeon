@@ -82,6 +82,33 @@ async function routeScoredJob(params: {
 }): Promise<'routed' | 'low_score_skipped'> {
   const { job, db, finder, config, profile, nowIso } = params;
 
+  let scorerFailed = Boolean(job.scorer_failed);
+  let matchScore = job.match_score ?? null;
+  const matchReasons = job.match_reasons ?? null;
+
+  // Fallback: If matchScore is missing on the row and scorer hasn't failed, check the stored job_scored event
+  if (matchScore === null && !scorerFailed) {
+    const eventRow = await db
+      .prepare(
+        `SELECT payload FROM events WHERE entity = 'job' AND entity_id = ? AND type = 'job_scored' ORDER BY created_at DESC LIMIT 1`,
+      )
+      .bind(job.id)
+      .first<{ payload: string }>();
+    if (eventRow?.payload) {
+      try {
+        const parsed = JSON.parse(eventRow.payload);
+        if (typeof parsed.score === 'number') {
+          matchScore = parsed.score;
+        }
+        if (parsed.scorer_failed) {
+          scorerFailed = true;
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
+  }
+
   let redFlags: string[] = [];
   if (job.red_flags) {
     try {
@@ -91,14 +118,13 @@ async function routeScoredJob(params: {
     }
   }
 
-  const scorerFailed = Boolean(job.scorer_failed);
-  const matchScore = job.match_score ?? null;
-  const matchReasons = job.match_reasons ?? null;
-
+  // 1. Min-score check on stored result: if below threshold and not scorer_failed -> transition to skipped with LOW_SCORE
   if (matchScore !== null && !scorerFailed && matchScore < profile.filters.min_score) {
     await db
-      .prepare(`UPDATE jobs SET filter_reason = 'LOW_SCORE', updated_at = ? WHERE id = ?`)
-      .bind(nowIso, job.id)
+      .prepare(
+        `UPDATE jobs SET filter_reason = 'LOW_SCORE', match_score = ?, match_reasons = ?, red_flags = ?, updated_at = ? WHERE id = ?`,
+      )
+      .bind(matchScore, matchReasons, JSON.stringify(redFlags), nowIso, job.id)
       .run();
     await transition(db, 'job', job.id, 'skipped', 'LOW_SCORE');
     return 'low_score_skipped';

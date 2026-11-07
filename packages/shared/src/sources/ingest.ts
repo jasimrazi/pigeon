@@ -49,6 +49,7 @@ export interface IngestOptions {
     | undefined;
   userAgent?: string | undefined;
   fetchFn?: typeof fetch | undefined;
+  delayFn?: ((ms: number) => Promise<void>) | undefined;
   now?: number | undefined;
   slugs?: string[] | undefined;
 }
@@ -62,6 +63,9 @@ export interface IngestResult {
   duplicates: number;
   failed: number;
   isHalfOpenTrial: boolean;
+  boards_total?: number | undefined;
+  boards_failed?: number | undefined;
+  failed_boards?: string[] | undefined;
 }
 
 /**
@@ -108,6 +112,7 @@ export async function ingestSource(
       kv: options.kv,
       secrets: options.secrets,
       fetchFn: options.fetchFn,
+      delayFn: options.delayFn,
       slugs: options.slugs,
     });
   } catch (err) {
@@ -201,23 +206,32 @@ export async function ingestSource(
   }
 
   // 4. Record per-source stats (fetched, new, duplicate, failed) in events
+  const slugStats = (
+    rawJobs as {
+      slugStats?: { total: number; failed: number; failedSlugs: string[] };
+    }
+  ).slugStats;
+
+  const runPayload: Record<string, unknown> = {
+    source: sourceName,
+    fetched: rawJobs.length,
+    new: newJobs,
+    duplicate: duplicates,
+    failed,
+    half_open_trial: circuit.isHalfOpenTrial,
+  };
+
+  if (slugStats) {
+    runPayload.boards_total = slugStats.total;
+    runPayload.boards_failed = slugStats.failed;
+    runPayload.failed_boards = slugStats.failedSlugs;
+  }
+
   await options.db
     .prepare(
       `INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, 'source', ?, 'source_run', ?, ?)`,
     )
-    .bind(
-      crypto.randomUUID(),
-      sourceName,
-      JSON.stringify({
-        source: sourceName,
-        fetched: rawJobs.length,
-        new: newJobs,
-        duplicate: duplicates,
-        failed,
-        half_open_trial: circuit.isHalfOpenTrial,
-      }),
-      nowIso,
-    )
+    .bind(crypto.randomUUID(), sourceName, JSON.stringify(runPayload), nowIso)
     .run();
 
   // 5. Record run success
@@ -231,5 +245,8 @@ export async function ingestSource(
     duplicates,
     failed,
     isHalfOpenTrial: circuit.isHalfOpenTrial,
+    boards_total: slugStats?.total,
+    boards_failed: slugStats?.failed,
+    failed_boards: slugStats?.failedSlugs,
   };
 }

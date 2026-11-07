@@ -34,6 +34,12 @@ export interface KVNamespaceLike {
   put(key: string, value: string): Promise<void>;
 }
 
+export interface SlugStats {
+  total: number;
+  failed: number;
+  failedSlugs: string[];
+}
+
 export interface JobSourceConfig {
   userAgent?: string | undefined;
   secrets?:
@@ -45,7 +51,9 @@ export interface JobSourceConfig {
     | undefined;
   kv?: KVNamespaceLike | undefined;
   fetchFn?: typeof fetch | undefined;
+  delayFn?: ((ms: number) => Promise<void>) | undefined;
   slugs?: string[] | undefined;
+  onSlugStats?: ((stats: SlugStats) => void) | undefined;
   [key: string]: unknown;
 }
 

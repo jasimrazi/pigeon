@@ -10,6 +10,8 @@ export interface SourceStatusItem {
   parser_empty_streak?: number | null;
   is_suspect?: boolean;
   untrusted?: boolean;
+  boards_total?: number | null;
+  boards_failed?: number | null;
 }
 
 interface Props {
@@ -134,6 +136,21 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
                     <span className="text-gray-400">Failures:</span>
                     <span className="font-medium text-gray-800">{src.failure_count}</span>
                   </div>
+
+                  {src.boards_total !== undefined &&
+                    src.boards_total !== null &&
+                    src.boards_total > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Boards:</span>
+                        <span
+                          className={
+                            src.boards_failed ? 'text-amber-600 font-semibold' : 'text-gray-800'
+                          }
+                        >
+                          {src.boards_failed ?? 0} of {src.boards_total} boards failed
+                        </span>
+                      </div>
+                    )}
 
                   {src.parser_empty_streak !== undefined && src.parser_empty_streak !== null && (
                     <div className="flex justify-between">

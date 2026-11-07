@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { JobSource, JobSourceConfig, RawJob, NormalizedJob } from '../types.js';
 import { normalizeCompanyName } from '../dedupe.js';
 import { extractContactEmail } from '../email-extractor.js';
@@ -55,34 +56,39 @@ export const greenhouseAdapter: JobSource = {
 
     const slugs = await getAtsSlugs('greenhouse', config, ['github']);
     const allJobs: RawJob[] = [];
+    const failedSlugs: string[] = [];
 
     for (const slug of slugs) {
-      try {
-        const url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(
-          slug,
-        )}/jobs?content=true`;
+      const url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(
+        slug,
+      )}/jobs?content=true`;
 
-        const res = await fetchWithRetry(
-          url,
-          {
-            headers: {
-              'User-Agent': userAgent,
-              Accept: 'application/json',
-            },
+      // 429s (honouring Retry-After), 5xx responses and network errors follow the source-level retry
+      // and failure path and are not swallowed.
+      const res = await fetchWithRetry(
+        url,
+        {
+          headers: {
+            'User-Agent': userAgent,
+            Accept: 'application/json',
           },
-          { fetchFn: config?.fetchFn },
-        );
+        },
+        { fetchFn: config?.fetchFn, delayFn: config?.delayFn },
+      );
 
-        if (res.status === 404) {
-          // Slug returns 404 -> disable in KV and log
-          await disableAtsSlug('greenhouse', slug, config);
-          continue;
-        }
+      if (res.status === 404) {
+        // Slug returns 404 -> disable in KV and isolate to this slug
+        await disableAtsSlug('greenhouse', slug, config);
+        failedSlugs.push(slug);
+        continue;
+      }
 
-        if (!res.ok) {
-          throw new Error(`Greenhouse API for ${slug} returned HTTP ${res.status}`);
-        }
+      if (!res.ok) {
+        throw new Error(`Greenhouse API for ${slug} returned HTTP ${res.status}`);
+      }
 
+      // Isolate per slug ONLY validation failures (ZodError, including the over-1000 case)
+      try {
         const data = GreenhouseResponseSchema.parse(await res.json());
         for (const job of data.jobs || []) {
           allJobs.push({
@@ -92,8 +98,39 @@ export const greenhouseAdapter: JobSource = {
           });
         }
       } catch (err) {
-        console.warn(`[greenhouse] Failed to fetch or parse jobs for company slug '${slug}':`, err);
+        if (err instanceof z.ZodError) {
+          console.warn(`[greenhouse] Validation failed for company slug '${slug}':`, err);
+          failedSlugs.push(slug);
+        } else {
+          throw err;
+        }
       }
+    }
+
+    const total = slugs.length;
+    const failedCount = failedSlugs.length;
+
+    // Throw so the run counts as a source failure if every configured slug fails,
+    // or if half or more fail when there are 4 or more slugs.
+    if (total > 0) {
+      const allFailed = failedCount === total;
+      const halfOrMoreFailed = total >= 4 && failedCount >= Math.ceil(total / 2);
+
+      if (allFailed || halfOrMoreFailed) {
+        throw new Error(
+          `ATS source greenhouse failed: ${failedCount} of ${total} boards failed (${failedSlugs.join(', ')})`,
+        );
+      }
+    }
+
+    const slugStats = {
+      total,
+      failed: failedCount,
+      failedSlugs,
+    };
+    Object.assign(allJobs, { slugStats });
+    if (typeof config?.onSlugStats === 'function') {
+      config.onSlugStats(slugStats);
     }
 
     return allJobs;

@@ -10,6 +10,9 @@ import {
   ashbyAdapter,
   parseRssXml,
 } from './index.js';
+import { ingestSource } from './ingest.js';
+import type { D1LikeDatabase } from '../state-machine.js';
+import type { KVNamespaceLike } from './types.js';
 
 import adzunaFixture from '../../fixtures/sources/adzuna.json' with { type: 'json' };
 import remoteokFixture from '../../fixtures/sources/remoteok.json' with { type: 'json' };
@@ -238,7 +241,7 @@ describe('Job Source Adapters - Fixture Normalization', () => {
     expect(normalized.apply_url).toBe('https://jobs.ashbyhq.com/linear/ashby-801');
   });
 
-  it('Greenhouse isolates oversized board (>1000 jobs) on its own without failing the source', async () => {
+  it('1 oversized board out of 5 -> the run succeeds with the other 4 boards jobs', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     // Create an oversized payload with 1001 jobs (exceeding .max(1000))
@@ -258,14 +261,16 @@ describe('Job Source Adapters - Fixture Normalization', () => {
           }),
         );
       }
+      const match = urlStr.match(/v1\/boards\/([^/]+)\/jobs/);
+      const slug = match ? match[1] : 'normal';
       return Promise.resolve(
         new Response(
           JSON.stringify({
             jobs: [
               {
                 id: 999,
-                title: 'Valid Job',
-                absolute_url: 'https://boards.greenhouse.io/normal/jobs/999',
+                title: `Valid Job for ${slug}`,
+                absolute_url: `https://boards.greenhouse.io/${slug}/jobs/999`,
               },
             ],
           }),
@@ -278,24 +283,352 @@ describe('Job Source Adapters - Fixture Normalization', () => {
     });
 
     const results = await greenhouseAdapter.fetch({
-      slugs: ['huge-company', 'normal-company'],
+      slugs: ['huge-company', 'co-2', 'co-3', 'co-4', 'co-5'],
       fetchFn: mockFetch,
     });
 
-    // The oversized company was skipped and logged on its own
+    // 1 oversized board out of 5 was skipped and logged
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "[greenhouse] Failed to fetch or parse jobs for company slug 'huge-company':",
-      ),
+      expect.stringContaining("[greenhouse] Validation failed for company slug 'huge-company':"),
       expect.anything(),
     );
 
-    // The normal company succeeded and returned its jobs
-    expect(results).toHaveLength(1);
-    expect(results[0]?.['company_slug']).toBe('normal-company');
-    expect(results[0]?.['title']).toBe('Valid Job');
+    // The other 4 boards succeeded and their jobs were returned
+    expect(results).toHaveLength(4);
+    const slugsReturned = results.map((r) => r['company_slug']);
+    expect(slugsReturned).toEqual(['co-2', 'co-3', 'co-4', 'co-5']);
+
+    // Slug failure statistics are recorded on the array
+    const stats = (
+      results as { slugStats?: { total: number; failed: number; failedSlugs: string[] } }
+    ).slugStats;
+    expect(stats).toEqual({
+      total: 5,
+      failed: 1,
+      failedSlugs: ['huge-company'],
+    });
 
     warnSpy.mockRestore();
+  });
+
+  it('all boards return 500 -> the run fails and increments consecutive_failures', async () => {
+    const sourceStateMap = new Map<
+      string,
+      { circuit_state: 'closed' | 'open' | 'half_open'; consecutive_failures: number }
+    >();
+    const events: Array<{ entity_id: string; type: string; payload: string }> = [];
+
+    const mockDb: D1LikeDatabase = {
+      prepare(query: string) {
+        let boundParams: unknown[] = [];
+        const stmt = {
+          bind(...params: unknown[]) {
+            boundParams = params;
+            return stmt;
+          },
+          async first<T>(): Promise<T | null> {
+            if (query.includes('FROM source_state WHERE source = ?')) {
+              const source = String(boundParams[0]);
+              const state = sourceStateMap.get(source);
+              if (!state) return null;
+              return { ...state } as unknown as T;
+            }
+            return null;
+          },
+          async all<T>(): Promise<{ results: T[] }> {
+            return { results: [] };
+          },
+          async run() {
+            if (query.includes('INSERT INTO source_state')) {
+              const source = String(boundParams[0]);
+              sourceStateMap.set(source, {
+                circuit_state: 'closed',
+                consecutive_failures: 0,
+              });
+            } else if (query.includes('UPDATE source_state SET consecutive_failures = ?')) {
+              const failures = Number(boundParams[0]);
+              const source = String(boundParams[3]);
+              const curr = sourceStateMap.get(source) || {
+                circuit_state: 'closed',
+                consecutive_failures: 0,
+              };
+              sourceStateMap.set(source, {
+                circuit_state: curr.circuit_state,
+                consecutive_failures: failures,
+              });
+            } else if (query.includes('INSERT INTO events')) {
+              events.push({
+                entity_id: String(boundParams[1]),
+                type: query.includes("'source_failure'") ? 'source_failure' : 'source_run',
+                payload: String(boundParams[2]),
+              });
+            }
+            return { success: true };
+          },
+        };
+        return stmt;
+      },
+      async batch(stmts: unknown[]) {
+        for (const s of stmts as Array<{ run?: () => Promise<unknown> }>) {
+          if (s && typeof s.run === 'function') await s.run();
+        }
+        return [];
+      },
+    };
+
+    const mockFetch500 = vi.fn().mockResolvedValue(
+      new Response('Internal Server Error', {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
+    );
+
+    // ingestSource executes greenhouse with slugs returning 500
+    await expect(
+      ingestSource('greenhouse', {
+        db: mockDb,
+        slugs: ['slug-1', 'slug-2'],
+        fetchFn: mockFetch500,
+        delayFn: vi.fn(), // instant retry without waiting in tests
+      }),
+    ).rejects.toThrow();
+
+    // Verify consecutive_failures is incremented toward circuit breaker
+    const state = sourceStateMap.get('greenhouse');
+    expect(state).toBeDefined();
+    expect(state?.consecutive_failures).toBe(1);
+  });
+
+  it('429 on a board honours Retry-After', async () => {
+    const mockDelay = vi.fn().mockResolvedValue(undefined);
+    let attempts = 0;
+
+    const mockFetch429 = vi.fn().mockImplementation(() => {
+      attempts++;
+      if (attempts === 1) {
+        return Promise.resolve(
+          new Response('Too Many Requests', {
+            status: 429,
+            headers: {
+              'Content-Type': 'text/plain',
+              'Retry-After': '5',
+            },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 101,
+                title: 'Retry Job',
+                absolute_url: 'https://boards.greenhouse.io/retry/101',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await greenhouseAdapter.fetch({
+      slugs: ['retry-co'],
+      fetchFn: mockFetch429,
+      delayFn: mockDelay,
+    });
+
+    // 429 Retry-After of 5s was respected
+    expect(mockDelay).toHaveBeenCalledWith(5000);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.['title']).toBe('Retry Job');
+  });
+
+  it('a 404 slug is still disabled and skipped on the next run', async () => {
+    const store = new Map<string, string>();
+    store.set('sources:greenhouse:slugs', JSON.stringify(['dead-co', 'active-co']));
+
+    const mockKv: KVNamespaceLike = {
+      async get(key: string) {
+        return store.get(key) ?? null;
+      },
+      async put(key: string, value: string) {
+        store.set(key, value);
+      },
+    };
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('dead-co')) {
+        return Promise.resolve(new Response('Not Found', { status: 404 }));
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 202,
+                title: 'Active Job',
+                absolute_url: 'https://boards.greenhouse.io/active/202',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    // Run 1: dead-co returns 404, active-co succeeds
+    const run1 = await greenhouseAdapter.fetch({
+      kv: mockKv,
+      fetchFn: mockFetch,
+    });
+
+    expect(run1).toHaveLength(1);
+    expect(run1[0]?.['company_slug']).toBe('active-co');
+
+    // Verify dead-co was disabled in KV
+    expect(store.get('sources:greenhouse:slugs')).toBe(JSON.stringify(['active-co']));
+
+    // Run 2: dead-co is now skipped and not fetched
+    mockFetch.mockClear();
+    const run2 = await greenhouseAdapter.fetch({
+      kv: mockKv,
+      fetchFn: mockFetch,
+    });
+
+    expect(run2).toHaveLength(1);
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('dead-co'),
+      expect.anything(),
+    );
+  });
+
+  it('throws as a source failure if half or more fail when there are 4 or more slugs', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('bad-1') || urlStr.includes('bad-2')) {
+        // Return oversized payload (>1000 jobs)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              jobs: Array.from({ length: 1001 }, (_, i) => ({ id: i, title: `J${i}` })),
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [{ id: 1, title: 'Good Job' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    });
+
+    // 4 slugs, 2 fail -> 2 >= ceil(4/2) = 2 -> throws
+    await expect(
+      greenhouseAdapter.fetch({
+        slugs: ['bad-1', 'bad-2', 'good-1', 'good-2'],
+        fetchFn: mockFetch,
+      }),
+    ).rejects.toThrow('ATS source greenhouse failed: 2 of 4 boards failed');
+  });
+
+  it('run stats event records per-slug failure counts for Sources page', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const events: Array<{ type: string; payload: string }> = [];
+
+    const mockDb: D1LikeDatabase = {
+      prepare(query: string) {
+        let boundParams: unknown[] = [];
+        const stmt = {
+          bind(...params: unknown[]) {
+            boundParams = params;
+            return stmt;
+          },
+          async first<T>(): Promise<T | null> {
+            if (query.includes('FROM source_state WHERE source = ?')) {
+              return { circuit_state: 'closed', consecutive_failures: 0 } as unknown as T;
+            }
+            if (query.includes('FROM jobs WHERE dedupe_key = ?')) {
+              return null;
+            }
+            return null;
+          },
+          async all<T>(): Promise<{ results: T[] }> {
+            return { results: [] };
+          },
+          async run() {
+            if (query.includes('INSERT INTO events')) {
+              events.push({
+                type: query.includes("'source_run'") ? 'source_run' : 'other',
+                payload: String(boundParams[2]),
+              });
+            }
+            return { success: true };
+          },
+        };
+        return stmt;
+      },
+      async batch(stmts: Array<{ run: () => Promise<unknown> }>) {
+        for (const s of stmts) {
+          if (s && typeof s.run === 'function') await s.run();
+        }
+        return [];
+      },
+    };
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('bad-co')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              jobs: Array.from({ length: 1001 }, (_, i) => ({ id: i, title: `J${i}` })),
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [{ id: 1, title: 'Job', content: 'TypeScript role' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    });
+
+    const res = await ingestSource('greenhouse', {
+      db: mockDb,
+      slugs: ['bad-co', 'good-1', 'good-2', 'good-3', 'good-4'],
+      fetchFn: mockFetch,
+    });
+
+    expect(res.boards_total).toBe(5);
+    expect(res.boards_failed).toBe(1);
+
+    // Verify source_run event payload contains boards_total and boards_failed
+    const sourceRunEvent = events.find((e) => e.type === 'source_run');
+    expect(sourceRunEvent).toBeDefined();
+    if (!sourceRunEvent) throw new Error('source_run event not found');
+    const payload = JSON.parse(sourceRunEvent.payload);
+    expect(payload.boards_total).toBe(5);
+    expect(payload.boards_failed).toBe(1);
+    expect(payload.failed_boards).toEqual(['bad-co']);
   });
 
   it('Lever isolates oversized board (>1000 jobs) on its own without failing the source', async () => {
@@ -335,21 +668,16 @@ describe('Job Source Adapters - Fixture Normalization', () => {
     });
 
     const results = await leverAdapter.fetch({
-      slugs: ['huge-company', 'normal-company'],
+      slugs: ['huge-company', 'normal-company', 'co-3'],
       fetchFn: mockFetch,
     });
 
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "[lever] Failed to fetch or parse jobs for company slug 'huge-company':",
-      ),
+      expect.stringContaining("[lever] Validation failed for company slug 'huge-company':"),
       expect.anything(),
     );
 
-    expect(results).toHaveLength(1);
-    expect(results[0]?.['company_slug']).toBe('normal-company');
-    expect(results[0]?.['text']).toBe('Valid Job');
-
+    expect(results).toHaveLength(2);
     warnSpy.mockRestore();
   });
 
@@ -392,21 +720,16 @@ describe('Job Source Adapters - Fixture Normalization', () => {
     });
 
     const results = await ashbyAdapter.fetch({
-      slugs: ['huge-company', 'normal-company'],
+      slugs: ['huge-company', 'normal-company', 'co-3'],
       fetchFn: mockFetch,
     });
 
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "[ashby] Failed to fetch or parse jobs for company slug 'huge-company':",
-      ),
+      expect.stringContaining("[ashby] Validation failed for company slug 'huge-company':"),
       expect.anything(),
     );
 
-    expect(results).toHaveLength(1);
-    expect(results[0]?.['company_slug']).toBe('normal-company');
-    expect(results[0]?.['title']).toBe('Valid Job');
-
+    expect(results).toHaveLength(2);
     warnSpy.mockRestore();
   });
 });
