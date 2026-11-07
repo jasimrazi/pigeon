@@ -38,6 +38,8 @@ import {
   pollInboxAndTrackOutcomes,
   verifyCfAccessJwt,
   calculateEffectiveCap,
+  calculateFailureRate,
+  checkFailureRateAlert,
   transition,
   TelegramNotifier,
   KILL_SWITCH_KV_KEY,
@@ -1237,22 +1239,8 @@ app.get('/api/overview', async (c) => {
   const bouncesToday = dailyRow?.bounces ?? 0;
   const bounceRate = sendsToday > 0 ? Math.round((bouncesToday / sendsToday) * 100) : 0;
 
-  // Recent 24h failure rate
-  const oneDayAgo = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
-  const failStats = await c.env.DB.prepare(
-    `SELECT
-       COUNT(CASE WHEN status = 'failed' THEN 1 END) AS failed_count,
-       COUNT(*) AS total_count
-     FROM applications
-     WHERE sent_at >= ? OR updated_at >= ?`,
-  )
-    .bind(oneDayAgo, oneDayAgo)
-    .first<{ failed_count: number; total_count: number }>();
-
-  const failureRate =
-    failStats && failStats.total_count > 0
-      ? Math.round((failStats.failed_count / failStats.total_count) * 100)
-      : 0;
+  // Recent 24h failure rate (excludes policy blocks)
+  const { failureRate } = await calculateFailureRate(c.env.DB, nowMs);
 
   // Jobs by status
   const statusRows = await c.env.DB.prepare(
@@ -1632,9 +1620,10 @@ export default {
     await expireStaleManualPending(env.DB);
     // Housekeeping: purge >90-day job descriptions for unapplied jobs
     await purgeExpiredJobDescriptions({ db: env.DB });
-    // Send daily digest
+    // Send daily digest & check failure rate alert
     const notifier = createWorkerNotifier(env);
     await sendManualDailyDigest({ db: env.DB, notifier });
+    await checkFailureRateAlert({ db: env.DB, notifier });
 
     // Sync to Google Sheet every cron run (10 min) if OAuth configured
     if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {

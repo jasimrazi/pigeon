@@ -26,9 +26,13 @@ import {
   isInsideSendWindow,
   acquireSendSlot,
   sendApplicationEmail,
+  calculateFailureRate,
+  checkFailureRateAlert,
+  POLICY_BLOCK_CODES,
   type R2LikeBucket,
   type ApplicationToSend,
 } from './send-worker.js';
+import { createPendingFollowUps } from '../inbox/follow-up.js';
 import { GoogleRateLimitError, GoogleRecipientError } from './sender.js';
 import type { GmailSender, SendEmailParams, SendEmailResult } from './types.js';
 import type { Notifier, NotificationPayload } from '../notifier.js';
@@ -171,9 +175,42 @@ function createMockDb() {
             const comp = String(boundParams[0]);
             return (companiesContacted.get(comp) ?? null) as unknown as T;
           }
+          if (query.includes("WHERE job_id = ? AND kind = 'follow_up'")) {
+            const jId = String(boundParams[0]);
+            for (const a of applications.values()) {
+              if (a['job_id'] === jId && a['kind'] === 'follow_up') {
+                return a as unknown as T;
+              }
+            }
+            return null;
+          }
           if (query.includes('FROM resumes WHERE id = ?')) {
             const id = String(boundParams[0]);
             return (resumes.get(id) ?? null) as unknown as T;
+          }
+          if (query.includes('FROM applications') && query.includes("kind = 'initial'")) {
+            const jId = String(boundParams[0]);
+            for (const a of applications.values()) {
+              if (a['job_id'] === jId && a['kind'] === 'initial') {
+                return a as unknown as T;
+              }
+            }
+            return null;
+          }
+          if (query.includes('COUNT(CASE WHEN status =')) {
+            let failedCount = 0;
+            let totalCount = 0;
+            for (const a of applications.values()) {
+              const err = typeof a['error'] === 'string' ? a['error'] : '';
+              const isPolicy = err.startsWith('POLICY_') || err.includes('POLICY_');
+              if (!isPolicy) {
+                totalCount++;
+                if (a['status'] === 'failed') {
+                  failedCount++;
+                }
+              }
+            }
+            return { failed_count: failedCount, total_count: totalCount } as unknown as T;
           }
           if (query.includes('FROM applications') && query.includes('WHERE id = ?')) {
             const id = String(boundParams[0]);
@@ -248,6 +285,29 @@ function createMockDb() {
           return null;
         },
         async all<T>(): Promise<{ results: T[] }> {
+          if (query.includes("kind = 'initial'") && query.includes("status = 'sent'")) {
+            const list: unknown[] = [];
+            for (const a of applications.values()) {
+              if (
+                a['channel'] === 'email' &&
+                a['kind'] === 'initial' &&
+                a['status'] === 'sent' &&
+                Number(a['follow_up_count'] ?? 0) < Number(boundParams[0]) &&
+                a['sent_at']
+              ) {
+                const j = jobs.get(String(a['job_id'])) ?? {
+                  title: 'Senior Systems Engineer',
+                  company: 'Stripe',
+                };
+                list.push({
+                  ...a,
+                  title: j['title'],
+                  company: j['company'],
+                });
+              }
+            }
+            return { results: list as unknown as T[] };
+          }
           if (query.includes('FROM applications') && query.includes('sent_at IS NOT NULL')) {
             const sList = Array.from(applications.values())
               .filter((a) => a['sent_at'] !== null && a['sent_at'] !== undefined)
@@ -269,6 +329,24 @@ function createMockDb() {
             }
             return { meta: { changes: 0 }, changes: 0 };
           }
+          if (query.includes('INSERT INTO applications')) {
+            const id = String(boundParams[0]);
+            const isFollowUpLiteral = query.includes("'follow_up'");
+            applications.set(id, {
+              id,
+              job_id: boundParams[1],
+              kind: isFollowUpLiteral ? 'follow_up' : (boundParams[2] ?? 'initial'),
+              channel: isFollowUpLiteral ? 'email' : (boundParams[3] ?? 'email'),
+              status: isFollowUpLiteral ? 'draft' : (boundParams[4] ?? 'draft'),
+              resume_id: isFollowUpLiteral ? boundParams[2] : boundParams[7],
+              cover_letter: isFollowUpLiteral ? boundParams[3] : boundParams[6],
+              subject: isFollowUpLiteral ? boundParams[4] : boundParams[5],
+              message_id_header: isFollowUpLiteral ? boundParams[5] : boundParams[8],
+              gmail_thread_id: isFollowUpLiteral ? boundParams[6] : boundParams[9],
+              follow_up_count: 0,
+            });
+            return { meta: { changes: 1 }, changes: 1 };
+          }
           if (query.includes('UPDATE applications') && query.includes('SET')) {
             const id = String(boundParams[boundParams.length - 1]);
             const app = applications.get(id);
@@ -278,6 +356,9 @@ function createMockDb() {
               }
               if (query.includes("status = 'approved'")) {
                 app['status'] = 'approved';
+              }
+              if (query.includes('follow_up_count = follow_up_count + 1')) {
+                app['follow_up_count'] = (Number(app['follow_up_count']) || 0) + 1;
               }
               if (query.includes('error = ?')) {
                 app['error'] = boundParams[0];
@@ -1044,7 +1125,7 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
         },
       },
       {
-        name: 'Gate 5a: do_not_contact (address match) -> legally transitions approved -> sending -> failed',
+        name: 'Gate 5a: do_not_contact (address match) -> legally transitions approved -> sending -> failed with POLICY_DO_NOT_CONTACT',
         setup: ({ doNotContact, app }) => {
           if (app.contact_email) {
             doNotContact.add(app.contact_email.toLowerCase());
@@ -1052,45 +1133,68 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
         },
         expected: {
           success: false,
-          errorContains: 'on do_not_contact list',
+          errorContains: 'POLICY_DO_NOT_CONTACT',
           finalStatus: 'failed',
           expectedTransitions: [
             { from: 'approved', to: 'sending' },
-            { from: 'sending', to: 'failed', reasonMatch: /on do_not_contact list/ },
+            { from: 'sending', to: 'failed', reasonMatch: /POLICY_DO_NOT_CONTACT/ },
           ],
         },
       },
       {
-        name: 'Gate 5b: do_not_contact (domain match) -> legally transitions approved -> sending -> failed',
+        name: 'Gate 5b: do_not_contact (domain match) -> legally transitions approved -> sending -> failed with POLICY_DO_NOT_CONTACT',
         setup: ({ doNotContact }) => {
           doNotContact.add('stripe.com');
         },
         expected: {
           success: false,
-          errorContains: 'on do_not_contact list',
+          errorContains: 'POLICY_DO_NOT_CONTACT',
           finalStatus: 'failed',
           expectedTransitions: [
             { from: 'approved', to: 'sending' },
-            { from: 'sending', to: 'failed', reasonMatch: /on do_not_contact list/ },
+            { from: 'sending', to: 'failed', reasonMatch: /POLICY_DO_NOT_CONTACT/ },
           ],
         },
       },
       {
-        name: 'Gate 6: company contacted within 90 days -> legally transitions approved -> sending -> failed',
-        setup: ({ companiesContacted, options }) => {
+        name: 'Gate 6a: NEW initial application to company contacted within 90 days (by email) -> legally transitions approved -> sending -> failed with POLICY_RECENT_CONTACT_COOLDOWN',
+        setup: ({ companiesContacted, options, app }) => {
+          app.kind = 'initial';
           const fifteenDaysAgo = new Date(options.nowMs - 15 * 24 * 60 * 60 * 1000).toISOString();
           companiesContacted.set('stripe', {
             company_normalized: 'stripe',
             last_contacted_at: fifteenDaysAgo,
+            last_channel: 'email',
           });
         },
         expected: {
           success: false,
-          errorContains: 'recently contacted',
+          errorContains: 'POLICY_RECENT_CONTACT_COOLDOWN',
           finalStatus: 'failed',
           expectedTransitions: [
             { from: 'approved', to: 'sending' },
-            { from: 'sending', to: 'failed', reasonMatch: /recently contacted/ },
+            { from: 'sending', to: 'failed', reasonMatch: /POLICY_RECENT_CONTACT_COOLDOWN/ },
+          ],
+        },
+      },
+      {
+        name: 'Gate 6b: NEW initial application to company contacted within 90 days (by manual apply) -> legally transitions approved -> sending -> failed with POLICY_RECENT_CONTACT_COOLDOWN',
+        setup: ({ companiesContacted, options, app }) => {
+          app.kind = 'initial';
+          const twentyDaysAgo = new Date(options.nowMs - 20 * 24 * 60 * 60 * 1000).toISOString();
+          companiesContacted.set('stripe', {
+            company_normalized: 'stripe',
+            last_contacted_at: twentyDaysAgo,
+            last_channel: 'manual',
+          });
+        },
+        expected: {
+          success: false,
+          errorContains: 'POLICY_RECENT_CONTACT_COOLDOWN',
+          finalStatus: 'failed',
+          expectedTransitions: [
+            { from: 'approved', to: 'sending' },
+            { from: 'sending', to: 'failed', reasonMatch: /POLICY_RECENT_CONTACT_COOLDOWN/ },
           ],
         },
       },
@@ -1421,6 +1525,391 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
 
       // Cap slot was acquired
       expect(dailyCounters.get('2026-11-04')?.sends).toBe(1);
+    });
+
+    it('follow_up application to company contacted within 90 days is NOT blocked by cooldown gate and sends to same thread', async () => {
+      const { db, applications, resumes, companiesContacted } = createMockDb();
+      const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
+
+      resumes.set('res-valid', {
+        id: 'res-valid',
+        r2_key: 'resumes/valid.pdf',
+        label: 'Valid Resume',
+      });
+
+      const fifteenDaysAgo = new Date('2026-10-20T10:00:00Z').toISOString();
+      companiesContacted.set('stripe', {
+        company_normalized: 'stripe',
+        last_contacted_at: fifteenDaysAgo,
+        last_channel: 'email',
+      });
+
+      // Initial application
+      applications.set('app-initial', {
+        id: 'app-initial',
+        job_id: 'job-target',
+        kind: 'initial',
+        status: 'sent',
+        gmail_thread_id: 'th-stripe-thread-99',
+        message_id_header: '<msg-initial-stripe@pigeon.local>',
+      });
+
+      // Follow-up application
+      const followUpApp: ApplicationToSend = {
+        ...targetApp,
+        id: 'app-followup-1',
+        kind: 'follow_up',
+        status: 'approved',
+      };
+      applications.set(followUpApp.id, {
+        id: followUpApp.id,
+        status: 'approved',
+        cover_letter: followUpApp.cover_letter,
+        subject: followUpApp.subject,
+      });
+
+      const resumesBucket = {
+        async get(_key: string) {
+          return {
+            async arrayBuffer() {
+              return new Uint8Array([1, 2, 3]).buffer;
+            },
+          };
+        },
+      };
+
+      const sentParams: SendEmailParams[] = [];
+      const sender: GmailSender = {
+        async send(p: SendEmailParams) {
+          sentParams.push(p);
+          return { gmailMessageId: 'g-followup-msg', gmailThreadId: 'th-stripe-thread-99' };
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      };
+
+      const res = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket,
+        gmailSender: sender,
+        profile: mockProfile,
+        dryRun: false,
+        killSwitch: false,
+        nowMs: new Date('2026-11-04T06:00:00Z').getTime(), // Wednesday 11:30 IST
+        application: followUpApp,
+      });
+
+      expect(res.success).toBe(true);
+      expect(sentParams.length).toBe(1);
+      expect(sentParams[0]?.threadId).toBe('th-stripe-thread-99');
+      expect(sentParams[0]?.inReplyTo).toBe('<msg-initial-stripe@pigeon.local>');
+      expect(sentParams[0]?.references).toBe('<msg-initial-stripe@pigeon.local>');
+      expect(applications.get(followUpApp.id)?.['status']).toBe('sent');
+    });
+
+    it('a follow-up created 6 business days after initial email is sent when all other gates pass', async () => {
+      const { db, applications, jobs, resumes, companiesContacted } = createMockDb();
+      const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
+
+      jobs.set('job-target', {
+        id: 'job-target',
+        title: 'Senior Systems Engineer',
+        company: 'Stripe',
+      });
+
+      resumes.set('res-valid', {
+        id: 'res-valid',
+        r2_key: 'resumes/valid.pdf',
+        label: 'Valid Resume',
+      });
+
+      // Tuesday 2026-10-27 10:00:00 UTC
+      const initialSentAt = '2026-10-27T10:00:00.000Z';
+      applications.set('app-init', {
+        id: 'app-init',
+        job_id: 'job-target',
+        channel: 'email',
+        kind: 'initial',
+        status: 'sent',
+        sent_at: initialSentAt,
+        subject: 'Application for Senior Systems Engineer',
+        cover_letter: validCoverLetter,
+        resume_id: 'res-valid',
+        message_id_header: '<msg-init-123@pigeon.local>',
+        gmail_thread_id: 'th-init-123',
+        follow_up_count: 0,
+      });
+
+      // Exactly 6 business days later:
+      // Day 1: Wed Oct 28, Day 2: Thu Oct 29, Day 3: Fri Oct 30, (Sat/Sun skipped),
+      // Day 4: Mon Nov 2, Day 5: Tue Nov 3, Day 6: Wed Nov 4
+      const sixBusinessDaysLaterMs = new Date('2026-11-04T10:00:00.000Z').getTime();
+
+      // 1. Inbox poller/follow-up scanner detects eligible initial email and creates draft follow-up
+      const followUpRes = await createPendingFollowUps({
+        db,
+        profile: mockProfile,
+        nowMs: sixBusinessDaysLaterMs,
+        businessDaysThreshold: 6,
+        maxFollowUps: 1,
+      });
+
+      expect(followUpRes.createdCount).toBe(1);
+      expect(followUpRes.applicationIds.length).toBe(1);
+      const followUpId = followUpRes.applicationIds[0] ?? '';
+
+      // Initial app follow_up_count was incremented to 1
+      expect(applications.get('app-init')?.['follow_up_count']).toBe(1);
+
+      // Follow-up was created in draft status
+      const createdApp = applications.get(followUpId);
+      expect(createdApp?.['status']).toBe('draft');
+      expect(createdApp?.['kind']).toBe('follow_up');
+
+      // 2. User approves the draft follow-up
+      if (createdApp) {
+        createdApp['status'] = 'approved';
+      }
+
+      // Record company contacted from initial send
+      companiesContacted.set('stripe', {
+        company_normalized: 'stripe',
+        last_contacted_at: initialSentAt,
+        last_channel: 'email',
+      });
+
+      const resumesBucket = {
+        async get(_key: string) {
+          return {
+            async arrayBuffer() {
+              return new Uint8Array([1, 2, 3]).buffer;
+            },
+          };
+        },
+      };
+
+      const sentParams: SendEmailParams[] = [];
+      const sender: GmailSender = {
+        async send(p: SendEmailParams) {
+          sentParams.push(p);
+          return { gmailMessageId: 'g-msg-followup-sent', gmailThreadId: 'th-init-123' };
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      };
+
+      const appToSend: ApplicationToSend = {
+        id: followUpId,
+        job_id: 'job-target',
+        kind: 'follow_up',
+        channel: 'email',
+        status: 'approved',
+        cover_letter: validCoverLetter,
+        subject: 'Re: Application for Senior Systems Engineer',
+        resume_id: 'res-valid',
+        message_id_header: null,
+        gmail_message_id: null,
+        gmail_thread_id: 'th-init-123',
+        retry_count: 0,
+        title: 'Senior Systems Engineer',
+        company: 'Stripe',
+        company_normalized: 'stripe',
+        contact_email: 'jobs@stripe.com',
+      };
+
+      // 3. Send worker runs and sends the follow-up
+      const sendRes = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket,
+        gmailSender: sender,
+        profile: mockProfile,
+        dryRun: false,
+        killSwitch: false,
+        nowMs: sixBusinessDaysLaterMs,
+        application: appToSend,
+      });
+
+      expect(sendRes.success).toBe(true);
+      expect(sentParams.length).toBe(1);
+      expect(sentParams[0]?.threadId).toBe('th-init-123');
+      expect(sentParams[0]?.inReplyTo).toBe('<msg-init-123@pigeon.local>');
+      expect(sentParams[0]?.references).toBe('<msg-init-123@pigeon.local>');
+      expect(applications.get(followUpId)?.['status']).toBe('sent');
+    });
+
+    it('policy blocks carry distinct reason codes, are never auto-retried, and do not count toward failure rate or failure alert', async () => {
+      const { db, applications, resumes, doNotContact, companiesContacted } = createMockDb();
+      const config = createMockKV();
+      await setGoogleAuthHealth({ config, status: 'ok' });
+
+      resumes.set('res-valid', {
+        id: 'res-valid',
+        r2_key: 'resumes/valid.pdf',
+        label: 'Valid Resume',
+      });
+
+      const resumesBucket = {
+        async get(_key: string) {
+          return {
+            async arrayBuffer() {
+              return new Uint8Array([1, 2, 3]).buffer;
+            },
+          };
+        },
+      };
+
+      const sentParams: SendEmailParams[] = [];
+      const sender: GmailSender = {
+        async send(p: SendEmailParams) {
+          sentParams.push(p);
+          return { gmailMessageId: 'g-msg', gmailThreadId: 'g-th' };
+        },
+        async searchSentByMessageId() {
+          return null;
+        },
+      };
+
+      // 1. DNC Policy Block
+      doNotContact.add('dnc@target.com');
+      const dncApp: ApplicationToSend = {
+        ...targetApp,
+        id: 'app-dnc-policy',
+        contact_email: 'dnc@target.com',
+        status: 'approved',
+      };
+      applications.set(dncApp.id, {
+        id: dncApp.id,
+        status: 'approved',
+        contact_email: dncApp.contact_email,
+        cover_letter: dncApp.cover_letter,
+        subject: dncApp.subject,
+      });
+
+      const dncRes = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket,
+        gmailSender: sender,
+        profile: mockProfile,
+        dryRun: false,
+        killSwitch: false,
+        nowMs: new Date('2026-11-04T06:00:00Z').getTime(),
+        application: dncApp,
+      });
+
+      expect(dncRes.success).toBe(false);
+      expect(dncRes.error).toContain(POLICY_BLOCK_CODES.DO_NOT_CONTACT);
+      expect(applications.get(dncApp.id)?.['status']).toBe('failed');
+      expect(applications.get(dncApp.id)?.['error']).toContain(POLICY_BLOCK_CODES.DO_NOT_CONTACT);
+
+      // 2. Recent Contact Cooldown Policy Block
+      companiesContacted.set('stripe', {
+        company_normalized: 'stripe',
+        last_contacted_at: new Date('2026-10-25T10:00:00Z').toISOString(),
+      });
+      const cooldownApp: ApplicationToSend = {
+        ...targetApp,
+        id: 'app-cooldown-policy',
+        kind: 'initial',
+        company_normalized: 'stripe',
+        status: 'approved',
+      };
+      applications.set(cooldownApp.id, {
+        id: cooldownApp.id,
+        status: 'approved',
+        cover_letter: cooldownApp.cover_letter,
+        subject: cooldownApp.subject,
+      });
+
+      const cooldownRes = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket,
+        gmailSender: sender,
+        profile: mockProfile,
+        dryRun: false,
+        killSwitch: false,
+        nowMs: new Date('2026-11-04T06:00:00Z').getTime(),
+        application: cooldownApp,
+      });
+
+      expect(cooldownRes.success).toBe(false);
+      expect(cooldownRes.error).toContain(POLICY_BLOCK_CODES.RECENT_CONTACT_COOLDOWN);
+      expect(applications.get(cooldownApp.id)?.['status']).toBe('failed');
+      expect(applications.get(cooldownApp.id)?.['error']).toContain(
+        POLICY_BLOCK_CODES.RECENT_CONTACT_COOLDOWN,
+      );
+
+      // Verify that policy blocked items are NEVER auto-retried:
+      // Status is failed, retry_count is 0, subsequent call is refused immediately
+      dncApp.status = 'failed';
+      const retryAttempt = await sendApplicationEmail({
+        db,
+        config,
+        resumesBucket,
+        gmailSender: sender,
+        profile: mockProfile,
+        dryRun: false,
+        killSwitch: false,
+        nowMs: new Date('2026-11-04T06:00:00Z').getTime(),
+        application: dncApp,
+      });
+      expect(retryAttempt.success).toBe(false);
+      expect(retryAttempt.error).toContain("Application status is 'failed', not approved");
+      expect(sentParams.length).toBe(0);
+
+      // 3. Test Failure Rate & Alert Exclusion:
+      // Seed 10 successful sends
+      for (let i = 1; i <= 10; i++) {
+        applications.set(`app-sent-${i}`, {
+          id: `app-sent-${i}`,
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          error: null,
+        });
+      }
+
+      // With 10 sent and 2 policy blocks (1 DNC + 1 Cooldown), policy blocks must NOT count toward failed_count
+      const statsNoFail = await calculateFailureRate(db);
+      expect(statsNoFail.failedCount).toBe(0);
+      expect(statsNoFail.totalCount).toBe(10);
+      expect(statsNoFail.failureRate).toBe(0);
+
+      const mockNotifier = createMockNotifier();
+      const alertNoFail = await checkFailureRateAlert({ db, notifier: mockNotifier });
+      expect(alertNoFail.alerted).toBe(false);
+      expect(mockNotifier.notifications.length).toBe(0);
+
+      // Now add 2 real system failures (non-policy)
+      applications.set('app-sys-fail-1', {
+        id: 'app-sys-fail-1',
+        status: 'failed',
+        updated_at: new Date().toISOString(),
+        error: 'Google API 500 Internal Server Error',
+      });
+      applications.set('app-sys-fail-2', {
+        id: 'app-sys-fail-2',
+        status: 'failed',
+        updated_at: new Date().toISOString(),
+        error: 'Connection reset by peer',
+      });
+
+      // 2 real failures out of 12 total countable apps = 17% (< 20% alert threshold)
+      // (If policy blocks were counted, it would be 4 / 14 = 29% and would falsely trigger an alert!)
+      const statsWithRealFailures = await calculateFailureRate(db);
+      expect(statsWithRealFailures.failedCount).toBe(2);
+      expect(statsWithRealFailures.totalCount).toBe(12);
+      expect(statsWithRealFailures.failureRate).toBe(17);
+
+      const alertCheck = await checkFailureRateAlert({ db, notifier: mockNotifier });
+      expect(alertCheck.alerted).toBe(false);
+      expect(mockNotifier.notifications.length).toBe(0);
     });
   });
 

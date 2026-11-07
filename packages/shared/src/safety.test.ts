@@ -376,7 +376,13 @@ describe('Safety Controls: DRY_RUN & Kill Switch', () => {
     it('scans apps/worker/src and packages/shared/src for || or ?? applied to env.<NAME> matching /SECRET|KEY|TOKEN|CLIENT_ID|PASSWORD/', () => {
       const allowlist: string[] = [];
       const proc = (globalThis as unknown as { process?: { cwd?: () => string } }).process;
-      const rootDir = proc?.cwd ? proc.cwd() : '.';
+      let rootDir = proc?.cwd ? proc.cwd() : '.';
+      while (
+        !fs.existsSync(path.join(rootDir, 'pnpm-workspace.yaml')) &&
+        path.dirname(rootDir) !== rootDir
+      ) {
+        rootDir = path.dirname(rootDir);
+      }
       const workerSrc = path.join(rootDir, 'apps/worker/src');
       const sharedSrc = path.join(rootDir, 'packages/shared/src');
 

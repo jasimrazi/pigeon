@@ -13,6 +13,14 @@ export interface R2LikeBucket {
   get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; size?: number } | null>;
 }
 
+export const POLICY_BLOCK_CODES = {
+  DO_NOT_CONTACT: 'POLICY_DO_NOT_CONTACT',
+  RECENT_CONTACT_COOLDOWN: 'POLICY_RECENT_CONTACT_COOLDOWN',
+} as const;
+
+export type PreSendValidationResult =
+  { valid: true } | { valid: false; error: string; code?: string; isPolicyBlock?: boolean };
+
 export interface SendWorkerOptions {
   db: D1LikeDatabase;
   config: KVLike;
@@ -182,8 +190,9 @@ export function isInsideSendWindow(options: { profile: Profile; nowMs?: number |
 
   const weekday = weekdayFormatter.format(date); // e.g. "Mon", "Sat"
   const isWeekend = weekday === 'Sat' || weekday === 'Sun';
+  const is24x7 = startStr === '00:00' && endStr === '23:59';
 
-  if (isWeekend) {
+  if (isWeekend && !is24x7) {
     return { inside: false, reason: 'weekend', timezone };
   }
 
@@ -229,7 +238,7 @@ export async function validatePreSend(options: {
   resumesBucket: R2LikeBucket;
   profile: Profile;
   app: ApplicationToSend;
-}): Promise<{ valid: true } | { valid: false; error: string }> {
+}): Promise<PreSendValidationResult> {
   const { db, resumesBucket, profile, app } = options;
 
   // 1. Status must still be approved
@@ -252,7 +261,12 @@ export async function validatePreSend(options: {
     .first<{ value: string }>();
 
   if (dnc) {
-    return { valid: false, error: `Contact '${dnc.value}' is on do_not_contact list` };
+    return {
+      valid: false,
+      code: POLICY_BLOCK_CODES.DO_NOT_CONTACT,
+      error: `${POLICY_BLOCK_CODES.DO_NOT_CONTACT}: Contact '${dnc.value}' is on do_not_contact list`,
+      isPolicyBlock: true,
+    };
   }
 
   // 4. Company cooldown: not contacted in last 90 days (initial applications only)
@@ -272,7 +286,9 @@ export async function validatePreSend(options: {
       if (Date.now() - lastContactMs < cooldownMs) {
         return {
           valid: false,
-          error: `Company '${app.company}' was recently contacted on ${contacted.last_contacted_at}`,
+          code: POLICY_BLOCK_CODES.RECENT_CONTACT_COOLDOWN,
+          error: `${POLICY_BLOCK_CODES.RECENT_CONTACT_COOLDOWN}: Company '${app.company}' was recently contacted on ${contacted.last_contacted_at}`,
+          isPolicyBlock: true,
         };
       }
     }
@@ -321,7 +337,14 @@ export async function validatePreSend(options: {
  */
 export async function sendApplicationEmail(
   options: SendWorkerOptions & { application: ApplicationToSend },
-): Promise<{ success: boolean; dryRun?: boolean; error?: string; rescheduled?: boolean }> {
+): Promise<{
+  success: boolean;
+  dryRun?: boolean | undefined;
+  error?: string | undefined;
+  rescheduled?: boolean | undefined;
+  code?: string | undefined;
+  isPolicyBlock?: boolean | undefined;
+}> {
   const {
     db,
     config,
@@ -430,10 +453,15 @@ export async function sendApplicationEmail(
       await transition(db, 'application', app.id, 'failed', validation.error);
     }
     await db
-      .prepare(`UPDATE applications SET error = ?, updated_at = ? WHERE id = ?`)
+      .prepare(`UPDATE applications SET error = ?, retry_count = 0, updated_at = ? WHERE id = ?`)
       .bind(validation.error ?? 'Validation failed', nowIso, app.id)
       .run();
-    return { success: false, error: validation.error };
+    return {
+      success: false,
+      error: validation.error,
+      code: validation.code,
+      isPolicyBlock: validation.isPolicyBlock ?? false,
+    };
   }
 
   // Load Resume PDF bytes if present
@@ -677,4 +705,50 @@ export async function sendApplicationEmail(
 
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Calculates the recent 24-hour send failure rate, strictly excluding policy blocks
+ * (e.g. POLICY_DO_NOT_CONTACT, POLICY_RECENT_CONTACT_COOLDOWN) from both failed count and total count.
+ */
+export async function calculateFailureRate(
+  db: D1LikeDatabase,
+  nowMs: number = Date.now(),
+): Promise<{ failureRate: number; failedCount: number; totalCount: number }> {
+  const oneDayAgo = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
+  const failStats = await db
+    .prepare(
+      `SELECT
+         COUNT(CASE WHEN status = 'failed' AND (error IS NULL OR (error NOT LIKE 'POLICY_%' AND error NOT LIKE '%POLICY_%')) THEN 1 END) AS failed_count,
+         COUNT(CASE WHEN error IS NULL OR (error NOT LIKE 'POLICY_%' AND error NOT LIKE '%POLICY_%') THEN 1 END) AS total_count
+       FROM applications
+       WHERE sent_at >= ? OR updated_at >= ?`,
+    )
+    .bind(oneDayAgo, oneDayAgo)
+    .first<{ failed_count: number; total_count: number }>();
+
+  const failedCount = failStats?.failed_count ?? 0;
+  const totalCount = failStats?.total_count ?? 0;
+  const failureRate = totalCount > 0 ? Math.round((failedCount / totalCount) * 100) : 0;
+  return { failureRate, failedCount, totalCount };
+}
+
+/**
+ * Checks whether the send failure rate exceeds the 20% threshold (with minimum sample size of 5),
+ * notifying via the configured Notifier if tripped. Policy blocks are excluded.
+ */
+export async function checkFailureRateAlert(options: {
+  db: D1LikeDatabase;
+  notifier: Notifier;
+  nowMs?: number | undefined;
+}): Promise<{ alerted: boolean; failureRate: number }> {
+  const { failureRate, totalCount } = await calculateFailureRate(options.db, options.nowMs);
+  if (totalCount >= 5 && failureRate > 20) {
+    await options.notifier.notify({
+      key: 'send_failure_rate_above_20',
+      message: `Send failure rate is ${failureRate}% (threshold 20%). Investigation required.`,
+    });
+    return { alerted: true, failureRate };
+  }
+  return { alerted: false, failureRate };
 }
