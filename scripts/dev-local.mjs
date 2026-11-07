@@ -81,6 +81,10 @@ function shutdown(exitCode = 0) {
 
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
+process.on('exit', () => {
+  killProcessTree(workerProc);
+  killProcessTree(dashboardProc);
+});
 
 function prefixStream(stream, prefix, isWorker = false) {
   let buffer = '';
@@ -127,11 +131,15 @@ workerProc.on('exit', (code) => {
 });
 
 // Spawn Dashboard
-dashboardProc = spawn('pnpm', ['--filter', '@pigeon/dashboard', 'exec', 'vite'], {
-  cwd: rootDir,
-  shell: true,
-  stdio: ['pipe', 'pipe', 'pipe'],
-});
+dashboardProc = spawn(
+  'pnpm',
+  ['--filter', '@pigeon/dashboard', 'exec', 'vite', '--port', '5173', '--strictPort'],
+  {
+    cwd: rootDir,
+    shell: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  },
+);
 prefixStream(dashboardProc.stdout, '[dashboard]', false);
 prefixStream(dashboardProc.stderr, '[dashboard]', false);
 

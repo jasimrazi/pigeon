@@ -143,30 +143,30 @@ export async function seedLocalData(options: SeedOptions): Promise<{
 
   await db
     .prepare(
-      `INSERT OR REPLACE INTO resumes (id, label, r2_key, is_default, parsed_text, created_at)
+      `INSERT OR REPLACE INTO resumes (id, label, r2_key, tags, is_default, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       'res-systems',
       'Systems Engineering Resume',
       'resumes/alex-mercer-systems.pdf',
+      'systems,distributed',
       1,
-      'Alex Mercer - Senior Systems Engineer. Distributed systems, Cloudflare Workers, TypeScript.',
       nowIso,
     )
     .run();
 
   await db
     .prepare(
-      `INSERT OR REPLACE INTO resumes (id, label, r2_key, is_default, parsed_text, created_at)
+      `INSERT OR REPLACE INTO resumes (id, label, r2_key, tags, is_default, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       'res-fullstack',
       'Fullstack / Edge Resume',
       'resumes/alex-mercer-fullstack.pdf',
+      'fullstack,edge',
       0,
-      'Alex Mercer - Fullstack Engineer. React, TypeScript, Hono, Edge APIs.',
       nowIso,
     )
     .run();
@@ -192,8 +192,8 @@ Alex Mercer`;
   // 4. Seed Policies: Do Not Contact & 90-day Cooldown
   await db
     .prepare(
-      `INSERT OR REPLACE INTO do_not_contact (id, value, reason, created_at)
-       VALUES ('dnc-1', 'badcompany.example.test', 'Requested no contact', ?)`,
+      `INSERT OR REPLACE INTO do_not_contact (value, reason, created_at)
+       VALUES ('badcompany-jobs@example.test', 'Requested no contact', ?)`,
     )
     .bind(nowIso)
     .run();

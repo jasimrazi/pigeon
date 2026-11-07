@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 
 export async function runLocalSmokeTests(opts = {}) {
   const workerUrl = opts.workerUrl || 'http://127.0.0.1:8787';
-  const dashboardUrl = opts.dashboardUrl || 'http://127.0.0.1:5173';
+  const dashboardUrl = opts.dashboardUrl || 'http://localhost:5173';
   const fetchFn = opts.fetch || globalThis.fetch;
 
   const results = [];
@@ -121,14 +121,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       }
       if (hasFailure) {
         console.error('\n[smoke:local] Smoke tests failed.');
-        process.exit(1);
+        process.exitCode = 1;
       } else {
         console.log('\n[smoke:local] All local smoke checks passed successfully!');
-        process.exit(0);
+        process.exitCode = 0;
       }
     })
     .catch((err) => {
       console.error('[smoke:local] Unexpected smoke test error:', err);
-      process.exit(1);
+      process.exitCode = 1;
     });
 }

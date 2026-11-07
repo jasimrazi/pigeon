@@ -34,19 +34,22 @@ export const EnvSchema = z.enum(['dev', 'staging', 'prod']);
 
 export const LlmProviderSchema = z.enum(['workers-ai', 'gemini']).default('workers-ai');
 
+const emptyToUndefined = (val: unknown) =>
+  typeof val === 'string' && val.trim() === '' ? undefined : val;
+
 export const WorkerEnvVarsSchema = z.object({
   DRY_RUN: DryRunSchema,
   ENV: EnvSchema,
   LLM_PROVIDER: LlmProviderSchema,
-  ALERT_FORWARDING_ADDRESS: z.string().email().optional(),
+  ALERT_FORWARDING_ADDRESS: z.preprocess(emptyToUndefined, z.string().email().optional()),
   KILL_SWITCH: z
     .union([z.enum(['true', 'false']).transform((v) => v === 'true'), z.boolean()])
     .optional()
     .default(false),
-  GOOGLE_REDIRECT_URI: z.string().optional(),
-  GOOGLE_SHEET_ID: z.string().optional(),
-  CF_ACCESS_ALLOWED_EMAIL: z.string().email().optional(),
-  OWNER_GMAIL: z.string().email().optional(),
+  GOOGLE_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().optional()),
+  GOOGLE_SHEET_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  CF_ACCESS_ALLOWED_EMAIL: z.preprocess(emptyToUndefined, z.string().email().optional()),
+  OWNER_GMAIL: z.preprocess(emptyToUndefined, z.string().email().optional()),
   ALLOW_INSECURE_DEV_AUTH: z
     .union([z.enum(['true', 'false']).transform((v) => v === 'true'), z.boolean()])
     .optional()
@@ -55,12 +58,12 @@ export const WorkerEnvVarsSchema = z.object({
 });
 
 export const WorkerSecretsSchema = z.object({
-  GEMINI_API_KEY: z.string().min(1).optional(),
-  ADZUNA_APP_ID: z.string().min(1).optional(),
-  ADZUNA_APP_KEY: z.string().min(1).optional(),
-  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
-  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
-  GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().min(1).optional(),
+  GEMINI_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  ADZUNA_APP_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  ADZUNA_APP_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  GOOGLE_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  GOOGLE_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  GOOGLE_TOKEN_ENCRYPTION_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 });
 
 export type WorkerEnvVars = z.infer<typeof WorkerEnvVarsSchema>;

@@ -182,6 +182,8 @@ app.use('*', async (c, next) => {
       if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
         return c.json({ error: 'Unsupported Media Type: expected multipart/form-data' }, 415);
       }
+    } else if (path === '/api/dev/feed-eml') {
+      // feed-eml receives raw RFC822 email content
     } else {
       const contentLength = c.req.header('content-length');
       const hasBody =

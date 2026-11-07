@@ -77,6 +77,21 @@ describe('packages/shared env validation', () => {
     expect(() => validateEnv({ DRY_RUN: 'true', ENV: 'invalid' })).toThrowError(/ENV/);
   });
 
+  it('treats empty string placeholders in optional variables as undefined', () => {
+    const result = validateEnv({
+      DRY_RUN: 'true',
+      ENV: 'dev',
+      CF_ACCESS_ALLOWED_EMAIL: '',
+      GEMINI_API_KEY: '',
+      ADZUNA_APP_ID: '',
+      ADZUNA_APP_KEY: '',
+    });
+    expect(result.CF_ACCESS_ALLOWED_EMAIL).toBeUndefined();
+    expect(result.GEMINI_API_KEY).toBeUndefined();
+    expect(result.ADZUNA_APP_ID).toBeUndefined();
+    expect(result.ADZUNA_APP_KEY).toBeUndefined();
+  });
+
   describe('getGoogleClient helper', () => {
     it('throws ConfigError when GOOGLE_CLIENT_ID is missing', () => {
       expect(() => getGoogleClient({ GOOGLE_CLIENT_SECRET: 'sec' })).toThrow(ConfigError);

@@ -26,6 +26,16 @@ pnpm format                          # Format all files with Prettier
 pnpm format:check                    # Check formatting with Prettier
 ```
 
+## Local Testing
+
+Pigeon includes a complete local testing kit for running and verifying the entire stack on your machine without cloud dependencies:
+
+- **Runner**: `pnpm dev:local` runs Worker and Dashboard concurrently with migrations and health checks.
+- **Smoke Tests**: `pnpm smoke:local` validates the Worker, Vite proxy, and KV configuration.
+- **Seeding & Reset**: `pnpm seed:local` populates test data; `pnpm db:reset:local` resets the local database.
+
+For complete step-by-step instructions on Windows (PowerShell), see [Local Testing Guide](docs/local-testing.md).
+
 ## Cloudflare Environments & Bindings
 
 The worker (`apps/worker/wrangler.toml`) defines three environments: `dev`, `staging`, and `prod`.

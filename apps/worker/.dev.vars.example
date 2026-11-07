@@ -32,21 +32,21 @@ GEMINI_API_KEY=""
 DEV_RECIPIENT_ALLOWLIST="recruiter@example.test, @example.test"
 
 # Google OAuth 2.0 Credentials (for Gmail API and Google Sheets sync)
-GOOGLE_CLIENT_ID="dev-google-client-id.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET="dev-google-client-secret"
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
 GOOGLE_REDIRECT_URI="http://localhost:8787/auth/google/callback"
 
 # AES-GCM 256-bit encryption key (hex or base64 string, minimum 32 characters) for encrypting stored Google OAuth refresh tokens.
 GOOGLE_TOKEN_ENCRYPTION_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 # Google Spreadsheet ID for one-way sync of job applications
-GOOGLE_SHEET_ID="dev-google-sheet-id"
+GOOGLE_SHEET_ID=""
 
 # Job seeker / candidate profile email address
 OWNER_GMAIL="user@example.com"
 
 # Inbound email alert forwarding address (e.g. jobs@yourdomain.workers.dev)
-ALERT_FORWARDING_ADDRESS="alerts@example.test"
+ALERT_FORWARDING_ADDRESS="alerts@pigeon.example.com"
 
 # Adzuna Job Search API credentials (optional job source)
 ADZUNA_APP_ID=""
