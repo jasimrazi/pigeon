@@ -51,6 +51,7 @@ export const WorkerEnvVarsSchema = z.object({
     .union([z.enum(['true', 'false']).transform((v) => v === 'true'), z.boolean()])
     .optional()
     .default(false),
+  DEV_RECIPIENT_ALLOWLIST: z.string().optional(),
 });
 
 export const WorkerSecretsSchema = z.object({

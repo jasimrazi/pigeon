@@ -22,6 +22,7 @@ import { TelegramNotifier } from './telegram/telegram-notifier.js';
 import type { KVLike } from './google/auth.js';
 import type { D1LikeDatabase } from './state-machine.js';
 import type { Profile } from './profile.js';
+import { validatePreSend, POLICY_BLOCK_CODES } from './google/send-worker.js';
 
 function createMockKv(initial: Record<string, string> = {}): KVLike & {
   store: Map<string, string>;
@@ -607,6 +608,129 @@ describe('Safety Controls: DRY_RUN & Kill Switch', () => {
       expect(violations.length).toBe(2);
       expect(violations[0]).toContain('z.array() without .max() bound');
       expect(violations[1]).toContain('z.record() without .max() bound');
+    });
+  });
+
+  describe('DEV_RECIPIENT_ALLOWLIST send safety removal test', () => {
+    it('fails if DEV_RECIPIENT_ALLOWLIST check is deleted from validatePreSend', async () => {
+      const validCoverLetter = `Dear Hiring Team at Stripe,
+
+I am writing to enthusiastically submit my application for the Senior Systems Engineer position. With 7 years of hands-on experience designing and operating distributed systems and high-throughput backend services, I am excited about the opportunity to contribute to Stripe's world-class platform and infrastructure engineering efforts.
+
+Throughout my career, I have specialized in building robust TypeScript and Cloudflare Workers services, optimizing database access patterns, and ensuring low-latency communication across distributed clusters. At my previous roles, I led initiatives to improve service resilience and decrease edge API response times under heavy traffic loads. You can review my architecture notes and projects at https://alexmercer.dev.
+
+I deeply admire Stripe's engineering culture and dedication to reliability and developer experience. I welcome the opportunity to discuss how my technical background in distributed systems and systems architecture aligns with your team's goals. Thank you very much for your time and consideration.
+
+Warm regards,
+Alex Mercer`;
+
+      const mockApp = {
+        id: 'app-check',
+        job_id: 'job-1',
+        channel: 'email' as const,
+        status: 'approved' as const,
+        cover_letter: validCoverLetter,
+        subject: 'Application for Senior Systems Engineer',
+        resume_id: null,
+        title: 'Senior Systems Engineer',
+        company: 'Stripe',
+        company_normalized: 'stripe',
+        contact_email: 'stranger@example.com',
+        message_id_header: null,
+        gmail_message_id: null,
+        gmail_thread_id: null,
+        retry_count: 0,
+      };
+      const mockProfile: Profile = {
+        name: 'Alex Mercer',
+        email: 'alex.mercer@example.com',
+        skills: ['TypeScript', 'Cloudflare Workers', 'Distributed Systems'],
+        experience: [
+          {
+            title: 'Senior Systems Engineer',
+            company: 'Tech Corp',
+            location: 'Remote',
+            start_date: '2019-01',
+            end_date: '2026-01',
+            current: false,
+            description: 'Distributed systems.',
+            highlights: [],
+          },
+        ],
+        education: [],
+        preferences: {
+          locations: ['Remote'],
+          remote: true,
+        },
+        filters: {
+          titles: ['Systems Engineer'],
+          locations: ['Remote'],
+          company_blacklist: [],
+          min_score: 70,
+          require_salary: false,
+          experience_range: { min: 7, max: 12 },
+        },
+        send_settings: {
+          daily_cap: 20,
+          window: { start: '09:00', end: '18:00' },
+          timezone: 'Asia/Kolkata',
+          ramp_base: 5,
+          ramp_step: 2,
+          auto_approve_above_score: 85,
+        },
+        answers: {
+          notice_period: '2 weeks',
+          current_ctc: '$160,000',
+          expected_ctc: '$180,000',
+          work_authorisation: 'Citizen',
+          links: { portfolio: 'https://alexmercer.dev' },
+          other: {},
+        },
+      };
+      const mockDb = {
+        prepare: () => ({
+          bind: () => ({
+            first: async () => null,
+            all: async () => ({ results: [] }),
+          }),
+        }),
+      } as unknown as D1LikeDatabase;
+      const resumesBucket = {
+        get: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+      };
+
+      const resInDevBlocked = await validatePreSend({
+        db: mockDb,
+        resumesBucket,
+        profile: mockProfile,
+        app: mockApp,
+        env: 'dev',
+        devRecipientAllowlist: 'allowed@example.test',
+      });
+      expect(resInDevBlocked.valid).toBe(false);
+      if (!resInDevBlocked.valid) {
+        expect(resInDevBlocked.code).toBe(POLICY_BLOCK_CODES.RECIPIENT_NOT_ALLOWED);
+      }
+
+      const resInDevAllowed = await validatePreSend({
+        db: mockDb,
+        resumesBucket,
+        profile: mockProfile,
+        app: { ...mockApp, contact_email: 'allowed@example.test' },
+        env: 'dev',
+        devRecipientAllowlist: 'allowed@example.test',
+      });
+      expect(resInDevAllowed.valid).toBe(true);
+
+      const resInProdAllowed = await validatePreSend({
+        db: mockDb,
+        resumesBucket,
+        profile: mockProfile,
+        app: mockApp,
+        env: 'prod',
+        devRecipientAllowlist: 'allowed@example.test',
+      });
+      expect(resInProdAllowed.valid).toBe(true);
     });
   });
 });

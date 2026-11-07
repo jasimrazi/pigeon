@@ -1078,6 +1078,8 @@ app.post('/api/applications/:id/send', async (c) => {
     dryRun: env.DRY_RUN,
     killSwitch: env.KILL_SWITCH,
     application: appRow,
+    env: env.ENV,
+    devRecipientAllowlist: (c.env.DEV_RECIPIENT_ALLOWLIST as string) || undefined,
   });
 
   // Trigger sheet sync after send attempt
@@ -1841,6 +1843,8 @@ export default {
                 dryRun: dryRunVal,
                 killSwitch: killSwitchVal,
                 application: appRow,
+                env: env.ENV as string,
+                devRecipientAllowlist: (env.DEV_RECIPIENT_ALLOWLIST as string) || undefined,
               });
             }
           }

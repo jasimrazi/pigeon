@@ -111,7 +111,10 @@ export const greenhouseAdapter: JobSource = {
         if (err instanceof z.ZodError) {
           console.warn(`[greenhouse] Validation failed for company slug '${slug}':`, err);
         } else {
-          console.warn(`[greenhouse] Failed to fetch or parse jobs for company slug '${slug}':`, err);
+          console.warn(
+            `[greenhouse] Failed to fetch or parse jobs for company slug '${slug}':`,
+            err,
+          );
         }
         failedSlugs.push(slug);
       }

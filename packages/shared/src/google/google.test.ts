@@ -26,6 +26,7 @@ import {
   isInsideSendWindow,
   acquireSendSlot,
   sendApplicationEmail,
+  validatePreSend,
   calculateFailureRate,
   checkFailureRateAlert,
   POLICY_BLOCK_CODES,
@@ -1910,6 +1911,367 @@ describe('Google OAuth, Health & Gmail Sender Suite', () => {
       const alertCheck = await checkFailureRateAlert({ db, notifier: mockNotifier });
       expect(alertCheck.alerted).toBe(false);
       expect(mockNotifier.notifications.length).toBe(0);
+    });
+
+    describe('DEV_RECIPIENT_ALLOWLIST send safety in dev', () => {
+      it('allowed recipient passes in dev', async () => {
+        const { db, applications, resumes } = createMockDb();
+        const config = createMockKV();
+        await setGoogleAuthHealth({ config, status: 'ok' });
+        const resumesBucket = {
+          get: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+        };
+        resumes.set('resume-1', {
+          id: 'resume-1',
+          r2_key: 'resumes/resume-1.pdf',
+          label: 'Resume',
+        });
+        const app: ApplicationToSend = {
+          id: 'app-dev-allowed',
+          job_id: 'job-1',
+          channel: 'email',
+          status: 'approved',
+          cover_letter: validCoverLetter,
+          subject: 'Application for Senior Systems Engineer',
+          resume_id: 'resume-1',
+          message_id_header: null,
+          gmail_message_id: null,
+          gmail_thread_id: null,
+          retry_count: 0,
+          title: 'Senior Systems Engineer',
+          company: 'Stripe',
+          company_normalized: 'stripe',
+          contact_email: 'test@example.test',
+        };
+        applications.set(app.id, { ...app });
+
+        const sent: SendEmailParams[] = [];
+        const sender: GmailSender = {
+          send: async (p) => {
+            sent.push(p);
+            return { gmailMessageId: 'm1', gmailThreadId: 't1' };
+          },
+          searchSentByMessageId: async () => null,
+        };
+
+        const testTimeMs = new Date('2026-11-04T06:00:00Z').getTime();
+
+        const res = await sendApplicationEmail({
+          db,
+          config,
+          resumesBucket,
+          gmailSender: sender,
+          profile: mockProfile,
+          dryRun: false,
+          killSwitch: false,
+          nowMs: testTimeMs,
+          env: 'dev',
+          devRecipientAllowlist: 'test@example.test, @other.test',
+          application: app,
+        });
+
+        expect(res.success).toBe(true);
+        expect(sent.length).toBe(1);
+        expect(sent[0]?.recipientEmail).toBe('test@example.test');
+      });
+
+      it('allowed domain passes in dev', async () => {
+        const { db, applications, resumes } = createMockDb();
+        const config = createMockKV();
+        await setGoogleAuthHealth({ config, status: 'ok' });
+        const resumesBucket = {
+          get: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+        };
+        resumes.set('resume-1', {
+          id: 'resume-1',
+          r2_key: 'resumes/resume-1.pdf',
+          label: 'Resume',
+        });
+        const app: ApplicationToSend = {
+          id: 'app-dev-domain-allowed',
+          job_id: 'job-1',
+          channel: 'email',
+          status: 'approved',
+          cover_letter: validCoverLetter,
+          subject: 'Application for Senior Systems Engineer',
+          resume_id: 'resume-1',
+          message_id_header: null,
+          gmail_message_id: null,
+          gmail_thread_id: null,
+          retry_count: 0,
+          title: 'Senior Systems Engineer',
+          company: 'Stripe',
+          company_normalized: 'stripe',
+          contact_email: 'recruiter@example.test',
+        };
+        applications.set(app.id, { ...app });
+
+        const sent: SendEmailParams[] = [];
+        const sender: GmailSender = {
+          send: async (p) => {
+            sent.push(p);
+            return { gmailMessageId: 'm1', gmailThreadId: 't1' };
+          },
+          searchSentByMessageId: async () => null,
+        };
+
+        const testTimeMs = new Date('2026-11-04T06:00:00Z').getTime();
+
+        const res = await sendApplicationEmail({
+          db,
+          config,
+          resumesBucket,
+          gmailSender: sender,
+          profile: mockProfile,
+          dryRun: false,
+          killSwitch: false,
+          nowMs: testTimeMs,
+          env: 'dev',
+          devRecipientAllowlist: 'example.test',
+          application: app,
+        });
+
+        expect(res.success).toBe(true);
+        expect(sent.length).toBe(1);
+      });
+
+      it('non-allowed recipient is blocked in dev with POLICY_RECIPIENT_NOT_ALLOWED, status failed, retry_count 0', async () => {
+        const { db, applications, resumes } = createMockDb();
+        const config = createMockKV();
+        await setGoogleAuthHealth({ config, status: 'ok' });
+        const resumesBucket = {
+          get: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+        };
+        resumes.set('resume-1', {
+          id: 'resume-1',
+          r2_key: 'resumes/resume-1.pdf',
+          label: 'Resume',
+        });
+        const app: ApplicationToSend = {
+          id: 'app-dev-blocked',
+          job_id: 'job-1',
+          channel: 'email',
+          status: 'approved',
+          cover_letter: validCoverLetter,
+          subject: 'Application for Senior Systems Engineer',
+          resume_id: 'resume-1',
+          message_id_header: null,
+          gmail_message_id: null,
+          gmail_thread_id: null,
+          retry_count: 0,
+          title: 'Senior Systems Engineer',
+          company: 'Stripe',
+          company_normalized: 'stripe',
+          contact_email: 'stranger@realcompany.com',
+        };
+        applications.set(app.id, { ...app });
+
+        const sent: SendEmailParams[] = [];
+        const sender: GmailSender = {
+          send: async (p) => {
+            sent.push(p);
+            return { gmailMessageId: 'm1', gmailThreadId: 't1' };
+          },
+          searchSentByMessageId: async () => null,
+        };
+
+        const testTimeMs = new Date('2026-11-04T06:00:00Z').getTime();
+
+        const res = await sendApplicationEmail({
+          db,
+          config,
+          resumesBucket,
+          gmailSender: sender,
+          profile: mockProfile,
+          dryRun: false,
+          killSwitch: false,
+          nowMs: testTimeMs,
+          env: 'dev',
+          devRecipientAllowlist: 'test@example.test',
+          application: app,
+        });
+
+        expect(res.success).toBe(false);
+        expect(res.code).toBe(POLICY_BLOCK_CODES.RECIPIENT_NOT_ALLOWED);
+        expect(res.isPolicyBlock).toBe(true);
+        expect(res.error).toContain(POLICY_BLOCK_CODES.RECIPIENT_NOT_ALLOWED);
+        expect(applications.get(app.id)?.['status']).toBe('failed');
+        expect(applications.get(app.id)?.['retry_count']).toBe(0);
+        expect(sent.length).toBe(0);
+      });
+
+      it('empty list blocks everything in dev', async () => {
+        const { db, applications, resumes } = createMockDb();
+        const config = createMockKV();
+        await setGoogleAuthHealth({ config, status: 'ok' });
+        const resumesBucket = {
+          get: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+        };
+        resumes.set('resume-1', {
+          id: 'resume-1',
+          r2_key: 'resumes/resume-1.pdf',
+          label: 'Resume',
+        });
+        const app: ApplicationToSend = {
+          id: 'app-dev-empty-list',
+          job_id: 'job-1',
+          channel: 'email',
+          status: 'approved',
+          cover_letter: validCoverLetter,
+          subject: 'Application for Senior Systems Engineer',
+          resume_id: 'resume-1',
+          message_id_header: null,
+          gmail_message_id: null,
+          gmail_thread_id: null,
+          retry_count: 0,
+          title: 'Senior Systems Engineer',
+          company: 'Stripe',
+          company_normalized: 'stripe',
+          contact_email: 'test@example.test',
+        };
+        applications.set(app.id, { ...app });
+
+        const sent: SendEmailParams[] = [];
+        const sender: GmailSender = {
+          send: async (p) => {
+            sent.push(p);
+            return { gmailMessageId: 'm1', gmailThreadId: 't1' };
+          },
+          searchSentByMessageId: async () => null,
+        };
+
+        const testTimeMs = new Date('2026-11-04T06:00:00Z').getTime();
+
+        const res = await sendApplicationEmail({
+          db,
+          config,
+          resumesBucket,
+          gmailSender: sender,
+          profile: mockProfile,
+          dryRun: false,
+          killSwitch: false,
+          nowMs: testTimeMs,
+          env: 'dev',
+          devRecipientAllowlist: '',
+          application: app,
+        });
+
+        expect(res.success).toBe(false);
+        expect(res.code).toBe(POLICY_BLOCK_CODES.RECIPIENT_NOT_ALLOWED);
+        expect(sent.length).toBe(0);
+      });
+
+      it('guard is inert when ENV is not dev (staging/prod)', async () => {
+        const { db, applications, resumes } = createMockDb();
+        const config = createMockKV();
+        await setGoogleAuthHealth({ config, status: 'ok' });
+        const resumesBucket = {
+          get: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+        };
+        resumes.set('resume-1', {
+          id: 'resume-1',
+          r2_key: 'resumes/resume-1.pdf',
+          label: 'Resume',
+        });
+        const app: ApplicationToSend = {
+          id: 'app-prod-pass',
+          job_id: 'job-1',
+          channel: 'email',
+          status: 'approved',
+          cover_letter: validCoverLetter,
+          subject: 'Application for Senior Systems Engineer',
+          resume_id: 'resume-1',
+          message_id_header: null,
+          gmail_message_id: null,
+          gmail_thread_id: null,
+          retry_count: 0,
+          title: 'Senior Systems Engineer',
+          company: 'Stripe',
+          company_normalized: 'stripe',
+          contact_email: 'real.recruiter@stripe.com',
+        };
+        applications.set(app.id, { ...app });
+
+        const sent: SendEmailParams[] = [];
+        const sender: GmailSender = {
+          send: async (p) => {
+            sent.push(p);
+            return { gmailMessageId: 'm1', gmailThreadId: 't1' };
+          },
+          searchSentByMessageId: async () => null,
+        };
+
+        const testTimeMs = new Date('2026-11-04T06:00:00Z').getTime();
+
+        const res = await sendApplicationEmail({
+          db,
+          config,
+          resumesBucket,
+          gmailSender: sender,
+          profile: mockProfile,
+          dryRun: false,
+          killSwitch: false,
+          nowMs: testTimeMs,
+          env: 'prod',
+          devRecipientAllowlist: 'only-dev@example.test',
+          application: app,
+        });
+
+        expect(res.success).toBe(true);
+        expect(sent.length).toBe(1);
+        expect(sent[0]?.recipientEmail).toBe('real.recruiter@stripe.com');
+      });
+
+      it('removal test: fails if DEV_RECIPIENT_ALLOWLIST check is deleted', async () => {
+        const { db, resumes } = createMockDb();
+        const resumesBucket = {
+          get: async () => ({ arrayBuffer: async () => new ArrayBuffer(8) }),
+        };
+        resumes.set('resume-1', {
+          id: 'resume-1',
+          r2_key: 'resumes/resume-1.pdf',
+          label: 'Resume',
+        });
+        const app: ApplicationToSend = {
+          id: 'app-removal-test',
+          job_id: 'job-1',
+          channel: 'email',
+          status: 'approved',
+          cover_letter: validCoverLetter,
+          subject: 'Application for Senior Systems Engineer',
+          resume_id: 'resume-1',
+          message_id_header: null,
+          gmail_message_id: null,
+          gmail_thread_id: null,
+          retry_count: 0,
+          title: 'Senior Systems Engineer',
+          company: 'Stripe',
+          company_normalized: 'stripe',
+          contact_email: 'unauthorized@live.com',
+        };
+
+        const checkPresent = await validatePreSend({
+          db,
+          resumesBucket,
+          profile: mockProfile,
+          app,
+          env: 'dev',
+          devRecipientAllowlist: 'allowed@example.test',
+        });
+        expect(checkPresent.valid).toBe(false);
+        if (!checkPresent.valid) {
+          expect(checkPresent.code).toBe(POLICY_BLOCK_CODES.RECIPIENT_NOT_ALLOWED);
+        }
+
+        const checkOmitted = await validatePreSend({
+          db,
+          resumesBucket,
+          profile: mockProfile,
+          app,
+          env: undefined,
+        });
+        expect(checkOmitted.valid).toBe(true);
+      });
     });
   });
 

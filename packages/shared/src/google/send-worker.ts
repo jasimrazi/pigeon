@@ -16,6 +16,7 @@ export interface R2LikeBucket {
 export const POLICY_BLOCK_CODES = {
   DO_NOT_CONTACT: 'POLICY_DO_NOT_CONTACT',
   RECENT_CONTACT_COOLDOWN: 'POLICY_RECENT_CONTACT_COOLDOWN',
+  RECIPIENT_NOT_ALLOWED: 'POLICY_RECIPIENT_NOT_ALLOWED',
 } as const;
 
 export type PreSendValidationResult =
@@ -31,6 +32,8 @@ export interface SendWorkerOptions {
   dryRun?: boolean | undefined;
   killSwitch?: boolean | undefined;
   nowMs?: number | undefined;
+  env?: string | undefined;
+  devRecipientAllowlist?: string | string[] | undefined;
 }
 
 export interface ApplicationToSend {
@@ -238,8 +241,10 @@ export async function validatePreSend(options: {
   resumesBucket: R2LikeBucket;
   profile: Profile;
   app: ApplicationToSend;
+  env?: string | undefined;
+  devRecipientAllowlist?: string | string[] | undefined;
 }): Promise<PreSendValidationResult> {
-  const { db, resumesBucket, profile, app } = options;
+  const { db, resumesBucket, profile, app, env, devRecipientAllowlist } = options;
 
   // 1. Status must still be approved
   if (app.status !== 'approved' && app.status !== 'sending') {
@@ -253,6 +258,32 @@ export async function validatePreSend(options: {
 
   const emailLower = app.contact_email.toLowerCase().trim();
   const domainLower = emailLower.split('@')[1] ?? '';
+
+  // 2b. Dev recipient allowlist check: enforced ONLY when ENV=dev
+  if (env === 'dev') {
+    const rawList = devRecipientAllowlist;
+    const allowedEntries = (
+      Array.isArray(rawList) ? rawList : typeof rawList === 'string' ? rawList.split(',') : []
+    )
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    const isAllowed =
+      allowedEntries.length > 0 &&
+      allowedEntries.some((entry) => {
+        const cleanEntry = entry.startsWith('@') ? entry.slice(1) : entry;
+        return emailLower === cleanEntry || domainLower === cleanEntry;
+      });
+
+    if (!isAllowed) {
+      return {
+        valid: false,
+        code: POLICY_BLOCK_CODES.RECIPIENT_NOT_ALLOWED,
+        error: `${POLICY_BLOCK_CODES.RECIPIENT_NOT_ALLOWED}: Recipient '${app.contact_email}' is not in DEV_RECIPIENT_ALLOWLIST`,
+        isPolicyBlock: true,
+      };
+    }
+  }
 
   // 3. Not on do_not_contact
   const dnc = await db
@@ -444,7 +475,14 @@ export async function sendApplicationEmail(
   }
 
   // 6. Pre-send validation checks
-  const validation = await validatePreSend({ db, resumesBucket, profile, app });
+  const validation = await validatePreSend({
+    db,
+    resumesBucket,
+    profile,
+    app,
+    env: options.env,
+    devRecipientAllowlist: options.devRecipientAllowlist,
+  });
   if (!validation.valid) {
     if (app.status === 'approved') {
       await transition(db, 'application', app.id, 'sending', 'PRE_SEND_VALIDATION_FAILED');

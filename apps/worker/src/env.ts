@@ -31,6 +31,7 @@ export interface Bindings {
   TELEGRAM_CHAT_ID?: string | undefined;
   OWNER_GMAIL?: string | undefined;
   ALLOW_INSECURE_DEV_AUTH?: string | boolean | undefined;
+  DEV_RECIPIENT_ALLOWLIST?: string | undefined;
   [key: string]: unknown;
 }
 

@@ -12,6 +12,7 @@ crons = ["0 */3 * * *", "*/10 * * * *", "*/15 * * * *"]
 ENV = "dev"
 DRY_RUN = "true"
 LLM_PROVIDER = "workers-ai"
+DEV_RECIPIENT_ALLOWLIST = ""
 
 [ai]
 binding = "AI"
@@ -40,7 +41,7 @@ max_batch_timeout = 5
 
 [env.dev]
 name = "pigeon-worker"
-vars = { ENV = "dev", DRY_RUN = "true", LLM_PROVIDER = "workers-ai" }
+vars = { ENV = "dev", DRY_RUN = "true", LLM_PROVIDER = "workers-ai", DEV_RECIPIENT_ALLOWLIST = "" }
 
 [env.dev.ai]
 binding = "AI"
