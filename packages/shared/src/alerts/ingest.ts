@@ -2,6 +2,7 @@ import PostalMime from 'postal-mime';
 import type { D1LikeDatabase } from '../state-machine.js';
 import type { Notifier } from '../notifier.js';
 import type { AlertIngestResult, PortalType } from './types.js';
+import { ParsedAlertJobsSchema } from './types.js';
 import { isAllowedSender, isAuthorizedForwarding } from './validator.js';
 import { detectPortal, parseAlertEmail } from './parsers/index.js';
 import { handleParserHealth } from './parser-health.js';
@@ -123,7 +124,7 @@ export async function ingestAlertEmail(
 
   // 5. Parse jobs from HTML (or plain text fallback)
   const htmlContent = email.html || email.text || '';
-  const parsedJobs = parseAlertEmail(portal, htmlContent);
+  const parsedJobs = ParsedAlertJobsSchema.parse(parseAlertEmail(portal, htmlContent));
 
   // 6. Handle parser health and empty streak tracking
   const health = await handleParserHealth({

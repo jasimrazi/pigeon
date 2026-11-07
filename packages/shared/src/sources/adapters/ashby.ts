@@ -5,6 +5,7 @@ import { parseSalary } from '../salary.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
 import { getAtsSlugs, disableAtsSlug } from './greenhouse.js';
+import { AshbyResponseSchema } from '../schemas.js';
 
 export const ashbyAdapter: JobSource = {
   name: 'ashby',
@@ -41,7 +42,7 @@ export const ashbyAdapter: JobSource = {
         throw new Error(`Ashby API for ${slug} returned HTTP ${res.status}`);
       }
 
-      const data = (await res.json()) as { jobs?: Array<Record<string, unknown>> };
+      const data = AshbyResponseSchema.parse(await res.json());
       for (const job of data.jobs || []) {
         allJobs.push({
           ...job,

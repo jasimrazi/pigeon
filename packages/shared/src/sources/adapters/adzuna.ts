@@ -4,6 +4,7 @@ import { extractContactEmail } from '../email-extractor.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
 import { ConfigError } from '../../env.js';
+import { AdzunaResponseSchema } from '../schemas.js';
 
 export const adzunaAdapter: JobSource = {
   name: 'adzuna',
@@ -39,8 +40,8 @@ export const adzunaAdapter: JobSource = {
       throw new Error(`Adzuna API returned HTTP ${res.status}`);
     }
 
-    const data = (await res.json()) as { results?: RawJob[] };
-    return (data.results || []).map((j) => ({ ...j, source: 'adzuna' }));
+    const data = AdzunaResponseSchema.parse(await res.json());
+    return (data.results || []).map((j) => ({ ...(j as RawJob), source: 'adzuna' }));
   },
 
   normalize(raw: RawJob): NormalizedJob {

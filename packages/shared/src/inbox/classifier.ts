@@ -12,7 +12,7 @@ import type {
 export const OutcomeLlmResponseSchema = z.object({
   label: z.enum(['interview', 'rejection', 'other']),
   confidence: z.enum(['high', 'medium', 'low']),
-  reason: z.string(),
+  reason: z.string().max(2000),
 });
 
 export function buildClassifierPrompt(snippet: string, context?: ClassifierContext): string {

@@ -1,5 +1,12 @@
 import { buildMimeMessage, toBase64Url } from './mime.js';
-import type { GmailSender, SendEmailParams, SendEmailResult, GmailThread } from './types.js';
+import {
+  type GmailSender,
+  type SendEmailParams,
+  type SendEmailResult,
+  type GmailThread,
+  GmailSearchMessagesResponseSchema,
+  GmailThreadSchema,
+} from './types.js';
 
 export class GoogleRateLimitError extends Error {
   constructor(message = 'Rate limit exceeded') {
@@ -96,9 +103,8 @@ export class RestGmailSender implements GmailSender {
       return null;
     }
 
-    const data = (await res.json()) as {
-      messages?: Array<{ id: string; threadId: string }>;
-    };
+    const raw = await res.json();
+    const data = GmailSearchMessagesResponseSchema.parse(raw);
 
     if (data.messages && data.messages.length > 0 && data.messages[0]) {
       return {
@@ -140,6 +146,7 @@ export class RestGmailSender implements GmailSender {
       );
     }
 
-    return (await res.json()) as GmailThread;
+    const raw = await res.json();
+    return GmailThreadSchema.parse(raw);
   }
 }

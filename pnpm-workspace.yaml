@@ -5,3 +5,7 @@ allowBuilds:
   esbuild: true
   msw: true
   workerd: true
+# bounded schemas in place; revisit zod 4 migration by 2027-02-07
+auditConfig:
+  ignoreGhsas:
+    - GHSA-mrhx-c7xc-m3w5

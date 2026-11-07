@@ -1,4 +1,6 @@
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import { z } from 'zod';
 import {
   ProfileSchema,
   getEnabledSources,
@@ -100,6 +102,37 @@ app.use('*', async (c, next) => {
   c.set('validatedEnv', validated);
   await next();
 });
+
+// -------------------------------------------------------------
+// Body Size Limit Middleware: 1 MB on JSON routes, 5 MB on /api/resumes (HTTP 413)
+// -------------------------------------------------------------
+app.use('*', async (c, next) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') {
+    return next();
+  }
+  const isResumeUpload = c.req.path === '/api/resumes' || c.req.path.startsWith('/api/resumes/');
+  const maxSize = isResumeUpload ? 5 * 1024 * 1024 : 1024 * 1024;
+  return bodyLimit({
+    maxSize,
+    onError: (ctx) => ctx.json({ error: 'Payload Too Large' }, 413),
+  })(c, next);
+});
+
+export const ManualBulkActionRequestSchema = z.object({
+  ids: z.array(z.string().max(100)).min(1).max(100),
+  action: z.enum(['applied', 'skip']),
+  reason: z.string().max(500).optional(),
+  note: z.string().max(2000).optional(),
+});
+
+export const BulkApproveRequestSchema = z
+  .object({
+    ids: z.array(z.string().max(100)).max(100).optional(),
+    application_ids: z.array(z.string().max(100)).max(100).optional(),
+  })
+  .refine((data) => Array.isArray(data.ids) || Array.isArray(data.application_ids), {
+    message: "Missing required 'ids' or 'application_ids' array in body",
+  });
 
 // -------------------------------------------------------------
 // Security Middleware: CORS, State-Changing Requests, CF Access
@@ -695,27 +728,15 @@ app.post('/api/manual/:id/send-by-email', async (c) => {
 
 // POST /api/manual/bulk: Bulk applied or skip for manual_pending items
 app.post('/api/manual/bulk', async (c) => {
-  const body = await c.req
-    .json<{ ids?: string[]; action?: 'applied' | 'skip'; reason?: string; note?: string }>()
-    .catch(
-      () =>
-        ({}) as {
-          ids?: string[];
-          action?: 'applied' | 'skip';
-          reason?: string;
-          note?: string;
-        },
-    );
-  if (
-    !body.ids ||
-    !Array.isArray(body.ids) ||
-    (body.action !== 'applied' && body.action !== 'skip')
-  ) {
+  const rawBody = await c.req.json().catch(() => ({}));
+  const parseResult = ManualBulkActionRequestSchema.safeParse(rawBody);
+  if (!parseResult.success) {
     return c.json(
       { error: "Invalid bulk action: requires 'ids' array and action 'applied' or 'skip'" },
       400,
     );
   }
+  const body = parseResult.data;
   const result = await bulkManualAction({
     db: c.env.DB,
     ids: body.ids,
@@ -951,14 +972,12 @@ app.post('/api/applications/:id/approve', async (c) => {
 });
 
 app.post('/api/applications/bulk-approve', async (c) => {
-  const body = await c.req
-    .json<{ ids?: string[]; application_ids?: string[] }>()
-    .catch(() => ({}) as { ids?: string[]; application_ids?: string[] });
-  const ids = body.ids || body.application_ids;
-
-  if (!ids || !Array.isArray(ids)) {
+  const rawBody = await c.req.json().catch(() => null);
+  const parseResult = BulkApproveRequestSchema.safeParse(rawBody);
+  if (!parseResult.success) {
     return c.json({ error: "Missing required 'ids' or 'application_ids' array in body" }, 400);
   }
+  const ids = parseResult.data.ids || parseResult.data.application_ids || [];
 
   const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
     .bind('default')

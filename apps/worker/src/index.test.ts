@@ -206,4 +206,75 @@ describe('Pigeon Worker', () => {
       }).toThrow(/LLM_PROVIDER/);
     });
   });
+
+  describe('Body Limit Middleware (HTTP 413)', () => {
+    it('returns 413 when JSON route exceeds 1 MB', async () => {
+      const largePayload = JSON.stringify({
+        ids: ['id-1'],
+        action: 'applied',
+        data: 'a'.repeat(1024 * 1024 + 100),
+      });
+      const res = await app.request(
+        '/api/manual/bulk',
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'http://localhost:5173',
+            'Content-Type': 'application/json',
+          },
+          body: largePayload,
+        },
+        workerEnv,
+      );
+      expect(res.status).toBe(413);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe('Payload Too Large');
+    });
+
+    it('returns 413 when /api/resumes exceeds 5 MB', async () => {
+      const boundary = '----WebKitFormBoundaryTest123';
+      const preamble = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.pdf"\r\nContent-Type: application/pdf\r\n\r\n`;
+      const epilogue = `\r\n--${boundary}--\r\n`;
+      const body = preamble + 'x'.repeat(5 * 1024 * 1024 + 1024) + epilogue;
+      const res = await app.request(
+        '/api/resumes',
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'http://localhost:5173',
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          },
+          body,
+        },
+        workerEnv,
+      );
+      expect(res.status).toBe(413);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toBe('Payload Too Large');
+    });
+
+    it('allows /api/resumes payload below 5 MB (e.g. 2 MB) through to normal route handling', async () => {
+      const boundary = '----WebKitFormBoundaryTest456';
+      const pdfHeader = '%PDF-1.4\n';
+      const fileData = pdfHeader + 'x'.repeat(2 * 1024 * 1024);
+      const preamble = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="valid.pdf"\r\nContent-Type: application/pdf\r\n\r\n`;
+      const labelPart = `\r\n--${boundary}\r\nContent-Disposition: form-data; name="label"\r\n\r\nLarge Resume`;
+      const epilogue = `\r\n--${boundary}--\r\n`;
+      const body = preamble + fileData + labelPart + epilogue;
+
+      const res = await app.request(
+        '/api/resumes',
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'http://localhost:5173',
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          },
+          body,
+        },
+        workerEnv,
+      );
+      expect(res.status).not.toBe(413);
+    });
+  });
 });

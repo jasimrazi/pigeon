@@ -1,13 +1,19 @@
+import { z } from 'zod';
+
 export type PortalType = 'linkedin' | 'naukri' | 'indeed' | 'fallback';
 
-export interface ParsedAlertJob {
-  title: string;
-  company: string;
-  location?: string | null | undefined;
-  apply_url: string;
-  salary_raw?: string | null | undefined;
-  description?: string | null | undefined;
-}
+export const ParsedAlertJobSchema = z.object({
+  title: z.string().max(500),
+  company: z.string().max(500),
+  location: z.string().max(500).nullish(),
+  apply_url: z.string().max(2000),
+  salary_raw: z.string().max(200).nullish(),
+  description: z.string().max(50000).nullish(),
+});
+
+export const ParsedAlertJobsSchema = z.array(ParsedAlertJobSchema).max(200);
+
+export type ParsedAlertJob = z.infer<typeof ParsedAlertJobSchema>;
 
 export interface PortalParser {
   readonly portal: PortalType;

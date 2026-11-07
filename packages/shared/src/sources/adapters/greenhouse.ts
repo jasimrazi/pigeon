@@ -4,6 +4,7 @@ import { extractContactEmail } from '../email-extractor.js';
 import { parseSalary } from '../salary.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
+import { GreenhouseResponseSchema } from '../schemas.js';
 
 export async function getAtsSlugs(
   source: string,
@@ -81,7 +82,7 @@ export const greenhouseAdapter: JobSource = {
         throw new Error(`Greenhouse API for ${slug} returned HTTP ${res.status}`);
       }
 
-      const data = (await res.json()) as { jobs?: Array<Record<string, unknown>> };
+      const data = GreenhouseResponseSchema.parse(await res.json());
       for (const job of data.jobs || []) {
         allJobs.push({
           ...job,

@@ -1,4 +1,5 @@
 export * from './types.js';
+export * from './schemas.js';
 export * from './html-utils.js';
 export * from './salary.js';
 export * from './email-extractor.js';

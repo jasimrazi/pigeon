@@ -5,6 +5,7 @@ import { parseSalary } from '../salary.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
 import { getAtsSlugs, disableAtsSlug } from './greenhouse.js';
+import { LeverResponseSchema } from '../schemas.js';
 
 export const leverAdapter: JobSource = {
   name: 'lever',
@@ -41,7 +42,7 @@ export const leverAdapter: JobSource = {
         throw new Error(`Lever API for ${slug} returned HTTP ${res.status}`);
       }
 
-      const data = (await res.json()) as Array<Record<string, unknown>>;
+      const data = LeverResponseSchema.parse(await res.json());
       for (const job of data) {
         allJobs.push({
           ...job,

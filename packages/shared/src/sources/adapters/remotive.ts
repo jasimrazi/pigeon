@@ -4,6 +4,7 @@ import { extractContactEmail } from '../email-extractor.js';
 import { parseSalary } from '../salary.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
+import { RemotiveResponseSchema } from '../schemas.js';
 
 export const remotiveAdapter: JobSource = {
   name: 'remotive',
@@ -28,7 +29,7 @@ export const remotiveAdapter: JobSource = {
       throw new Error(`Remotive API returned HTTP ${res.status}`);
     }
 
-    const data = (await res.json()) as { jobs?: RawJob[] };
+    const data = RemotiveResponseSchema.parse(await res.json());
     return (data.jobs || []).map((j) => ({ ...j, source: 'remotive' }));
   },
 

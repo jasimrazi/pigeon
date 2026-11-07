@@ -1,10 +1,12 @@
 import type { Notifier } from '../notifier.js';
 import { encryptRefreshToken, decryptRefreshToken } from './crypto.js';
-import type {
-  GoogleOAuthSecrets,
-  GoogleTokenResponse,
-  GoogleTokenRefreshResponse,
-  AuthHealthState,
+import {
+  type GoogleOAuthSecrets,
+  type GoogleTokenResponse,
+  type GoogleTokenRefreshResponse,
+  type AuthHealthState,
+  GoogleTokenResponseSchema,
+  GoogleTokenRefreshResponseSchema,
 } from './types.js';
 
 export interface KVLike {
@@ -113,7 +115,7 @@ export async function exchangeGoogleAuthCode(params: {
     );
   }
 
-  return (await res.json()) as GoogleTokenResponse;
+  return GoogleTokenResponseSchema.parse(await res.json());
 }
 
 /**
@@ -149,7 +151,7 @@ export async function refreshGoogleAccessToken(params: {
     );
   }
 
-  return (await res.json()) as GoogleTokenRefreshResponse;
+  return GoogleTokenRefreshResponseSchema.parse(await res.json());
 }
 
 /**

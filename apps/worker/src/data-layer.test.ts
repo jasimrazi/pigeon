@@ -458,9 +458,9 @@ describe('Pigeon Data Layer & Schema Tests', () => {
         workerEnv,
       );
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(413);
       const json = await res.json<{ error: string }>();
-      expect(json.error).toMatch(/5 MB limit/i);
+      expect(json.error).toMatch(/Payload Too Large|5 MB limit/i);
     });
 
     it('accepts a valid PDF and stores it in R2 and D1', async () => {

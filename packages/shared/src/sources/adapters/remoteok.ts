@@ -3,6 +3,7 @@ import { normalizeCompanyName } from '../dedupe.js';
 import { extractContactEmail } from '../email-extractor.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
+import { RemoteOkResponseSchema } from '../schemas.js';
 
 export const remoteokAdapter: JobSource = {
   name: 'remoteok',
@@ -27,7 +28,7 @@ export const remoteokAdapter: JobSource = {
       throw new Error(`RemoteOK API returned HTTP ${res.status}`);
     }
 
-    const data = (await res.json()) as Array<Record<string, unknown>>;
+    const data = RemoteOkResponseSchema.parse(await res.json());
     // RemoteOK puts legal disclaimer as first element without an id
     return data
       .filter((item) => item['id'] && item['position'])

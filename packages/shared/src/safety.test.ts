@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 // @ts-expect-error Node.js path module is available in Vitest node test runner
 import * as path from 'node:path';
+import ts from 'typescript';
 import {
   getEffectiveDryRun,
   isKillSwitchActive,
@@ -421,6 +422,191 @@ describe('Safety Controls: DRY_RUN & Kill Switch', () => {
         'GOOGLE_CLIENT_SECRET',
         'GOOGLE_TOKEN_ENCRYPTION_KEY',
       ]);
+    });
+  });
+
+  describe('Zod Schema Boundedness Scanner', () => {
+    interface UnboundedAllowlistEntry {
+      file: string;
+      symbol: string;
+      reason: string;
+    }
+
+    const ZOD_UNBOUNDED_ALLOWLIST: UnboundedAllowlistEntry[] = [
+      {
+        file: 'packages/shared/src/profile.ts',
+        symbol: 'links',
+        reason:
+          'z.record has no .max() in Zod v3; bounded via .refine(r => Object.keys(r).length <= 100) and entry value lengths <= 2000.',
+      },
+      {
+        file: 'packages/shared/src/profile.ts',
+        symbol: 'other',
+        reason:
+          'z.record has no .max() in Zod v3; bounded via .refine(r => Object.keys(r).length <= 100) and entry value lengths <= 2000.',
+      },
+      {
+        file: 'packages/shared/src/sheets/types.ts',
+        symbol: 'replies',
+        reason:
+          'z.record has no .max() in Zod v3; the enclosing replies array is bounded to max(200) elements and keys are bounded to max(100) characters.',
+      },
+    ];
+
+    function scanSourceFileForUnboundedZod(filePath: string, content: string, rootDir: string) {
+      const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true);
+      const relativePath = path.relative(rootDir, filePath).replace(/\\/g, '/');
+      const violations: string[] = [];
+
+      function checkNode(node: ts.Node) {
+        if (ts.isCallExpression(node)) {
+          let isZodCall = false;
+          let callName = '';
+          if (ts.isPropertyAccessExpression(node.expression)) {
+            const prop = node.expression;
+            if (ts.isIdentifier(prop.expression) && prop.expression.text === 'z') {
+              if (prop.name.text === 'array' || prop.name.text === 'record') {
+                isZodCall = true;
+                callName = prop.name.text;
+              }
+            }
+          }
+
+          if (isZodCall) {
+            let current: ts.Node = node;
+            let hasMax = false;
+            while (current.parent) {
+              const parent = current.parent;
+              if (ts.isPropertyAccessExpression(parent) && parent.expression === current) {
+                if (
+                  parent.name.text === 'max' &&
+                  parent.parent &&
+                  ts.isCallExpression(parent.parent) &&
+                  parent.parent.expression === parent
+                ) {
+                  hasMax = true;
+                  break;
+                }
+                if (parent.parent && ts.isCallExpression(parent.parent)) {
+                  current = parent.parent;
+                  continue;
+                }
+              }
+              break;
+            }
+
+            if (!hasMax) {
+              const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart());
+              const lineText = content.split('\n')[line] || '';
+              const allowed = ZOD_UNBOUNDED_ALLOWLIST.find((entry) => {
+                if (entry.file !== relativePath) return false;
+                if (!entry.reason || entry.reason.trim().length === 0) return false;
+                return (
+                  lineText.includes(entry.symbol) ||
+                  content
+                    .slice(Math.max(0, node.getStart() - 50), node.getEnd() + 50)
+                    .includes(entry.symbol)
+                );
+              });
+
+              if (!allowed) {
+                violations.push(
+                  `${relativePath}:${line + 1} - z.${callName}() without .max() bound: "${lineText.trim()}"`,
+                );
+              }
+            }
+          }
+        }
+        ts.forEachChild(node, checkNode);
+      }
+
+      ts.forEachChild(sourceFile, checkNode);
+      return violations;
+    }
+
+    it('requires every allowlist entry to have a written reason', () => {
+      for (const entry of ZOD_UNBOUNDED_ALLOWLIST) {
+        expect(entry.file).toBeDefined();
+        expect(entry.symbol).toBeDefined();
+        expect(entry.reason.trim().length).toBeGreaterThan(10);
+      }
+    });
+
+    it('enforces all z.array and z.record calls in packages/shared and apps/worker have .max() bounds unless allowlisted', () => {
+      const proc = (globalThis as unknown as { process?: { cwd?: () => string } }).process;
+      let rootDir = proc?.cwd ? proc.cwd() : '.';
+      while (
+        !fs.existsSync(path.join(rootDir, 'pnpm-workspace.yaml')) &&
+        path.dirname(rootDir) !== rootDir
+      ) {
+        rootDir = path.dirname(rootDir);
+      }
+
+      const allViolations: string[] = [];
+
+      function walkDir(dir: string) {
+        if (!fs.existsSync(dir)) return;
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (
+              entry.name !== 'node_modules' &&
+              entry.name !== 'dist' &&
+              entry.name !== '.wrangler' &&
+              entry.name !== 'fixtures'
+            ) {
+              walkDir(fullPath);
+            }
+          } else if (
+            entry.isFile() &&
+            entry.name.endsWith('.ts') &&
+            !entry.name.endsWith('.test.ts') &&
+            !entry.name.endsWith('.d.ts')
+          ) {
+            const content = fs.readFileSync(fullPath, 'utf8');
+            const v = scanSourceFileForUnboundedZod(fullPath, content, rootDir);
+            allViolations.push(...v);
+          }
+        }
+      }
+
+      walkDir(path.join(rootDir, 'packages/shared/src'));
+      walkDir(path.join(rootDir, 'apps/worker/src'));
+
+      expect(
+        allViolations,
+        `Found unbounded z.array or z.record calls:\n${allViolations.join('\n')}`,
+      ).toEqual([]);
+    });
+
+    it('fails when an unbounded z.array or non-allowlisted z.record is introduced', () => {
+      const proc = (globalThis as unknown as { process?: { cwd?: () => string } }).process;
+      let rootDir = proc?.cwd ? proc.cwd() : '.';
+      while (
+        !fs.existsSync(path.join(rootDir, 'pnpm-workspace.yaml')) &&
+        path.dirname(rootDir) !== rootDir
+      ) {
+        rootDir = path.dirname(rootDir);
+      }
+
+      const badSnippet = `
+        import { z } from 'zod';
+        export const BadSchema = z.object({
+          unboundedList: z.array(z.string()),
+          unboundedMap: z.record(z.string(), z.string()),
+        });
+      `;
+
+      const violations = scanSourceFileForUnboundedZod(
+        path.join(rootDir, 'packages/shared/src/temp_test.ts'),
+        badSnippet,
+        rootDir,
+      );
+
+      expect(violations.length).toBe(2);
+      expect(violations[0]).toContain('z.array() without .max() bound');
+      expect(violations[1]).toContain('z.record() without .max() bound');
     });
   });
 });

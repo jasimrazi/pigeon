@@ -4,6 +4,7 @@ import { extractContactEmail } from '../email-extractor.js';
 import { parseSalary } from '../salary.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
+import { WeWorkRemotelyJobsSchema } from '../schemas.js';
 
 export function parseRssXml(xml: string): RawJob[] {
   const items: RawJob[] = [];
@@ -39,7 +40,7 @@ export function parseRssXml(xml: string): RawJob[] {
     }
   }
 
-  return items;
+  return WeWorkRemotelyJobsSchema.parse(items);
 }
 
 export const weWorkRemotelyAdapter: JobSource = {

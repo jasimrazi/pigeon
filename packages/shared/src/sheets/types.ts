@@ -1,22 +1,75 @@
+import { z } from 'zod';
 import type { D1LikeDatabase } from '../state-machine.js';
 import type { KVLike } from '../google/auth.js';
 import type { Notifier } from '../notifier.js';
+
+export const SheetPropertiesSchema = z.object({
+  sheetId: z.number().int(),
+  title: z.string().max(500),
+  gridProperties: z
+    .object({
+      rowCount: z.number().int().optional(),
+      columnCount: z.number().int().optional(),
+      frozenRowCount: z.number().int().optional(),
+      frozenColumnCount: z.number().int().optional(),
+    })
+    .optional(),
+});
+
+export const SheetMetadataSchema = z.object({
+  properties: SheetPropertiesSchema,
+  basicFilter: z.unknown().optional(),
+});
+
+export const SpreadsheetMetadataSchema = z.object({
+  spreadsheetId: z.string().max(200),
+  properties: z.object({
+    title: z.string().max(500),
+  }),
+  sheets: z.array(SheetMetadataSchema).max(100).default([]),
+});
+
+export const SheetsBatchUpdateResponseSchema = z.object({
+  spreadsheetId: z.string().max(200).optional(),
+  totalUpdatedRows: z.number().int().optional(),
+  replies: z
+    .array(z.record(z.string().max(100), z.unknown()))
+    .max(200)
+    .optional(),
+});
+
+export const SheetsAppendResponseSchema = z.object({
+  spreadsheetId: z.string().max(200).optional(),
+  updates: z
+    .object({
+      updatedRows: z.number().int().optional(),
+      updatedColumns: z.number().int().optional(),
+      updatedCells: z.number().int().optional(),
+    })
+    .optional(),
+});
+
+export const SheetsValueRangeSchema = z.object({
+  range: z.string().max(200).optional(),
+  majorDimension: z.string().max(50).optional(),
+  values: z.array(z.array(z.unknown()).max(100)).max(5000).optional(),
+});
 
 export interface SpreadsheetProperties {
   title: string;
 }
 
 export interface SheetGridProperties {
-  rowCount?: number;
-  columnCount?: number;
-  frozenRowCount?: number;
-  frozenColumnCount?: number;
+  rowCount?: number | undefined;
+  columnCount?: number | undefined;
+  frozenRowCount?: number | undefined;
+  frozenColumnCount?: number | undefined;
 }
 
 export interface SheetProperties {
   sheetId: number;
   title: string;
-  gridProperties?: SheetGridProperties;
+  gridProperties?: SheetGridProperties | undefined;
 }
 
 export interface SheetMetadata {

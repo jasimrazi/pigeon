@@ -4,6 +4,7 @@ import { extractContactEmail } from '../email-extractor.js';
 import { parseSalary } from '../salary.js';
 import { stripHtml } from '../html-utils.js';
 import { fetchWithRetry } from '../circuit-breaker.js';
+import { HnSearchResponseSchema, HnCommentsResponseSchema } from '../schemas.js';
 
 export const hiringHnAdapter: JobSource = {
   name: 'hiring_hn',
@@ -32,9 +33,7 @@ export const hiringHnAdapter: JobSource = {
       throw new Error(`Algolia HN story search returned HTTP ${searchRes.status}`);
     }
 
-    const searchData = (await searchRes.json()) as {
-      hits?: Array<{ objectID?: string }>;
-    };
+    const searchData = HnSearchResponseSchema.parse(await searchRes.json());
 
     const storyId = searchData.hits?.[0]?.objectID;
     if (!storyId) {
@@ -58,9 +57,7 @@ export const hiringHnAdapter: JobSource = {
       throw new Error(`Algolia HN comments search returned HTTP ${commentsRes.status}`);
     }
 
-    const commentsData = (await commentsRes.json()) as {
-      hits?: Array<Record<string, unknown>>;
-    };
+    const commentsData = HnCommentsResponseSchema.parse(await commentsRes.json());
 
     return (commentsData.hits || [])
       .filter((hit) => hit['comment_text'] && hit['objectID'])

@@ -2,12 +2,16 @@ import { GoogleRateLimitError } from '../google/sender.js';
 import { GoogleAuthError } from '../google/auth.js';
 import { APPLICATION_STATUSES } from '../state-machine.js';
 import { SHEET_COLUMNS } from './sanitizer.js';
-import type {
-  EnsureSheetResult,
-  BatchUpdateValuesOptions,
-  AppendValuesOptions,
-  SheetsClient,
-  SpreadsheetMetadata,
+import {
+  type EnsureSheetResult,
+  type BatchUpdateValuesOptions,
+  type AppendValuesOptions,
+  type SheetsClient,
+  type SpreadsheetMetadata,
+  SpreadsheetMetadataSchema,
+  SheetsValueRangeSchema,
+  SheetsBatchUpdateResponseSchema,
+  SheetsAppendResponseSchema,
 } from './types.js';
 
 export interface RestSheetsClientOptions {
@@ -74,7 +78,8 @@ export class RestSheetsClient implements SheetsClient {
 
   async getSpreadsheet(spreadsheetId: string): Promise<SpreadsheetMetadata> {
     const url = `${this.baseUrl}/${encodeURIComponent(spreadsheetId)}`;
-    return this.requestWithRetry<SpreadsheetMetadata>(url, { method: 'GET' });
+    const raw = await this.requestWithRetry<unknown>(url, { method: 'GET' });
+    return SpreadsheetMetadataSchema.parse(raw);
   }
 
   async ensureSheet(options?: {
@@ -246,9 +251,10 @@ export class RestSheetsClient implements SheetsClient {
   async readRowKeys(options: { spreadsheetId: string; range: string }): Promise<string[]> {
     const { spreadsheetId, range } = options;
     const url = `${this.baseUrl}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`;
-    const res = await this.requestWithRetry<{ values?: unknown[][] }>(url, {
+    const raw = await this.requestWithRetry<unknown>(url, {
       method: 'GET',
     });
+    const res = SheetsValueRangeSchema.parse(raw);
 
     if (!res.values || res.values.length === 0) {
       return [];
@@ -261,13 +267,14 @@ export class RestSheetsClient implements SheetsClient {
     const { spreadsheetId, data, valueInputOption = 'RAW' } = options;
     const url = `${this.baseUrl}/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`;
 
-    const res = await this.requestWithRetry<{ totalUpdatedRows?: number }>(url, {
+    const raw = await this.requestWithRetry<unknown>(url, {
       method: 'POST',
       body: JSON.stringify({
         valueInputOption,
         data,
       }),
     });
+    const res = SheetsBatchUpdateResponseSchema.parse(raw);
 
     return { updatedRows: res.totalUpdatedRows ?? data.length };
   }
@@ -276,12 +283,11 @@ export class RestSheetsClient implements SheetsClient {
     const { spreadsheetId, range, values, valueInputOption = 'RAW' } = options;
     const url = `${this.baseUrl}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:append?valueInputOption=${valueInputOption}&insertDataOption=INSERT_ROWS`;
 
-    const res = await this.requestWithRetry<{
-      updates?: { updatedRows?: number };
-    }>(url, {
+    const raw = await this.requestWithRetry<unknown>(url, {
       method: 'POST',
       body: JSON.stringify({ values }),
     });
+    const res = SheetsAppendResponseSchema.parse(raw);
 
     return { updatedRows: res.updates?.updatedRows ?? values.length };
   }

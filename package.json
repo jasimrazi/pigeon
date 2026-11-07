@@ -23,5 +23,13 @@
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.24.1",
     "vitest": "4.1.12"
+  },
+  "pnpm": {
+    "auditConfig": {
+      "//": "bounded schemas in place; revisit zod 4 migration by 2027-02-07",
+      "ignoreGhsas": [
+        "GHSA-mrhx-c7xc-m3w5"
+      ]
+    }
   }
 }

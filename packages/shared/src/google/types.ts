@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export interface GoogleOAuthSecrets {
   clientId: string;
   clientSecret: string;
@@ -18,6 +20,57 @@ export interface GoogleTokenRefreshResponse {
   expires_in: number;
   token_type: string;
 }
+
+export const GoogleTokenResponseSchema = z.object({
+  access_token: z.string().max(4096),
+  expires_in: z.number().int().min(0),
+  refresh_token: z.string().max(4096).optional(),
+  scope: z.string().max(4096).optional(),
+  token_type: z.string().max(100),
+});
+
+export const GoogleTokenRefreshResponseSchema = z.object({
+  access_token: z.string().max(4096),
+  expires_in: z.number().int().min(0),
+  token_type: z.string().max(100),
+});
+
+export const GmailHeaderSchema = z.object({
+  name: z.string().max(500),
+  value: z.string().max(10000),
+});
+
+export const GmailThreadMessagePayloadSchema = z.object({
+  headers: z.array(GmailHeaderSchema).max(200).optional(),
+  mimeType: z.string().max(200).optional(),
+});
+
+export const GmailThreadMessageSchema = z.object({
+  id: z.string().max(100),
+  threadId: z.string().max(100).optional(),
+  snippet: z.string().max(5000).optional(),
+  internalDate: z.string().max(100).optional(),
+  payload: GmailThreadMessagePayloadSchema.optional(),
+});
+
+export const GmailThreadSchema = z.object({
+  id: z.string().max(100),
+  historyId: z.string().max(100).optional(),
+  messages: z.array(GmailThreadMessageSchema).max(500).default([]),
+});
+
+export const GmailSearchMessagesResponseSchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        id: z.string().max(100),
+        threadId: z.string().max(100),
+      }),
+    )
+    .max(100)
+    .optional(),
+  nextPageToken: z.string().max(1000).optional(),
+});
 
 export interface AuthHealthState {
   status: 'ok' | 'invalid' | 'unknown';
