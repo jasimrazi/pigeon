@@ -31,3 +31,4 @@ export * from './telegram/telegram-notifier.js';
 export * from './auth/cf-access.js';
 export * from './safety.js';
 export * from './logger.js';
+export * from './dev-seed.js';

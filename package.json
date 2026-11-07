@@ -19,7 +19,9 @@
     "trigger:followups": "node scripts/trigger.mjs followups",
     "trigger:sheets": "node scripts/trigger.mjs sheets",
     "trigger:all": "node scripts/trigger.mjs all",
-    "feed:eml": "node scripts/feed-eml.mjs"
+    "feed:eml": "node scripts/feed-eml.mjs",
+    "seed:local": "node scripts/seed-local.mjs",
+    "db:reset:local": "node scripts/db-reset-local.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

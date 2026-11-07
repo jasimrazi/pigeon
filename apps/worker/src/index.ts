@@ -49,6 +49,7 @@ import {
   isKillSwitchActive,
   getEffectiveDryRun,
   createPendingFollowUps,
+  seedLocalData,
   logger,
   purgeExpiredJobDescriptions,
   type Notifier,
@@ -1663,6 +1664,22 @@ app.post('/api/retention/purge', async (c) => {
 // -------------------------------------------------------------
 // Local Development Trigger Routes (Strictly ENV=dev only)
 // -------------------------------------------------------------
+app.post('/api/dev/seed', async (c) => {
+  const envMode = c.env.ENV as string;
+  if (envMode !== 'dev') {
+    return c.json({ error: 'Forbidden: dev seed is only available when ENV=dev' }, 403);
+  }
+
+  const result = await seedLocalData({
+    db: c.env.DB,
+    resumesBucket: c.env.RESUMES,
+    config: c.env.CONFIG,
+    env: envMode,
+  });
+
+  return c.json({ ok: true, ...result });
+});
+
 app.post('/api/dev/trigger/:action', async (c) => {
   const envMode = c.env.ENV as string;
   if (envMode !== 'dev') {
