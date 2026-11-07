@@ -10,6 +10,7 @@ import {
   type SelectableResume,
 } from './resume-selector.js';
 import { validateCoverLetter } from './validator.js';
+import { logger } from '../logger.js';
 
 export interface CreateForJobOptions {
   db: D1LikeDatabase;
@@ -89,6 +90,11 @@ export async function createForJob(options: CreateForJobOptions): Promise<Create
 
   if (!job) {
     throw new Error(`Job with id '${jobId}' not found`);
+  }
+
+  if (!job.apply_route) {
+    logger.warn(`ApplicationFactory refusing job '${jobId}': apply_route is NULL`);
+    throw new Error(`Job '${jobId}' cannot produce an application: apply_route is NULL`);
   }
 
   // 3. Fetch Profile

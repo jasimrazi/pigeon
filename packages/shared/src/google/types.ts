@@ -104,7 +104,7 @@ export interface GmailThreadMessagePayload {
 
 export interface GmailThreadMessage {
   id: string;
-  threadId: string;
+  threadId?: string | undefined;
   snippet?: string | undefined;
   internalDate?: string | undefined;
   payload?: GmailThreadMessagePayload | undefined;

@@ -113,11 +113,11 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
 
     if (!filterRes.passed) {
       stats.filtered_out++;
-      await transition(db, 'job', job.id, 'filtered_out', filterRes.reason);
       await db
         .prepare(`UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`)
         .bind(filterRes.reason ?? 'FILTERED_OUT', nowIso, job.id)
         .run();
+      await transition(db, 'job', job.id, 'filtered_out', filterRes.reason);
       continue;
     }
 
@@ -134,11 +134,11 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
 
     if (skipRes.skipped) {
       stats.skipped_dnc_or_recent++;
-      await transition(db, 'job', job.id, 'skipped', skipRes.reason);
       await db
         .prepare(`UPDATE jobs SET filter_reason = ?, updated_at = ? WHERE id = ?`)
         .bind(skipRes.reason ?? 'SKIPPED', nowIso, job.id)
         .run();
+      await transition(db, 'job', job.id, 'skipped', skipRes.reason);
       continue;
     }
 
@@ -190,7 +190,6 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
       await transition(db, 'job', job.id, 'scored', 'SCORER_FAILED');
     } else if (scoreRes.score < profile.filters.min_score) {
       stats.low_score_skipped++;
-      await transition(db, 'job', job.id, 'skipped', 'LOW_SCORE');
       await db
         .prepare(
           `UPDATE jobs SET filter_reason = 'LOW_SCORE',
@@ -199,6 +198,7 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
         )
         .bind(matchScore, matchReasons, JSON.stringify(redFlags), nowIso, job.id)
         .run();
+      await transition(db, 'job', job.id, 'skipped', 'LOW_SCORE');
       continue;
     } else {
       await transition(db, 'job', job.id, 'scored', 'SCORED');
@@ -237,8 +237,7 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
 
     const routingDecision = routeJob(routableJob);
 
-    await transition(db, 'job', job.id, 'routed', routingDecision.reason);
-
+    // Atomicity: write metadata first so a crash never leaves a job in 'routed' status with NULL apply_route
     await db
       .prepare(
         `UPDATE jobs SET
@@ -266,6 +265,8 @@ export async function processJobPipeline(options: ProcessPipelineOptions): Promi
         job.id,
       )
       .run();
+
+    await transition(db, 'job', job.id, 'routed', routingDecision.reason);
 
     stats.routed++;
   }

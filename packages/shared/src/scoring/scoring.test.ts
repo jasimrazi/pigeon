@@ -201,7 +201,6 @@ function createMockDb(): {
             ] = boundParams;
             const j = jobs.get(String(id));
             if (j) {
-              j['status'] = 'routed';
               j['apply_route'] = apply_route;
               j['route_reason'] = route_reason;
               j['contact_email'] = contact_email;
@@ -1025,6 +1024,63 @@ describe('Phase 4: Rule Filters, Skip Checks, Scorer, and Router', () => {
       expect(jRecent?.['status']).toBe('skipped');
       expect(jRecent?.['filter_reason']).toBe('RECENT_CONTACT');
       expect(jRecent?.['apply_route']).toBeUndefined();
+    });
+
+    it('pipeline atomicity: crash window after metadata UPDATE leaves job in scored status, never routed with NULL apply_route', async () => {
+      const { db, jobs } = createMockDb();
+
+      jobs.set('job-crash', {
+        id: 'job-crash',
+        source: 'greenhouse',
+        source_kind: 'ats',
+        title: 'Senior Systems Engineer',
+        company: 'Stripe',
+        company_normalized: 'stripe',
+        location: 'Remote',
+        remote: 1,
+        salary_min: 160000,
+        salary_max: 200000,
+        description: 'TypeScript and distributed systems. Contact: jobs@stripe.com',
+        apply_url: 'https://stripe.com/jobs/1',
+        contact_email: 'jobs@stripe.com',
+        contact_source: 'posting',
+        status: 'new',
+        fetched_at: '2026-11-05T08:00:00Z',
+      });
+
+      const mockLLM = new MockLLMClient([
+        JSON.stringify({
+          score: 95,
+          reasons: 'Strong match',
+          matched_skills: ['typescript'],
+          missing_skills: [],
+          red_flags: [],
+        }),
+      ]);
+      const scorer = new DefaultScorer(mockLLM);
+
+      const origBatch = db.batch.bind(db);
+      let batchCount = 0;
+      db.batch = async (statements: unknown[]) => {
+        batchCount++;
+        if (batchCount === 2) {
+          throw new Error('Simulated process crash during routing transition');
+        }
+        return origBatch(statements);
+      };
+
+      await expect(
+        processJobPipeline({
+          db,
+          profile: mockProfile,
+          scorer,
+        }),
+      ).rejects.toThrow('Simulated process crash during routing transition');
+
+      const j = jobs.get('job-crash');
+      expect(j?.['status']).not.toBe('routed');
+      expect(j?.['status']).toBe('scored');
+      expect(j?.['apply_route']).toBe('auto_email');
     });
   });
 });

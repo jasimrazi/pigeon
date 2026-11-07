@@ -755,8 +755,8 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
         id, dedupe_key, source, source_kind,
         title, company, company_normalized, location, remote,
         description, apply_url, contact_email, contact_source,
-        untrusted, posted_at, fetched_at, status, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        untrusted, posted_at, fetched_at, status, apply_route, route_reason, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         jobId,
@@ -776,6 +776,8 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
         nowIso,
         nowIso,
         'routed',
+        'manual_portal',
+        'PORTAL_NO_EMAIL',
         nowIso,
       )
       .run();

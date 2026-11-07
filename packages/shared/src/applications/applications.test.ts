@@ -505,6 +505,37 @@ Alex Mercer`;
       expect(saved?.['status']).toBe('draft');
     });
 
+    it('refuses and logs when job apply_route is NULL, preventing email application creation', async () => {
+      const { db, jobs, applications } = createMockDb();
+
+      jobs.set('job-null-route', {
+        id: 'job-null-route',
+        title: 'Senior Systems Engineer',
+        company: 'Acme Corp',
+        description: 'Build edge systems with TypeScript.',
+        apply_route: null,
+        route_reason: null,
+      });
+
+      const mockGenerator: CoverLetterGenerator = {
+        generate: async () => ({
+          subject: validSubject,
+          body: validCoverLetterBody,
+        }),
+      };
+
+      await expect(
+        ApplicationFactory.createForJob({
+          db,
+          jobId: 'job-null-route',
+          profile: mockProfile,
+          generator: mockGenerator,
+        }),
+      ).rejects.toThrow(/apply_route is NULL/i);
+
+      expect(applications.size).toBe(0);
+    });
+
     it('regenerates once on validation failure and succeeds if second attempt passes', async () => {
       const { db, jobs } = createMockDb();
 
