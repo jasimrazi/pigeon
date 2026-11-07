@@ -38,6 +38,8 @@ export default tseslint.config(
         Set: 'readonly',
         Buffer: 'readonly',
         fetch: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
   },

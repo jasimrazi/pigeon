@@ -299,4 +299,106 @@ describe('Developer Tools & Local Run Kit Verification', () => {
       expect(devRes.success).toBe(true);
     });
   });
+
+  describe('Local Smoke Test Suite', () => {
+    it('runLocalSmokeTests passes when all endpoints return healthy responses', async () => {
+      const smokeScriptUrl = path.join(rootDir, 'scripts/smoke-local.mjs');
+      const { runLocalSmokeTests } = (await import(smokeScriptUrl)) as {
+        runLocalSmokeTests: (opts?: {
+          fetch?: typeof fetch;
+          workerUrl?: string;
+          dashboardUrl?: string;
+        }) => Promise<Array<{ name: string; passed: boolean; detail?: string; error?: string }>>;
+      };
+
+      const mockFetch: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url.endsWith('/health')) {
+          return new Response(JSON.stringify({ ok: true, dryRun: true, env: 'dev' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (url.endsWith('/api/overview')) {
+          return new Response(
+            JSON.stringify({
+              counts: {},
+              killSwitch: false,
+              dryRun: true,
+              authHealth: 'ok',
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+        if (url.endsWith('/api/settings')) {
+          return new Response(
+            JSON.stringify({
+              killSwitch: false,
+              dryRun: true,
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+        return new Response('Not found', { status: 404 });
+      };
+
+      const results = await runLocalSmokeTests({ fetch: mockFetch });
+      expect(results.length).toBe(4);
+      expect(results.every((r) => r.passed)).toBe(true);
+    });
+
+    it('runLocalSmokeTests captures failures when endpoints return invalid states', async () => {
+      const smokeScriptUrl = path.join(rootDir, 'scripts/smoke-local.mjs');
+      const { runLocalSmokeTests } = (await import(smokeScriptUrl)) as {
+        runLocalSmokeTests: (opts?: {
+          fetch?: typeof fetch;
+          workerUrl?: string;
+          dashboardUrl?: string;
+        }) => Promise<Array<{ name: string; passed: boolean; detail?: string; error?: string }>>;
+      };
+
+      const failingFetch: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url.endsWith('/health')) {
+          return new Response(JSON.stringify({ error: 'service down' }), {
+            status: 500,
+          });
+        }
+        if (url.endsWith('/api/overview')) {
+          // Failure: killSwitch is active or dryRun is false
+          return new Response(
+            JSON.stringify({
+              killSwitch: true,
+              dryRun: false,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response('Forbidden', { status: 403 });
+      };
+
+      const results = await runLocalSmokeTests({ fetch: failingFetch });
+      expect(results.length).toBe(4);
+      expect(results.some((r) => !r.passed)).toBe(true);
+      const healthCheck = results.find((r) => r.name.includes('/health'));
+      expect(healthCheck?.passed).toBe(false);
+      const proxyCheck = results.find((r) => r.name.includes('/api/overview'));
+      expect(proxyCheck?.passed).toBe(false);
+    });
+
+    it('dev-local.mjs script contains necessary bindings, AI interception, and migration command', () => {
+      const devLocalScript = fs.readFileSync(path.join(rootDir, 'scripts/dev-local.mjs'), 'utf8');
+      expect(devLocalScript).toContain('wrangler d1 migrations apply pigeon-db --local');
+      expect(devLocalScript).toContain('Binding AI needs to be run remotely');
+      expect(devLocalScript).toContain('--test-scheduled');
+      expect(devLocalScript).toContain('PIGEON DEV SERVER READY');
+      expect(devLocalScript).toContain('DEV_RECIPIENT_ALLOWLIST');
+    });
+  });
 });

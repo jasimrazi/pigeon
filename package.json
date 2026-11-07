@@ -21,7 +21,9 @@
     "trigger:all": "node scripts/trigger.mjs all",
     "feed:eml": "node scripts/feed-eml.mjs",
     "seed:local": "node scripts/seed-local.mjs",
-    "db:reset:local": "node scripts/db-reset-local.mjs"
+    "db:reset:local": "node scripts/db-reset-local.mjs",
+    "dev:local": "node scripts/dev-local.mjs",
+    "smoke:local": "node scripts/smoke-local.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
