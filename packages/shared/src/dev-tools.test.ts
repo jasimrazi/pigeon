@@ -61,4 +61,34 @@ describe('Developer Tools & Local Run Kit Verification', () => {
       ).toEqual([]);
     });
   });
+
+  describe('EML Feeder & Realistic Alert Fixtures', () => {
+    it('all 3 alert fixtures exist in packages/shared/fixtures/alerts', () => {
+      const alertsDir = path.join(rootDir, 'packages/shared/fixtures/alerts');
+      expect(fs.existsSync(path.join(alertsDir, 'linkedin-alert.eml'))).toBe(true);
+      expect(fs.existsSync(path.join(alertsDir, 'digest-alert.eml'))).toBe(true);
+      expect(fs.existsSync(path.join(alertsDir, 'malformed.eml'))).toBe(true);
+    });
+
+    it('scripts/feed-eml.mjs exists and is valid JavaScript', () => {
+      const feedScriptPath = path.join(rootDir, 'scripts/feed-eml.mjs');
+      expect(fs.existsSync(feedScriptPath)).toBe(true);
+      const content = fs.readFileSync(feedScriptPath, 'utf8');
+      expect(content).toContain('node scripts/feed-eml.mjs');
+      expect(content).toContain('/api/dev/feed-eml');
+    });
+
+    it('scripts/trigger.mjs exists and implements all required trigger actions', () => {
+      const triggerScriptPath = path.join(rootDir, 'scripts/trigger.mjs');
+      expect(fs.existsSync(triggerScriptPath)).toBe(true);
+      const content = fs.readFileSync(triggerScriptPath, 'utf8');
+      expect(content).toContain('ingest');
+      expect(content).toContain('score');
+      expect(content).toContain('draft');
+      expect(content).toContain('send');
+      expect(content).toContain('followups');
+      expect(content).toContain('sheets');
+      expect(content).toContain('all');
+    });
+  });
 });

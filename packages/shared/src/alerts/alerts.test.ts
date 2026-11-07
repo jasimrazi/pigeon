@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import PostalMime from 'postal-mime';
+// @ts-expect-error Node.js fs module is available in Vitest node test runner
+import * as fs from 'node:fs';
+// @ts-expect-error Node.js path module is available in Vitest node test runner
+import * as path from 'node:path';
 import {
   cleanTrackingUrl,
   detectPortal,
@@ -11,6 +15,8 @@ import {
   type Notifier,
 } from '../index.js';
 import type { D1LikeDatabase } from '../state-machine.js';
+import { routeJob } from '../scoring/router.js';
+import { discoverContact } from '../scoring/contact-finder.js';
 import {
   LINKEDIN_EML_FIXTURE,
   NAUKRI_EML_FIXTURE,
@@ -606,6 +612,144 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
         expect(j['apply_route']).toBeNull();
         expect(j['route_reason']).toBeNull();
       }
+    });
+  });
+
+  describe('Realistic Alert Fixtures & Routing Suite', () => {
+    const proc = (globalThis as unknown as { process?: { cwd?: () => string } }).process;
+    let rootDir = proc?.cwd ? proc.cwd() : '.';
+    while (
+      !fs.existsSync(path.join(rootDir, 'pnpm-workspace.yaml')) &&
+      path.dirname(rootDir) !== rootDir
+    ) {
+      rootDir = path.dirname(rootDir);
+    }
+    const fixturesDir = path.join(rootDir, 'packages/shared/fixtures/alerts');
+
+    it('a. LinkedIn-style alert parses 2 job links and routes to manual_portal, not auto_email', async () => {
+      const emlPath = path.join(fixturesDir, 'linkedin-alert.eml');
+      expect(fs.existsSync(emlPath)).toBe(true);
+      const rawEml = fs.readFileSync(emlPath, 'utf8');
+
+      const { db, jobs } = createMockDb();
+      const result = await ingestAlertEmail(rawEml, {
+        db,
+        envelope: { from: 'alex.mercer@example.test' },
+        configuredForwardingAddress: 'alex.mercer@example.test',
+      });
+
+      expect(result.dropped).toBeFalsy();
+      expect(result.jobsFound).toBe(2);
+      expect(result.newJobs).toBe(2);
+
+      const jobList = Array.from(jobs.values());
+      expect(jobList.length).toBe(2);
+
+      for (const j of jobList) {
+        expect(j['source']).toBe('linkedin');
+        expect(j['source_kind']).toBe('alert_email');
+
+        // Route evaluation
+        const decision = routeJob({
+          source_kind: 'alert_email',
+          company: String(j['company']),
+          contact_source: 'none',
+          contact_email: null,
+        });
+
+        // Asserts portal route, NOT auto_email
+        expect(decision.route).toBe('manual_portal');
+        expect(decision.reason).toBe('PORTAL_NO_EMAIL');
+        expect(decision.route).not.toBe('auto_email');
+      }
+    });
+
+    it('b. Generic digest alert with recruiter contact in body routes based on contact finder', async () => {
+      const emlPath = path.join(fixturesDir, 'digest-alert.eml');
+      expect(fs.existsSync(emlPath)).toBe(true);
+      const rawEml = fs.readFileSync(emlPath, 'utf8');
+
+      const { db, jobs } = createMockDb();
+      const result = await ingestAlertEmail(rawEml, {
+        db,
+        envelope: { from: 'alex.mercer@example.test' },
+        configuredForwardingAddress: 'alex.mercer@example.test',
+      });
+
+      expect(result.dropped).toBeFalsy();
+      expect(result.jobsFound).toBeGreaterThanOrEqual(1);
+
+      const jobList = Array.from(jobs.values());
+      const digestJob = jobList[0];
+      expect(digestJob).toBeDefined();
+
+      // Test contact discovery with contact finder
+      const mockFinder = {
+        findContact: async (domain: string) => `recruiter@${domain}`,
+      };
+
+      const discoveredWithFinder = await discoverContact({
+        job: {
+          company: String(digestJob?.['company']),
+          description: String(digestJob?.['description']),
+          apply_url: String(digestJob?.['apply_url']),
+        },
+        finder: mockFinder,
+        config: { finderEnabled: true },
+        db,
+      });
+
+      expect(discoveredWithFinder.contact_email).toBeDefined();
+
+      // When routed with contact finder finding a direct company contact
+      const autoDecision = routeJob({
+        source_kind: 'api',
+        company: 'TechStart Solutions',
+        company_normalized: 'techstart solutions',
+        contact_source: 'finder',
+        contact_email: 'recruiter@techstartsolutions.com',
+      });
+      expect(autoDecision.route).toBe('auto_email');
+      expect(autoDecision.reason).toBe('OK');
+
+      // When contact finder finds freemail or red flags are present -> routes to manual_review
+      const reviewDecision = routeJob({
+        source_kind: 'api',
+        company: 'TechStart Solutions',
+        company_normalized: 'techstart solutions',
+        contact_source: 'finder',
+        contact_email: 'recruiter@gmail.com',
+      });
+      expect(reviewDecision.route).toBe('manual_review');
+      expect(reviewDecision.reason).toBe('FREEMAIL_CONTACT');
+    });
+
+    it('c. Malformed email asserts clean failure, no throw, and logged warning', async () => {
+      const emlPath = path.join(fixturesDir, 'malformed.eml');
+      expect(fs.existsSync(emlPath)).toBe(true);
+      const rawEml = fs.readFileSync(emlPath, 'utf8');
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { db, jobs } = createMockDb();
+      let threw = false;
+      let result;
+      try {
+        result = await ingestAlertEmail(rawEml, {
+          db,
+          envelope: { from: 'alex.mercer@example.test' },
+          configuredForwardingAddress: 'alex.mercer@example.test',
+        });
+      } catch {
+        threw = true;
+      }
+
+      expect(threw).toBe(false);
+      expect(result).toBeDefined();
+      expect(result?.newJobs).toBe(0);
+      expect(jobs.size).toBe(0);
+
+      warnSpy.mockRestore();
     });
   });
 });

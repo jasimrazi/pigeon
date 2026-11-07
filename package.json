@@ -11,7 +11,15 @@
     "test:e2e": "pnpm --filter @pigeon/dashboard test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "parse-eml": "node scripts/parse-eml.mjs"
+    "parse-eml": "node scripts/parse-eml.mjs",
+    "trigger:ingest": "node scripts/trigger.mjs ingest",
+    "trigger:score": "node scripts/trigger.mjs score",
+    "trigger:draft": "node scripts/trigger.mjs draft",
+    "trigger:send": "node scripts/trigger.mjs send",
+    "trigger:followups": "node scripts/trigger.mjs followups",
+    "trigger:sheets": "node scripts/trigger.mjs sheets",
+    "trigger:all": "node scripts/trigger.mjs all",
+    "feed:eml": "node scripts/feed-eml.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

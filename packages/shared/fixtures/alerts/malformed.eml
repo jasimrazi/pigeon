@@ -1,0 +1,6 @@
+From: ??? corrupted-header \xff\xfe
+Subject: %%%invalid-mime%%%
+Content-Type: invalid/unknown; boundary=---corrupted---
+
+--corrupted
+[GARBAGE DATA WITHOUT MIME BOUNDARIES OR VALID BODY

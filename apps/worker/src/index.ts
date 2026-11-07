@@ -48,6 +48,7 @@ import {
   DRY_RUN_KV_KEY,
   isKillSwitchActive,
   getEffectiveDryRun,
+  createPendingFollowUps,
   logger,
   purgeExpiredJobDescriptions,
   type Notifier,
@@ -1656,6 +1657,267 @@ app.post('/api/settings/kill-switch', async (c) => {
 // 12. POST /api/retention/purge: Manually triggers 90-day job retention purge
 app.post('/api/retention/purge', async (c) => {
   const result = await purgeExpiredJobDescriptions({ db: c.env.DB });
+  return c.json({ ok: true, ...result });
+});
+
+// -------------------------------------------------------------
+// Local Development Trigger Routes (Strictly ENV=dev only)
+// -------------------------------------------------------------
+app.post('/api/dev/trigger/:action', async (c) => {
+  const envMode = c.env.ENV as string;
+  if (envMode !== 'dev') {
+    return c.json({ error: 'Forbidden: dev triggers are only available when ENV=dev' }, 403);
+  }
+
+  const action = c.req.param('action');
+  const env = c.get('validatedEnv');
+
+  if (action === 'ingest') {
+    const enabledSources = await getEnabledSources(c.env.CONFIG);
+    const results: Record<string, unknown> = {};
+    for (const source of enabledSources) {
+      try {
+        const res = await ingestSource(source, {
+          db: c.env.DB,
+          kv: c.env.CONFIG,
+          secrets: {
+            ADZUNA_APP_ID: c.env.ADZUNA_APP_ID,
+            ADZUNA_APP_KEY: c.env.ADZUNA_APP_KEY,
+          },
+        });
+        results[source] = res;
+      } catch (err) {
+        results[source] = { error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    const countRow = await c.env.DB.prepare('SELECT COUNT(*) as count FROM jobs').first<{
+      count: number;
+    }>();
+    return c.json({
+      ok: true,
+      action: 'ingest',
+      enabledSources,
+      totalJobs: countRow?.count ?? 0,
+      results,
+    });
+  }
+
+  if (action === 'score') {
+    const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+      .bind('default')
+      .first<{ data: string }>();
+    if (!profileRow?.data) {
+      return c.json({ error: 'Profile not configured in database' }, 400);
+    }
+    const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+    const llmClient = createLLMClient({
+      provider: env.LLM_PROVIDER,
+      ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
+      geminiApiKey: env.GEMINI_API_KEY,
+    });
+    const scorer = new DefaultScorer(llmClient);
+    const maxScoredRaw = await c.env.CONFIG.get('MAX_SCORED_PER_DAY');
+    const maxScoredPerDay = maxScoredRaw ? Number.parseInt(maxScoredRaw, 10) : 200;
+
+    const stats = await processJobPipeline({
+      db: c.env.DB,
+      profile,
+      scorer,
+      config: { max_scored_per_day: maxScoredPerDay },
+    });
+    return c.json({ ok: true, action: 'score', stats });
+  }
+
+  if (action === 'draft') {
+    const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+      .bind('default')
+      .first<{ data: string }>();
+    if (!profileRow?.data) {
+      return c.json({ error: 'Profile not configured in database' }, 400);
+    }
+    const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+    const llmClient = createLLMClient({
+      provider: env.LLM_PROVIDER,
+      ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
+      geminiApiKey: env.GEMINI_API_KEY,
+    });
+    const generator = new DefaultCoverLetterGenerator(llmClient);
+
+    const jobs = await c.env.DB.prepare(
+      `SELECT j.id FROM jobs j
+       LEFT JOIN applications a ON a.job_id = j.id
+       WHERE j.apply_route = 'auto_email' AND j.status = 'routed' AND a.id IS NULL`,
+    ).all<{ id: string }>();
+
+    let created = 0;
+    const errors: string[] = [];
+    for (const job of jobs.results) {
+      try {
+        await ApplicationFactory.createForJob({
+          db: c.env.DB,
+          jobId: job.id,
+          profile,
+          generator,
+        });
+        created++;
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+    return c.json({
+      ok: true,
+      action: 'draft',
+      created,
+      candidatesFound: jobs.results.length,
+      errors,
+    });
+  }
+
+  if (action === 'send') {
+    const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+      .bind('default')
+      .first<{ data: string }>();
+    if (!profileRow?.data) {
+      return c.json({ error: 'Profile not configured in database' }, 400);
+    }
+    const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+    const googleClient = getGoogleClient(env);
+    const tokenEncryptionKey = getTokenKey(c.env);
+    const secrets: GoogleOAuthSecrets = {
+      clientId: googleClient.clientId,
+      clientSecret: googleClient.clientSecret,
+      tokenEncryptionKey,
+    };
+    const notifier = createWorkerNotifier(c.env);
+    const gmailSender = new RestGmailSender(() =>
+      getValidAccessToken({
+        config: c.env.CONFIG,
+        secrets,
+        notifier,
+      }),
+    );
+
+    const approvedApps = await c.env.DB.prepare(
+      `SELECT
+         a.id, a.job_id, a.channel, a.status, a.cover_letter, a.subject,
+         a.resume_id, a.message_id_header, a.gmail_message_id, a.gmail_thread_id,
+         a.retry_count, j.title, j.company, j.company_normalized, j.contact_email
+       FROM applications a
+       JOIN jobs j ON a.job_id = j.id
+       WHERE a.status = 'approved'`,
+    ).all<ApplicationToSend>();
+
+    let processed = 0;
+    const sendResults: Array<{
+      id: string;
+      success: boolean;
+      dryRun?: boolean | undefined;
+      error?: string | undefined;
+    }> = [];
+    for (const app of approvedApps.results) {
+      const res = await sendApplicationEmail({
+        db: c.env.DB,
+        config: c.env.CONFIG,
+        resumesBucket: c.env.RESUMES,
+        gmailSender,
+        profile,
+        notifier,
+        dryRun: env.DRY_RUN,
+        killSwitch: env.KILL_SWITCH,
+        application: app,
+        env: env.ENV,
+        devRecipientAllowlist: (c.env.DEV_RECIPIENT_ALLOWLIST as string) || undefined,
+      });
+      processed++;
+      sendResults.push({ id: app.id, success: res.success, dryRun: res.dryRun, error: res.error });
+    }
+    return c.json({ ok: true, action: 'send', processed, sendResults });
+  }
+
+  if (action === 'followups') {
+    const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+      .bind('default')
+      .first<{ data: string }>();
+    if (!profileRow?.data) {
+      return c.json({ error: 'Profile not configured in database' }, 400);
+    }
+    const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+    const result = await createPendingFollowUps({
+      db: c.env.DB,
+      profile,
+    });
+    return c.json({ ok: true, action: 'followups', ...result });
+  }
+
+  if (action === 'sheets') {
+    const googleClient = getGoogleClient(env);
+    const tokenEncryptionKey = getTokenKey(c.env);
+    const secrets: GoogleOAuthSecrets = {
+      clientId: googleClient.clientId,
+      clientSecret: googleClient.clientSecret,
+      tokenEncryptionKey,
+    };
+    const notifier = createWorkerNotifier(c.env);
+    const sheetsClient = new RestSheetsClient(() =>
+      getValidAccessToken({
+        config: c.env.CONFIG,
+        secrets,
+        notifier,
+      }),
+    );
+    const result = await syncApplicationsToSheet({
+      db: c.env.DB,
+      config: c.env.CONFIG,
+      sheetsClient,
+      spreadsheetId: env.GOOGLE_SHEET_ID as string | undefined,
+      notifier,
+    });
+    return c.json({ ok: true, action: 'sheets', ...result });
+  }
+
+  return c.json({ error: `Unknown trigger action: ${action}` }, 400);
+});
+
+app.post('/api/dev/feed-eml', async (c) => {
+  const envMode = c.env.ENV as string;
+  if (envMode !== 'dev') {
+    return c.json({ error: 'Forbidden: dev feed-eml is only available when ENV=dev' }, 403);
+  }
+
+  const rawEml = await c.req.text();
+  if (!rawEml || !rawEml.trim()) {
+    return c.json({ error: 'Empty email payload received' }, 400);
+  }
+
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  let configuredForwardingAddress =
+    typeof c.env.ALERT_FORWARDING_ADDRESS === 'string' ? c.env.ALERT_FORWARDING_ADDRESS : undefined;
+
+  if (!configuredForwardingAddress && profileRow?.data) {
+    try {
+      const profile = JSON.parse(profileRow.data) as { email?: string };
+      if (profile.email) {
+        configuredForwardingAddress = profile.email;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const notifier = createWorkerNotifier(c.env);
+  const result = await ingestAlertEmail(rawEml, {
+    db: c.env.DB,
+    envelope: {
+      from: configuredForwardingAddress || 'user@example.com',
+      to: 'alerts@local.test',
+    },
+    configuredForwardingAddress,
+    notifier,
+  });
+
   return c.json({ ok: true, ...result });
 });
 

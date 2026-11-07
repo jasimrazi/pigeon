@@ -38,7 +38,23 @@ export async function ingestAlertEmail(
 
   // 1. Parse email using PostalMime
   // PostalMime supports ReadableStream, ArrayBuffer, or string
-  const email = await new PostalMime().parse(rawEmail);
+  let email;
+  try {
+    email = await new PostalMime().parse(rawEmail);
+  } catch (err) {
+    console.warn('[alerts] Failed to parse malformed email:', err);
+    return {
+      portal: 'fallback',
+      dropped: true,
+      dropReason: 'malformed_email',
+      jobsFound: 0,
+      newJobs: 0,
+      duplicates: 0,
+      emptyStreak: 0,
+      isSuspect: false,
+      untrusted: false,
+    };
+  }
 
   const originalFromAddress = email.from?.address || '';
   const envelopeSender = envelope?.from || '';

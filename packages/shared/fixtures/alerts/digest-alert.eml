@@ -1,0 +1,26 @@
+From: "LinkedIn Job Alerts" <jobalerts@linkedin.com>
+To: "Alex Mercer" <alex.mercer@example.test>
+Subject: Recommended jobs digest: Senior Backend Engineer
+Date: Wed, 05 Nov 2026 10:00:00 +0000
+Message-ID: <digest-alert-fixture-002@linkedin.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+
+<!DOCTYPE html>
+<html>
+<head><title>Job Digest</title></head>
+<body>
+  <div>
+    <h1>Daily Opportunities Digest</h1>
+    <div class="job-posting">
+      <a href="https://www.linkedin.com/jobs/view/9988776655">Principal Cloud Architect</a>
+      <div class="company-name">TechStart Solutions</div>
+      <div class="job-location">Remote</div>
+      <p class="job-description">
+        We are seeking a Principal Cloud Architect to lead infrastructure modernization.
+        Please direct questions and CV submissions to our talent team at talent@acmeworks.test for expedited review.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,37 @@
+From: "LinkedIn Job Alerts" <jobalerts-noreply@linkedin.com>
+To: "Alex Mercer" <alex.mercer@example.test>
+Subject: 2 new jobs for 'Senior Systems Engineer'
+Date: Wed, 05 Nov 2026 09:30:00 +0000
+Message-ID: <alert-linkedin-fixture-001@linkedin.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+
+<!DOCTYPE html>
+<html>
+<head><title>LinkedIn Job Alert</title></head>
+<body>
+  <div>
+    <h1>Jobs matching your alert: Senior Systems Engineer</h1>
+    <table class="job-card">
+      <tr>
+        <td>
+          <a href="https://www.linkedin.com/comm/jobs/view/3948572019?trk=eml-job-alert-member-detail&amp;trackingId=abc123xyz&amp;refId=ref789&amp;midToken=mid001">Senior Systems Engineer &amp; Architect</a>
+          <div class="company-name">Acme Cloud Technologies Inc</div>
+          <div class="job-location">San Francisco, CA (Remote)</div>
+          <div class="salary-info">$150,000 - $180,000 / yr</div>
+        </td>
+      </tr>
+    </table>
+    <table class="job-card">
+      <tr>
+        <td>
+          <a href="https://www.linkedin.com/jobs/view/3948572020?trk=eml-job-alert-member-detail&amp;trackingId=def456">Distributed Systems Specialist</a>
+          <div class="company-name">Globex Corporation</div>
+          <div class="job-location">New York, NY</div>
+        </td>
+      </tr>
+    </table>
+    <p><a href="https://www.linkedin.com/help/settings">Manage alerts</a></p>
+  </div>
+</body>
+</html>
