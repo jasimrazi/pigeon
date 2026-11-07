@@ -19,36 +19,40 @@ export const leverAdapter: JobSource = {
     const allJobs: RawJob[] = [];
 
     for (const slug of slugs) {
-      const url = `https://api.lever.co/v0/postings/${encodeURIComponent(slug)}?mode=json`;
+      try {
+        const url = `https://api.lever.co/v0/postings/${encodeURIComponent(slug)}?mode=json`;
 
-      const res = await fetchWithRetry(
-        url,
-        {
-          headers: {
-            'User-Agent': userAgent,
-            Accept: 'application/json',
+        const res = await fetchWithRetry(
+          url,
+          {
+            headers: {
+              'User-Agent': userAgent,
+              Accept: 'application/json',
+            },
           },
-        },
-        { fetchFn: config?.fetchFn },
-      );
+          { fetchFn: config?.fetchFn },
+        );
 
-      if (res.status === 404) {
-        // Slug returns 404 -> disable in KV
-        await disableAtsSlug('lever', slug, config);
-        continue;
-      }
+        if (res.status === 404) {
+          // Slug returns 404 -> disable in KV
+          await disableAtsSlug('lever', slug, config);
+          continue;
+        }
 
-      if (!res.ok) {
-        throw new Error(`Lever API for ${slug} returned HTTP ${res.status}`);
-      }
+        if (!res.ok) {
+          throw new Error(`Lever API for ${slug} returned HTTP ${res.status}`);
+        }
 
-      const data = LeverResponseSchema.parse(await res.json());
-      for (const job of data) {
-        allJobs.push({
-          ...job,
-          source: 'lever',
-          company_slug: slug,
-        });
+        const data = LeverResponseSchema.parse(await res.json());
+        for (const job of data) {
+          allJobs.push({
+            ...job,
+            source: 'lever',
+            company_slug: slug,
+          });
+        }
+      } catch (err) {
+        console.warn(`[lever] Failed to fetch or parse jobs for company slug '${slug}':`, err);
       }
     }
 

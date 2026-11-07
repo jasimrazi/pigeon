@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   evaluateRuleFilters,
   evaluateSkipChecks,
@@ -10,6 +10,7 @@ import {
   type Profile,
   type RoutableJob,
   type D1LikeDatabase,
+  type Scorer,
 } from '../index.js';
 
 const mockProfile: Profile = {
@@ -143,6 +144,13 @@ function createMockDb(): {
               .slice(0, limit);
             return { results: res as unknown as T[] };
           }
+          if (query.includes("FROM jobs WHERE status = 'scored'")) {
+            const limit = typeof boundParams[0] === 'number' ? boundParams[0] : 50;
+            const res = Array.from(jobs.values())
+              .filter((j) => j['status'] === 'scored')
+              .slice(0, limit);
+            return { results: res as unknown as T[] };
+          }
           return { results: [] };
         },
         async run() {
@@ -186,7 +194,31 @@ function createMockDb(): {
               j['filter_reason'] = reason;
               j['updated_at'] = nowIso;
             }
-          } else if (query.startsWith('UPDATE jobs SET')) {
+          } else if (query.includes('scorer_failed = 1, match_score = NULL')) {
+            const [reasons, redFlags, nowIso, id] = boundParams as [string, string, string, string];
+            const j = jobs.get(id);
+            if (j) {
+              j['scorer_failed'] = 1;
+              j['match_score'] = null;
+              j['match_reasons'] = reasons;
+              j['red_flags'] = redFlags;
+              j['updated_at'] = nowIso;
+            }
+          } else if (
+            query.startsWith('UPDATE jobs SET match_score = ?') &&
+            !query.includes('apply_route = ?')
+          ) {
+            const [match_score, match_reasons, red_flags, scorer_failed, updated_at, id] =
+              boundParams as [number, string, string, number, string, string];
+            const j = jobs.get(id);
+            if (j) {
+              j['match_score'] = match_score;
+              j['match_reasons'] = match_reasons;
+              j['red_flags'] = red_flags;
+              j['scorer_failed'] = scorer_failed;
+              j['updated_at'] = updated_at;
+            }
+          } else if (query.includes('apply_route = ?')) {
             const [
               apply_route,
               route_reason,
@@ -1081,6 +1113,100 @@ describe('Phase 4: Rule Filters, Skip Checks, Scorer, and Router', () => {
       expect(j?.['status']).not.toBe('routed');
       expect(j?.['status']).toBe('scored');
       expect(j?.['apply_route']).toBe('auto_email');
+    });
+
+    it('picks up jobs stuck in status scored on the next run and routes them without calling scorer again', async () => {
+      const { db, jobs } = createMockDb();
+
+      // Seed a job stuck in 'scored' status (e.g. after a crash between scoring and routing)
+      jobs.set('job-stuck', {
+        id: 'job-stuck',
+        source: 'greenhouse',
+        source_kind: 'ats',
+        title: 'Senior Systems Engineer',
+        company: 'Stripe',
+        company_normalized: 'stripe',
+        location: 'Remote',
+        remote: 1,
+        salary_min: 160000,
+        salary_max: 200000,
+        description: 'TypeScript and distributed systems. Contact: jobs@stripe.com',
+        apply_url: 'https://stripe.com/jobs/1',
+        contact_email: 'jobs@stripe.com',
+        contact_source: 'posting',
+        match_score: 95,
+        match_reasons: 'Strong match',
+        red_flags: '[]',
+        scorer_failed: 0,
+        status: 'scored',
+        fetched_at: '2026-11-05T08:00:00Z',
+        updated_at: '2026-11-05T08:05:00Z',
+      });
+
+      const scoreJobSpy = vi.fn();
+      const scorer: Scorer = {
+        scoreJob: scoreJobSpy,
+      };
+
+      const stats = await processJobPipeline({
+        db,
+        profile: mockProfile,
+        scorer,
+      });
+
+      // Scorer must NOT be called for stuck 'scored' jobs
+      expect(scoreJobSpy).not.toHaveBeenCalled();
+
+      // Job must be transitioned to routed with correct route
+      const j = jobs.get('job-stuck');
+      expect(j?.['status']).toBe('routed');
+      expect(j?.['apply_route']).toBe('auto_email');
+      expect(stats.routed).toBe(1);
+      expect(stats.scored).toBe(0); // Did not score any new jobs
+    });
+
+    it('recovers stuck scored job where scorer had failed and routes to manual_review without re-scoring', async () => {
+      const { db, jobs } = createMockDb();
+
+      jobs.set('job-stuck-failed', {
+        id: 'job-stuck-failed',
+        source: 'lever',
+        source_kind: 'ats',
+        title: 'Backend Engineer',
+        company: 'Cloudflare',
+        company_normalized: 'cloudflare',
+        location: 'Remote',
+        remote: 1,
+        description: 'Systems role.',
+        apply_url: 'https://cloudflare.com/jobs/1',
+        contact_email: 'jobs@cloudflare.com',
+        contact_source: 'posting',
+        match_score: null,
+        match_reasons: null,
+        red_flags: '[]',
+        scorer_failed: 1,
+        status: 'scored',
+        fetched_at: '2026-11-05T08:00:00Z',
+        updated_at: '2026-11-05T08:05:00Z',
+      });
+
+      const scoreJobSpy = vi.fn();
+      const scorer: Scorer = {
+        scoreJob: scoreJobSpy,
+      };
+
+      const stats = await processJobPipeline({
+        db,
+        profile: mockProfile,
+        scorer,
+      });
+
+      expect(scoreJobSpy).not.toHaveBeenCalled();
+      const j = jobs.get('job-stuck-failed');
+      expect(j?.['status']).toBe('routed');
+      expect(j?.['apply_route']).toBe('manual_review');
+      expect(stats.routed).toBe(1);
+      expect(stats.scored).toBe(0);
     });
   });
 });

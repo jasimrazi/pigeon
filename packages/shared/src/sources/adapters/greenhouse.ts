@@ -57,38 +57,42 @@ export const greenhouseAdapter: JobSource = {
     const allJobs: RawJob[] = [];
 
     for (const slug of slugs) {
-      const url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(
-        slug,
-      )}/jobs?content=true`;
+      try {
+        const url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(
+          slug,
+        )}/jobs?content=true`;
 
-      const res = await fetchWithRetry(
-        url,
-        {
-          headers: {
-            'User-Agent': userAgent,
-            Accept: 'application/json',
+        const res = await fetchWithRetry(
+          url,
+          {
+            headers: {
+              'User-Agent': userAgent,
+              Accept: 'application/json',
+            },
           },
-        },
-        { fetchFn: config?.fetchFn },
-      );
+          { fetchFn: config?.fetchFn },
+        );
 
-      if (res.status === 404) {
-        // Slug returns 404 -> disable in KV and log
-        await disableAtsSlug('greenhouse', slug, config);
-        continue;
-      }
+        if (res.status === 404) {
+          // Slug returns 404 -> disable in KV and log
+          await disableAtsSlug('greenhouse', slug, config);
+          continue;
+        }
 
-      if (!res.ok) {
-        throw new Error(`Greenhouse API for ${slug} returned HTTP ${res.status}`);
-      }
+        if (!res.ok) {
+          throw new Error(`Greenhouse API for ${slug} returned HTTP ${res.status}`);
+        }
 
-      const data = GreenhouseResponseSchema.parse(await res.json());
-      for (const job of data.jobs || []) {
-        allJobs.push({
-          ...job,
-          source: 'greenhouse',
-          company_slug: slug,
-        });
+        const data = GreenhouseResponseSchema.parse(await res.json());
+        for (const job of data.jobs || []) {
+          allJobs.push({
+            ...job,
+            source: 'greenhouse',
+            company_slug: slug,
+          });
+        }
+      } catch (err) {
+        console.warn(`[greenhouse] Failed to fetch or parse jobs for company slug '${slug}':`, err);
       }
     }
 

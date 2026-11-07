@@ -19,36 +19,40 @@ export const ashbyAdapter: JobSource = {
     const allJobs: RawJob[] = [];
 
     for (const slug of slugs) {
-      const url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}`;
+      try {
+        const url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}`;
 
-      const res = await fetchWithRetry(
-        url,
-        {
-          headers: {
-            'User-Agent': userAgent,
-            Accept: 'application/json',
+        const res = await fetchWithRetry(
+          url,
+          {
+            headers: {
+              'User-Agent': userAgent,
+              Accept: 'application/json',
+            },
           },
-        },
-        { fetchFn: config?.fetchFn },
-      );
+          { fetchFn: config?.fetchFn },
+        );
 
-      if (res.status === 404) {
-        // Slug returns 404 -> disable in KV
-        await disableAtsSlug('ashby', slug, config);
-        continue;
-      }
+        if (res.status === 404) {
+          // Slug returns 404 -> disable in KV
+          await disableAtsSlug('ashby', slug, config);
+          continue;
+        }
 
-      if (!res.ok) {
-        throw new Error(`Ashby API for ${slug} returned HTTP ${res.status}`);
-      }
+        if (!res.ok) {
+          throw new Error(`Ashby API for ${slug} returned HTTP ${res.status}`);
+        }
 
-      const data = AshbyResponseSchema.parse(await res.json());
-      for (const job of data.jobs || []) {
-        allJobs.push({
-          ...job,
-          source: 'ashby',
-          company_slug: slug,
-        });
+        const data = AshbyResponseSchema.parse(await res.json());
+        for (const job of data.jobs || []) {
+          allJobs.push({
+            ...job,
+            source: 'ashby',
+            company_slug: slug,
+          });
+        }
+      } catch (err) {
+        console.warn(`[ashby] Failed to fetch or parse jobs for company slug '${slug}':`, err);
       }
     }
 

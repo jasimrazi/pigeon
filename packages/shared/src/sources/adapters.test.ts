@@ -237,4 +237,176 @@ describe('Job Source Adapters - Fixture Normalization', () => {
     expect(normalized.contact_source).toBe('posting');
     expect(normalized.apply_url).toBe('https://jobs.ashbyhq.com/linear/ashby-801');
   });
+
+  it('Greenhouse isolates oversized board (>1000 jobs) on its own without failing the source', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Create an oversized payload with 1001 jobs (exceeding .max(1000))
+    const oversizedJobs = Array.from({ length: 1001 }, (_, i) => ({
+      id: i + 1,
+      title: `Job ${i + 1}`,
+      absolute_url: `https://boards.greenhouse.io/huge/jobs/${i + 1}`,
+    }));
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('huge-company')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ jobs: oversizedJobs }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 999,
+                title: 'Valid Job',
+                absolute_url: 'https://boards.greenhouse.io/normal/jobs/999',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await greenhouseAdapter.fetch({
+      slugs: ['huge-company', 'normal-company'],
+      fetchFn: mockFetch,
+    });
+
+    // The oversized company was skipped and logged on its own
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[greenhouse] Failed to fetch or parse jobs for company slug 'huge-company':",
+      ),
+      expect.anything(),
+    );
+
+    // The normal company succeeded and returned its jobs
+    expect(results).toHaveLength(1);
+    expect(results[0]?.['company_slug']).toBe('normal-company');
+    expect(results[0]?.['title']).toBe('Valid Job');
+
+    warnSpy.mockRestore();
+  });
+
+  it('Lever isolates oversized board (>1000 jobs) on its own without failing the source', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const oversizedJobs = Array.from({ length: 1001 }, (_, i) => ({
+      id: `lever-${i + 1}`,
+      text: `Lever Job ${i + 1}`,
+      hostedUrl: `https://jobs.lever.co/huge/lever-${i + 1}`,
+    }));
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('huge-company')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(oversizedJobs), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            {
+              id: 'lever-ok',
+              text: 'Valid Job',
+              hostedUrl: 'https://jobs.lever.co/normal/lever-ok',
+            },
+          ]),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await leverAdapter.fetch({
+      slugs: ['huge-company', 'normal-company'],
+      fetchFn: mockFetch,
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[lever] Failed to fetch or parse jobs for company slug 'huge-company':",
+      ),
+      expect.anything(),
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.['company_slug']).toBe('normal-company');
+    expect(results[0]?.['text']).toBe('Valid Job');
+
+    warnSpy.mockRestore();
+  });
+
+  it('Ashby isolates oversized board (>1000 jobs) on its own without failing the source', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const oversizedJobs = Array.from({ length: 1001 }, (_, i) => ({
+      id: `ashby-${i + 1}`,
+      title: `Ashby Job ${i + 1}`,
+      jobUrl: `https://jobs.ashbyhq.com/huge/ashby-${i + 1}`,
+    }));
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('huge-company')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ jobs: oversizedJobs }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 'ashby-ok',
+                title: 'Valid Job',
+                jobUrl: 'https://jobs.ashbyhq.com/normal/ashby-ok',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await ashbyAdapter.fetch({
+      slugs: ['huge-company', 'normal-company'],
+      fetchFn: mockFetch,
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[ashby] Failed to fetch or parse jobs for company slug 'huge-company':",
+      ),
+      expect.anything(),
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.['company_slug']).toBe('normal-company');
+    expect(results[0]?.['title']).toBe('Valid Job');
+
+    warnSpy.mockRestore();
+  });
 });
