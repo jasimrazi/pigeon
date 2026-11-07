@@ -546,7 +546,7 @@ describe('Dashboard App & Operations Components', () => {
       expect(dryRunLoading?.className).toContain('bg-gray-100');
 
       expect(ksLoading).not.toBeNull();
-      expect(ksLoading?.textContent).toContain('Kill Switch: Loading...');
+      expect(ksLoading?.textContent).toContain('Kill Switch: unknown');
       expect(ksLoading?.className).toContain('bg-gray-100');
 
       // Verify it does NOT default to "Google OK" or "Kill Switch Off"
@@ -580,7 +580,7 @@ describe('Dashboard App & Operations Components', () => {
       expect(container?.textContent).not.toContain('🛡️ Kill Switch Off');
     });
 
-    it('header badges show healthy status when overview API responds ok', async () => {
+    it('header badges show healthy green "Google OK" only when authHealth is ok', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn((url: string) => {
@@ -611,9 +611,228 @@ describe('Dashboard App & Operations Components', () => {
         root?.render(<App />);
       });
 
-      expect(container?.textContent).toContain('✅ Google OK');
+      const googleBadge = container?.querySelector('[data-testid="badge-google-ok"]');
+      expect(googleBadge).not.toBeNull();
+      expect(googleBadge?.textContent).toContain('✅ Google OK');
+      expect(googleBadge?.className).toContain('bg-emerald-50');
+      expect(googleBadge?.className).toContain('text-emerald-700');
       expect(container?.textContent).toContain('DRY_RUN');
       expect(container?.textContent).toContain('🛡️ Kill Switch Off');
+    });
+
+    it('header Google badge shows grey "Google: not connected" when authHealth is unknown', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          if (url.includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 0,
+                effectiveCap: 15,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                killSwitch: false,
+                dryRun: true,
+                authHealth: {
+                  status: 'unknown',
+                  reason: 'No auth health record found in KV',
+                },
+              }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const unknownBadge = container?.querySelector('[data-testid="badge-google-unknown"]');
+      expect(unknownBadge).not.toBeNull();
+      expect(unknownBadge?.textContent).toContain('Google: not connected');
+      expect(unknownBadge?.className).toContain('bg-gray-100');
+      expect(unknownBadge?.className).toContain('text-gray-600');
+      expect(unknownBadge?.getAttribute('href')).toBe('/auth/google/start');
+
+      // CRITICAL: Must NEVER be green or say Google OK
+      expect(container?.querySelector('[data-testid="badge-google-ok"]')).toBeNull();
+      expect(container?.textContent).not.toContain('✅ Google OK');
+      expect(container?.textContent).not.toContain('Google OK');
+      expect(unknownBadge?.className).not.toContain('bg-emerald-50');
+      expect(unknownBadge?.className).not.toContain('text-emerald-700');
+    });
+
+    it('header Google badge shows red "Google: reconnect" when authHealth is invalid', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          if (url.includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 0,
+                effectiveCap: 15,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                killSwitch: false,
+                dryRun: true,
+                authHealth: {
+                  status: 'invalid',
+                  reason: 'Token revoked',
+                },
+              }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const invalidBadge = container?.querySelector('[data-testid="badge-google-invalid"]');
+      expect(invalidBadge).not.toBeNull();
+      expect(invalidBadge?.textContent).toContain('Google: reconnect');
+      expect(invalidBadge?.className).toContain('bg-rose-50');
+      expect(invalidBadge?.className).toContain('text-rose-700');
+      expect(invalidBadge?.getAttribute('href')).toBe('/auth/google/start');
+
+      // CRITICAL: Must NEVER be green or say Google OK
+      expect(container?.querySelector('[data-testid="badge-google-ok"]')).toBeNull();
+      expect(container?.textContent).not.toContain('✅ Google OK');
+      expect(container?.textContent).not.toContain('Google OK');
+      expect(invalidBadge?.className).not.toContain('bg-emerald-50');
+      expect(invalidBadge?.className).not.toContain('text-emerald-700');
+    });
+
+    it('FAILS if Google badge defaults to ok when authHealth is unknown or omitted from API', async () => {
+      // Simulates an API response where authHealth is missing or empty
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          if (url.includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 0,
+                effectiveCap: 15,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                killSwitch: false,
+                dryRun: true,
+                // Omitted or unknown authHealth
+              }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      // Strict enforcement: A badge defaulting to "ok" would fail these 4 assertions
+      const okBadge = container?.querySelector('[data-testid="badge-google-ok"]');
+      expect(okBadge).toBeNull();
+      expect(container?.textContent).not.toContain('Google OK');
+      expect(container?.textContent).not.toContain('✅ Google OK');
+
+      const unknownBadge = container?.querySelector('[data-testid="badge-google-unknown"]');
+      expect(unknownBadge).not.toBeNull();
+      expect(unknownBadge?.textContent).toContain('Google: not connected');
+    });
+
+    it('Kill Switch badge renders active alert state when killSwitch is true in KV', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          if (url.includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 0,
+                effectiveCap: 0,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                killSwitch: true, // Active in KV
+                dryRun: true,
+                authHealth: { status: 'ok' },
+              }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const ksActiveBadge = container?.querySelector('[data-testid="badge-killswitch-active"]');
+      expect(ksActiveBadge).not.toBeNull();
+      expect(ksActiveBadge?.textContent).toContain('🚨 KILL SWITCH ON');
+      expect(ksActiveBadge?.className).toContain('bg-rose-600');
+    });
+
+    it('Kill Switch badge renders disarmed state when killSwitch is false in KV', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          if (url.includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 0,
+                effectiveCap: 20,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                killSwitch: false, // Disarmed in KV
+                dryRun: true,
+                authHealth: { status: 'ok' },
+              }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const ksOffBadge = container?.querySelector('[data-testid="badge-killswitch-off"]');
+      expect(ksOffBadge).not.toBeNull();
+      expect(ksOffBadge?.textContent).toContain('🛡️ Kill Switch Off');
+      expect(ksOffBadge?.className).toContain('bg-gray-100');
     });
   });
 });

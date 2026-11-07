@@ -123,7 +123,7 @@ export function OverviewView({
     );
   }
 
-  const isAuthInvalid = data.authHealth.status !== 'ok';
+  const isAuthInvalid = data.authHealth?.status !== 'ok';
 
   return (
     <div className="space-y-6">
@@ -169,7 +169,7 @@ export function OverviewView({
             </h3>
             <p className="text-xs mt-0.5 text-gray-600">
               {isAuthInvalid
-                ? `Auth error: ${data.authHealth.reason || 'OAuth token revoked or expired'}. Mail sending and Sheet sync are paused.`
+                ? `Auth error: ${data.authHealth?.reason || 'OAuth token revoked or expired'}. Mail sending and Sheet sync are paused.`
                 : 'Gmail API and Google Sheets tokens are active with automatic refresh.'}
             </p>
           </div>
