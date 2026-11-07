@@ -1260,5 +1260,51 @@ describe('Phase 4: Rule Filters, Skip Checks, Scorer, and Router', () => {
       expect(stats.routed).toBe(1);
       expect(stats.scored).toBe(0);
     });
+
+    it('recovered scored job with missing score and no event routes to manual_review with SCORER_FAILED', async () => {
+      const { db, jobs } = createMockDb();
+
+      jobs.set('job-stuck-no-score', {
+        id: 'job-stuck-no-score',
+        source: 'lever',
+        source_kind: 'ats',
+        title: 'Backend Engineer',
+        company: 'Cloudflare',
+        company_normalized: 'cloudflare',
+        location: 'Remote',
+        remote: 1,
+        description: 'Systems role.',
+        apply_url: 'https://cloudflare.com/jobs/1',
+        contact_email: 'jobs@cloudflare.com',
+        contact_source: 'posting',
+        match_score: null,
+        match_reasons: null,
+        red_flags: '[]',
+        scorer_failed: 0,
+        status: 'scored',
+        fetched_at: '2026-11-05T08:00:00Z',
+        updated_at: '2026-11-05T08:05:00Z',
+      });
+
+      const scoreJobSpy = vi.fn();
+      const scorer: Scorer = {
+        scoreJob: scoreJobSpy,
+      };
+
+      const stats = await processJobPipeline({
+        db,
+        profile: mockProfile,
+        scorer,
+      });
+
+      expect(scoreJobSpy).not.toHaveBeenCalled();
+      const j = jobs.get('job-stuck-no-score');
+      expect(j?.['status']).toBe('routed');
+      expect(j?.['apply_route']).toBe('manual_review');
+      expect(j?.['route_reason']).toBe('SCORER_FAILED');
+      expect(j?.['scorer_failed']).toBe(1);
+      expect(stats.routed).toBe(1);
+      expect(stats.scored).toBe(0);
+    });
   });
 });

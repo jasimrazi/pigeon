@@ -23,32 +23,32 @@ export const ashbyAdapter: JobSource = {
     for (const slug of slugs) {
       const url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}`;
 
-      // 429s (honouring Retry-After), 5xx responses and network errors follow the source-level retry
-      // and failure path and are not swallowed.
-      const res = await fetchWithRetry(
-        url,
-        {
-          headers: {
-            'User-Agent': userAgent,
-            Accept: 'application/json',
-          },
-        },
-        { fetchFn: config?.fetchFn, delayFn: config?.delayFn },
-      );
-
-      if (res.status === 404) {
-        // Slug returns 404 -> disable in KV
-        await disableAtsSlug('ashby', slug, config);
-        failedSlugs.push(slug);
-        continue;
-      }
-
-      if (!res.ok) {
-        throw new Error(`Ashby API for ${slug} returned HTTP ${res.status}`);
-      }
-
-      // Isolate per slug ONLY validation failures (ZodError)
       try {
+        const res = await fetchWithRetry(
+          url,
+          {
+            headers: {
+              'User-Agent': userAgent,
+              Accept: 'application/json',
+            },
+          },
+          { fetchFn: config?.fetchFn, delayFn: config?.delayFn },
+        );
+
+        if (res.status === 404) {
+          // Slug returns 404 -> disable in KV
+          await disableAtsSlug('ashby', slug, config);
+          failedSlugs.push(slug);
+          continue;
+        }
+
+        if (!res.ok) {
+          if (res.status === 429) {
+            throw new Error(`HTTP 429: Too Many Requests from ${url}`);
+          }
+          throw new Error(`Ashby API for ${slug} returned HTTP ${res.status}`);
+        }
+
         const data = AshbyResponseSchema.parse(await res.json());
         for (const job of data.jobs || []) {
           allJobs.push({
@@ -58,12 +58,22 @@ export const ashbyAdapter: JobSource = {
           });
         }
       } catch (err) {
-        if (err instanceof z.ZodError) {
-          console.warn(`[ashby] Validation failed for company slug '${slug}':`, err);
-          failedSlugs.push(slug);
-        } else {
+        const is429 =
+          err instanceof Error &&
+          (err.message.includes('429') || err.message.toLowerCase().includes('too many requests'));
+        if (is429) {
+          // 429 after retries: stop fetching further boards this run and throw (source-level rate limit)
           throw err;
         }
+
+        // Any other failure after retries are exhausted (5xx, network error, timeout, non-404 4xx, validation)
+        // is isolated to that board: log it, add it to failedSlugs, and continue with the remaining boards.
+        if (err instanceof z.ZodError) {
+          console.warn(`[ashby] Validation failed for company slug '${slug}':`, err);
+        } else {
+          console.warn(`[ashby] Failed to fetch or parse jobs for company slug '${slug}':`, err);
+        }
+        failedSlugs.push(slug);
       }
     }
 

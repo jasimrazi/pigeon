@@ -311,6 +311,304 @@ describe('Job Source Adapters - Fixture Normalization', () => {
     warnSpy.mockRestore();
   });
 
+  it('1 of 5 boards returns 500 after retries -> the run succeeds with the other 4 boards jobs and failedSlugs names that board', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('slug-500')) {
+        return Promise.resolve(
+          new Response('Internal Server Error', {
+            status: 500,
+            headers: { 'Content-Type': 'text/plain' },
+          }),
+        );
+      }
+      const match = urlStr.match(/v1\/boards\/([^/]+)\/jobs/);
+      const slug = match ? match[1] : 'normal';
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 101,
+                title: `Valid Job for ${slug}`,
+                absolute_url: `https://boards.greenhouse.io/${slug}/jobs/101`,
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await greenhouseAdapter.fetch({
+      slugs: ['slug-500', 'co-2', 'co-3', 'co-4', 'co-5'],
+      fetchFn: mockFetch,
+      delayFn: vi.fn(),
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[greenhouse] Failed to fetch or parse jobs for company slug 'slug-500':",
+      ),
+      expect.anything(),
+    );
+
+    expect(results).toHaveLength(4);
+    const slugsReturned = results.map((r) => r['company_slug']);
+    expect(slugsReturned).toEqual(['co-2', 'co-3', 'co-4', 'co-5']);
+
+    const stats = (
+      results as { slugStats?: { total: number; failed: number; failedSlugs: string[] } }
+    ).slugStats;
+    expect(stats).toEqual({
+      total: 5,
+      failed: 1,
+      failedSlugs: ['slug-500'],
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it('1 of 5 returns 403 -> the run succeeds with the other 4 boards jobs and failedSlugs names that board', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('slug-403')) {
+        return Promise.resolve(
+          new Response('Forbidden', {
+            status: 403,
+            headers: { 'Content-Type': 'text/plain' },
+          }),
+        );
+      }
+      const match = urlStr.match(/v1\/boards\/([^/]+)\/jobs/);
+      const slug = match ? match[1] : 'normal';
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 102,
+                title: `Valid Job for ${slug}`,
+                absolute_url: `https://boards.greenhouse.io/${slug}/jobs/102`,
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await greenhouseAdapter.fetch({
+      slugs: ['slug-403', 'co-2', 'co-3', 'co-4', 'co-5'],
+      fetchFn: mockFetch,
+      delayFn: vi.fn(),
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[greenhouse] Failed to fetch or parse jobs for company slug 'slug-403':",
+      ),
+      expect.anything(),
+    );
+
+    expect(results).toHaveLength(4);
+    const slugsReturned = results.map((r) => r['company_slug']);
+    expect(slugsReturned).toEqual(['co-2', 'co-3', 'co-4', 'co-5']);
+
+    const stats = (
+      results as { slugStats?: { total: number; failed: number; failedSlugs: string[] } }
+    ).slugStats;
+    expect(stats).toEqual({
+      total: 5,
+      failed: 1,
+      failedSlugs: ['slug-403'],
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it('a board is still 429 after retries -> the run throws and later boards are not requested', async () => {
+    const mockDelay = vi.fn().mockResolvedValue(undefined);
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('slug-429')) {
+        return Promise.resolve(
+          new Response('Too Many Requests', {
+            status: 429,
+            headers: {
+              'Content-Type': 'text/plain',
+              'Retry-After': '2',
+            },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 103,
+                title: 'Should Not Be Fetched',
+                absolute_url: 'https://boards.greenhouse.io/later/103',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    await expect(
+      greenhouseAdapter.fetch({
+        slugs: ['slug-429', 'slug-later-1', 'slug-later-2'],
+        fetchFn: mockFetch,
+        delayFn: mockDelay,
+      }),
+    ).rejects.toThrow(/429|Too Many Requests/i);
+
+    // Later boards were never requested
+    const calledUrls = mockFetch.mock.calls.map((call) => String(call[0]));
+    expect(calledUrls.some((u) => u.includes('slug-later-1'))).toBe(false);
+    expect(calledUrls.some((u) => u.includes('slug-later-2'))).toBe(false);
+  });
+
+  it('Lever: 1 of 5 boards returns 500 after retries -> the run succeeds with the other 4 boards jobs and failedSlugs names that board', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('lever-500')) {
+        return Promise.resolve(
+          new Response('Internal Server Error', {
+            status: 500,
+            headers: { 'Content-Type': 'text/plain' },
+          }),
+        );
+      }
+      const match = urlStr.match(/v0\/postings\/([^?]+)/);
+      const slug = match ? match[1] : 'normal';
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            {
+              id: `lev-${slug}`,
+              text: `Lever Job for ${slug}`,
+              hostedUrl: `https://jobs.lever.co/${slug}/1`,
+            },
+          ]),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await leverAdapter.fetch({
+      slugs: ['lever-500', 'l-2', 'l-3', 'l-4', 'l-5'],
+      fetchFn: mockFetch,
+      delayFn: vi.fn(),
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[lever] Failed to fetch or parse jobs for company slug 'lever-500':",
+      ),
+      expect.anything(),
+    );
+
+    expect(results).toHaveLength(4);
+    const slugsReturned = results.map((r) => r['company_slug']);
+    expect(slugsReturned).toEqual(['l-2', 'l-3', 'l-4', 'l-5']);
+
+    const stats = (
+      results as { slugStats?: { total: number; failed: number; failedSlugs: string[] } }
+    ).slugStats;
+    expect(stats).toEqual({
+      total: 5,
+      failed: 1,
+      failedSlugs: ['lever-500'],
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it('Ashby: 1 of 5 boards returns 500 after retries -> the run succeeds with the other 4 boards jobs and failedSlugs names that board', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mockFetch = vi.fn().mockImplementation((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('ashby-500')) {
+        return Promise.resolve(
+          new Response('Internal Server Error', {
+            status: 500,
+            headers: { 'Content-Type': 'text/plain' },
+          }),
+        );
+      }
+      const match = urlStr.match(/job-board\/([^?]+)/);
+      const slug = match ? match[1] : 'normal';
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: `ash-${slug}`,
+                title: `Ashby Job for ${slug}`,
+                jobUrl: `https://jobs.ashbyhq.com/${slug}/1`,
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    });
+
+    const results = await ashbyAdapter.fetch({
+      slugs: ['ashby-500', 'a-2', 'a-3', 'a-4', 'a-5'],
+      fetchFn: mockFetch,
+      delayFn: vi.fn(),
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[ashby] Failed to fetch or parse jobs for company slug 'ashby-500':",
+      ),
+      expect.anything(),
+    );
+
+    expect(results).toHaveLength(4);
+    const slugsReturned = results.map((r) => r['company_slug']);
+    expect(slugsReturned).toEqual(['a-2', 'a-3', 'a-4', 'a-5']);
+
+    const stats = (
+      results as { slugStats?: { total: number; failed: number; failedSlugs: string[] } }
+    ).slugStats;
+    expect(stats).toEqual({
+      total: 5,
+      failed: 1,
+      failedSlugs: ['ashby-500'],
+    });
+
+    warnSpy.mockRestore();
+  });
+
   it('all boards return 500 -> the run fails and increments consecutive_failures', async () => {
     const sourceStateMap = new Map<
       string,

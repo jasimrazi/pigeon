@@ -109,6 +109,13 @@ async function routeScoredJob(params: {
     }
   }
 
+  // If no stored match_score can be found (neither on the job row nor in the job_scored event)
+  // and scorer_failed is not set, do not route normally. Treat it exactly like scorer_failed:
+  // manual_review with route_reason SCORER_FAILED.
+  if (matchScore === null && !scorerFailed) {
+    scorerFailed = true;
+  }
+
   let redFlags: string[] = [];
   if (job.red_flags) {
     try {
