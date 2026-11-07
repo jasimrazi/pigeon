@@ -6,12 +6,15 @@ import path from 'node:path';
 import {
   APPLICATION_STATUSES,
   APPLICATION_TRANSITIONS,
+  JOB_STATUSES,
+  JOB_TRANSITIONS,
   IllegalTransitionError,
   canTransition,
   validateTransition,
   transition,
   type D1LikeDatabase,
   type ApplicationStatus,
+  type JobStatus,
 } from './state-machine.js';
 
 describe('State Machine - Application Transition Matrix', () => {
@@ -95,8 +98,68 @@ describe('State Machine - Application Transition Matrix', () => {
       validateTransition('application', 'sending', 'approved', 'app_1', 'invalid_reason'),
     ).toThrowError(IllegalTransitionError);
   });
+});
 
-  it('validates allowed job transitions', () => {
+describe('State Machine - Job Transition Matrix', () => {
+  // Independent literal declaration of the 10 expected job transitions
+  const EXPECTED_JOB_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
+    new: ['filtered_out', 'scored', 'skipped'],
+    scored: ['routed', 'skipped', 'filtered_out'],
+    routed: ['skipped'],
+    filtered_out: ['new', 'skipped'],
+    skipped: ['new'],
+  };
+
+  const allJobStatuses = JOB_STATUSES;
+
+  it('declares exactly 10 allowed job transitions in the expected literal (filtered_out -> scored removed)', () => {
+    const totalAllowed = Object.values(EXPECTED_JOB_TRANSITIONS).reduce(
+      (sum, targets) => sum + targets.length,
+      0,
+    );
+    expect(totalAllowed).toBe(10);
+  });
+
+  it('JOB_TRANSITIONS matches the independently declared literal exactly', () => {
+    expect(JOB_TRANSITIONS).toEqual(EXPECTED_JOB_TRANSITIONS);
+  });
+
+  it('validates every pair in the 5x5 matrix against the independent literal (10 allowed, 15 forbidden)', () => {
+    let allowedCount = 0;
+    let forbiddenCount = 0;
+
+    for (const from of allJobStatuses) {
+      const allowedTargets = EXPECTED_JOB_TRANSITIONS[from];
+      for (const to of allJobStatuses) {
+        const isAllowed = allowedTargets.includes(to);
+
+        if (isAllowed) {
+          allowedCount++;
+          expect(canTransition('job', from, to)).toBe(true);
+          expect(() => validateTransition('job', from, to, 'job_test')).not.toThrow();
+        } else {
+          forbiddenCount++;
+          expect(canTransition('job', from, to)).toBe(false);
+          expect(() => validateTransition('job', from, to, 'job_test')).toThrowError(
+            IllegalTransitionError,
+          );
+        }
+      }
+    }
+
+    expect(allowedCount).toBe(10);
+    expect(forbiddenCount).toBe(15);
+    expect(allowedCount + forbiddenCount).toBe(25);
+  });
+
+  it('explicitly forbids filtered_out -> scored to prevent skipping rule filters', () => {
+    expect(canTransition('job', 'filtered_out', 'scored')).toBe(false);
+    expect(() => validateTransition('job', 'filtered_out', 'scored', 'job_f')).toThrowError(
+      IllegalTransitionError,
+    );
+  });
+
+  it('validates allowed job transitions: new -> scored, new -> filtered_out, scored -> routed', () => {
     expect(canTransition('job', 'new', 'scored')).toBe(true);
     expect(canTransition('job', 'new', 'filtered_out')).toBe(true);
     expect(canTransition('job', 'scored', 'routed')).toBe(true);

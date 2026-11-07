@@ -44,7 +44,7 @@ export const JOB_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
   new: ['filtered_out', 'scored', 'skipped'],
   scored: ['routed', 'skipped', 'filtered_out'],
   routed: ['skipped'],
-  filtered_out: ['new', 'scored', 'skipped'],
+  filtered_out: ['new', 'skipped'],
   skipped: ['new'],
 };
 
