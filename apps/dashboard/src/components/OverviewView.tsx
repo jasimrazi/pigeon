@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Loader2, ArrowRight } from 'lucide-react';
 import { ConfirmationModal } from './ConfirmationModal.js';
+import { AlertBanner } from './ui/AlertBanner.js';
+import { MetricCard } from './ui/MetricCard.js';
+import { Button } from './ui/Button.js';
 
 interface OverviewData {
   sendsToday: number;
@@ -11,7 +15,7 @@ interface OverviewData {
   jobsByRoute: Record<string, number>;
   manualWaitingCount: number;
   authHealth: {
-    status: 'ok' | 'invalid';
+    status: 'ok' | 'invalid' | 'unknown';
     reason: string | null;
     checked_at: string | null;
   };
@@ -103,19 +107,20 @@ export function OverviewView({
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center py-20 text-gray-500 text-sm">
-        <span className="animate-spin mr-2">🔄</span> Loading system overview...
+      <div className="flex items-center justify-center py-20 text-fg-muted text-[14px] gap-2">
+        <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
+        <span>Loading system overview...</span>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm">
+      <div className="p-4 bg-state-danger-bg border border-state-danger-border rounded-[6px] text-state-danger-fg text-[14px]">
         <strong>Error:</strong> {error || 'Failed to load system metrics.'}
         <button
           onClick={() => void loadOverview()}
-          className="ml-4 underline font-medium hover:text-rose-900 cursor-pointer"
+          className="ml-4 underline font-medium hover:opacity-80 cursor-pointer"
         >
           Retry
         </button>
@@ -129,163 +134,134 @@ export function OverviewView({
     <div className="space-y-6">
       {/* Kill Switch Alert Banner */}
       {data.killSwitch && (
-        <div className="p-4 bg-rose-600 text-white rounded-xl shadow-sm flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <span className="text-2xl">🚨</span>
-            <div>
-              <h2 className="font-bold text-base">KILL SWITCH IS ACTIVE</h2>
-              <p className="text-xs text-rose-100">
-                All outbound emails are suspended immediately. Even approved applications will not
-                be sent.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              setTargetKsState(false);
-              setShowKsModal(true);
-            }}
-            disabled={actionLoading}
-            className="px-3.5 py-1.5 bg-white text-rose-700 font-semibold text-xs rounded-lg shadow-sm hover:bg-rose-50 cursor-pointer transition-colors"
-          >
-            Turn Off Kill Switch
-          </button>
-        </div>
+        <AlertBanner
+          variant="danger"
+          title="KILL SWITCH IS ACTIVE"
+          description="All outbound emails are suspended immediately. Even approved applications will not be sent."
+          action={
+            <Button
+              variant="destructive"
+              size="sm"
+              loading={actionLoading}
+              onClick={() => {
+                setTargetKsState(false);
+                setShowKsModal(true);
+              }}
+            >
+              Turn Off Kill Switch
+            </Button>
+          }
+        />
       )}
 
       {/* Auth Health Banner */}
-      <div
-        className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm ${
+      <AlertBanner
+        variant={isAuthInvalid ? 'danger' : 'ok'}
+        title={`Google Auth Health: ${isAuthInvalid ? 'Action Required' : 'Connected & Healthy'}`}
+        description={
           isAuthInvalid
-            ? 'bg-amber-50 border-amber-300 text-amber-900'
-            : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-        }`}
-      >
-        <div className="flex items-center space-x-3">
-          <span className="text-2xl">{isAuthInvalid ? '⚠️' : '✅'}</span>
-          <div>
-            <h3 className="font-semibold text-sm">
-              Google Auth Health: {isAuthInvalid ? 'Action Required' : 'Connected & Healthy'}
-            </h3>
-            <p className="text-xs mt-0.5 text-gray-600">
-              {isAuthInvalid
-                ? `Auth error: ${data.authHealth?.reason || 'OAuth token revoked or expired'}. Mail sending and Sheet sync are paused.`
-                : 'Gmail API and Google Sheets tokens are active with automatic refresh.'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-2">
+            ? `Auth error: ${data.authHealth?.reason || 'OAuth token revoked or expired'}. Mail sending and Sheet sync are paused.`
+            : 'Gmail API and Google Sheets tokens are active with automatic refresh.'
+        }
+        action={
           <a
             href={`${apiBase}/auth/google/start`}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer inline-flex items-center ${
+            className={`inline-flex items-center justify-center font-medium rounded-[6px] h-7 px-2.5 text-[13px] transition-colors ${
               isAuthInvalid
-                ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'
+                ? 'bg-state-danger-bg text-state-danger-fg border border-state-danger-border hover:opacity-90'
+                : 'bg-surface text-fg border border-border hover:bg-surface-subtle'
             }`}
           >
             {isAuthInvalid ? 'Reconnect Google Account' : 'Re-authenticate Google'}
           </a>
-        </div>
-      </div>
+        }
+      />
 
       {/* Key Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Sends Today vs Cap */}
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Today's Sends</span>
-            <span>✉️</span>
-          </div>
-          <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-3xl font-bold text-gray-900">{data.sendsToday}</span>
-            <span className="text-sm text-gray-500">/ {data.effectiveCap} cap</span>
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            Profile base cap: {data.dailyCap} (ramp/brake effective: {data.effectiveCap})
-          </p>
-        </div>
+        <MetricCard
+          label="Today's Sends"
+          value={
+            <span className="flex items-baseline gap-1.5">
+              <span>{data.sendsToday}</span>
+              <span className="text-[14px] font-normal text-fg-muted font-sans">
+                / {data.effectiveCap} cap
+              </span>
+            </span>
+          }
+          caption={`Profile base cap: ${data.dailyCap} (ramp/brake effective: ${data.effectiveCap})`}
+        />
 
         {/* Bounce Rate */}
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Bounce Rate</span>
-            <span>📉</span>
-          </div>
-          <div className="mt-2 flex items-baseline space-x-2">
-            <span
-              className={`text-3xl font-bold ${
-                data.bounceRate > 10 ? 'text-rose-600' : 'text-gray-900'
-              }`}
-            >
+        <MetricCard
+          label="Bounce Rate"
+          value={
+            <span className={data.bounceRate > 10 ? 'text-state-danger-fg' : 'text-fg'}>
               {data.bounceRate}%
             </span>
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            {data.bounceRate > 10
+          }
+          caption={
+            data.bounceRate > 10
               ? 'Warning: Bounce brake halves sending cap when >10%'
-              : 'Within safe delivery limits (<10%)'}
-          </p>
-        </div>
+              : 'Within safe delivery limits (<10%)'
+          }
+        />
 
         {/* 24h Failure Rate */}
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
-            <span>24h Failure Rate</span>
-            <span>⚠️</span>
-          </div>
-          <div className="mt-2 flex items-baseline space-x-2">
-            <span
-              className={`text-3xl font-bold ${
-                data.failureRate > 20 ? 'text-rose-600' : 'text-gray-900'
-              }`}
-            >
+        <MetricCard
+          label="24h Failure Rate"
+          value={
+            <span className={data.failureRate > 20 ? 'text-state-danger-fg' : 'text-fg'}>
               {data.failureRate}%
             </span>
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            {data.failureRate > 20
+          }
+          caption={
+            data.failureRate > 20
               ? 'Telegram alert triggers when send failure rate >20%'
-              : 'Normal system operation'}
-          </p>
-        </div>
+              : 'Normal system operation'
+          }
+        />
 
-        {/* Manual Items Waiting */}
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Manual Queue</span>
-            <span>📝</span>
+        {/* Manual Queue */}
+        <div className="bg-surface border border-border rounded-[6px] p-4 flex flex-col justify-between">
+          <div className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
+            Manual Queue
           </div>
-          <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-3xl font-bold text-gray-900">{data.manualWaitingCount}</span>
-            <span className="text-sm text-gray-500">waiting</span>
+          <div className="mt-2 text-[24px] font-semibold font-mono tabular-nums text-fg flex items-baseline gap-1.5">
+            <span>{data.manualWaitingCount}</span>
+            <span className="text-[14px] font-normal text-fg-muted font-sans">waiting</span>
           </div>
           <button
             onClick={() => onNavigateTab?.('manual-apply')}
-            className="mt-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 cursor-pointer"
+            className="mt-2 text-[12px] font-medium text-accent hover:underline cursor-pointer inline-flex items-center gap-1 self-start"
           >
-            Open Manual Apply Queue &rarr;
+            <span>Open Manual Apply Queue</span>
+            <ArrowRight size={12} strokeWidth={1.5} aria-hidden="true" />
           </button>
         </div>
       </div>
 
-      {/* Control Switches Card */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-        <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center space-x-2">
-          <span>⚙️</span>
-          <span>Operations Controls</span>
+      {/* Operations Controls */}
+      <div className="bg-surface p-5 rounded-[6px] border border-border">
+        <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-4">
+          Operations Controls
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* DRY_RUN toggle */}
-          <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-lg border border-gray-100">
+          {/* DRY_RUN toggle row */}
+          <div className="flex items-center justify-between p-3.5 bg-surface-subtle rounded-[6px] border border-border-subtle">
             <div>
-              <span className="font-semibold text-sm text-gray-800">DRY_RUN Mode</span>
-              <p className="text-xs text-gray-500">
+              <span className="font-semibold text-[14px] text-fg block">DRY_RUN Mode</span>
+              <p className="text-[12px] text-fg-muted mt-0.5">
                 {data.dryRun
                   ? 'Active: Outgoing emails are simulated and not sent to recipients'
                   : 'Live: Real emails are transmitted via Gmail API'}
               </p>
             </div>
-            <button
+            <Button
+              variant={data.dryRun ? 'secondary' : 'primary'}
+              size="sm"
+              loading={actionLoading}
               onClick={() => {
                 if (data.dryRun) {
                   setShowDryRunModal(true);
@@ -293,41 +269,32 @@ export function OverviewView({
                   void handleToggleDryRun(true);
                 }
               }}
-              disabled={actionLoading}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                data.dryRun
-                  ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                  : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-              }`}
             >
               {data.dryRun ? 'DRY RUN: ON' : 'LIVE SENDING: ON'}
-            </button>
+            </Button>
           </div>
 
-          {/* Kill Switch Toggle */}
-          <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-lg border border-gray-100">
+          {/* Kill Switch Toggle row */}
+          <div className="flex items-center justify-between p-3.5 bg-surface-subtle rounded-[6px] border border-border-subtle">
             <div>
-              <span className="font-semibold text-sm text-gray-800">Kill Switch</span>
-              <p className="text-xs text-gray-500">
+              <span className="font-semibold text-[14px] text-fg block">Kill Switch</span>
+              <p className="text-[12px] text-fg-muted mt-0.5">
                 {data.killSwitch
                   ? 'Active: All sends blocked immediately'
                   : 'Standby: Send workers operate according to profile settings'}
               </p>
             </div>
-            <button
+            <Button
+              variant={data.killSwitch ? 'destructive' : 'secondary'}
+              size="sm"
+              loading={actionLoading}
               onClick={() => {
                 setTargetKsState(!data.killSwitch);
                 setShowKsModal(true);
               }}
-              disabled={actionLoading}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                data.killSwitch
-                  ? 'bg-rose-600 text-white hover:bg-rose-700'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
             >
               {data.killSwitch ? 'KILL SWITCH: ACTIVE' : 'KILL SWITCH: OFF'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -335,19 +302,21 @@ export function OverviewView({
       {/* Jobs by Status & Jobs by Route */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Jobs by Status */}
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-bold text-gray-900 mb-3">Jobs by Status</h3>
-          <div className="space-y-2">
+        <div className="bg-surface p-5 rounded-[6px] border border-border">
+          <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-3">
+            Jobs by Status
+          </h3>
+          <div className="space-y-1.5">
             {Object.keys(data.jobsByStatus).length === 0 ? (
-              <p className="text-xs text-gray-400">No jobs ingested yet.</p>
+              <p className="text-[13px] text-fg-muted py-2">No jobs ingested yet.</p>
             ) : (
               Object.entries(data.jobsByStatus).map(([status, count]) => (
                 <div
                   key={status}
-                  className="flex items-center justify-between py-1.5 px-3 bg-gray-50 rounded-lg text-xs"
+                  className="flex items-center justify-between py-1.5 px-3 bg-surface-subtle rounded-[4px] text-[13px]"
                 >
-                  <span className="font-mono text-gray-700">{status}</span>
-                  <span className="font-bold text-gray-900">{count}</span>
+                  <span className="font-mono text-fg">{status}</span>
+                  <span className="font-mono font-semibold tabular-nums text-fg">{count}</span>
                 </div>
               ))
             )}
@@ -355,19 +324,21 @@ export function OverviewView({
         </div>
 
         {/* Jobs by Route */}
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-          <h3 className="text-sm font-bold text-gray-900 mb-3">Jobs by Apply Route</h3>
-          <div className="space-y-2">
+        <div className="bg-surface p-5 rounded-[6px] border border-border">
+          <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-3">
+            Jobs by Apply Route
+          </h3>
+          <div className="space-y-1.5">
             {Object.keys(data.jobsByRoute).length === 0 ? (
-              <p className="text-xs text-gray-400">No routed jobs yet.</p>
+              <p className="text-[13px] text-fg-muted py-2">No routed jobs yet.</p>
             ) : (
               Object.entries(data.jobsByRoute).map(([route, count]) => (
                 <div
                   key={route}
-                  className="flex items-center justify-between py-1.5 px-3 bg-gray-50 rounded-lg text-xs"
+                  className="flex items-center justify-between py-1.5 px-3 bg-surface-subtle rounded-[4px] text-[13px]"
                 >
-                  <span className="font-mono text-gray-700">{route}</span>
-                  <span className="font-bold text-gray-900">{count}</span>
+                  <span className="font-mono text-fg">{route}</span>
+                  <span className="font-mono font-semibold tabular-nums text-fg">{count}</span>
                 </div>
               ))
             )}

@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Profile } from '@pigeon/shared';
+import { Loader2, Mail, Moon, Palette, Shield, Sliders, Sun, SunMoon, User } from 'lucide-react';
 import { ConfirmationModal } from './ConfirmationModal.js';
+import { Button } from './ui/Button.js';
+import { getStoredTheme, setStoredTheme, type ThemePreference } from '../theme.js';
 
 interface SettingsData {
   ok: boolean;
@@ -23,6 +26,7 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null,
   );
+  const [themePref, setThemePref] = useState<ThemePreference>('system');
 
   // Kill Switch & Dry Run modal state
   const [showKsModal, setShowKsModal] = useState(false);
@@ -43,6 +47,16 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
   const [autoApproveScore, setAutoApproveScore] = useState(85);
   const [titleFiltersText, setTitleFiltersText] = useState('');
   const [companyBlacklistText, setCompanyBlacklistText] = useState('');
+
+  // Initialize theme from storage
+  useEffect(() => {
+    setThemePref(getStoredTheme());
+  }, []);
+
+  const handleThemeChange = (newPref: ThemePreference) => {
+    setThemePref(newPref);
+    setStoredTheme(newPref);
+  };
 
   const loadSettings = useCallback(async () => {
     try {
@@ -118,24 +132,24 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
     }
   };
 
-  const handleToggleDryRun = async (activate: boolean, confirmed = false) => {
+  const handleToggleDryRun = async (isDryRun: boolean, confirmed = false) => {
     try {
       setSaving(true);
       const res = await fetch(`${apiBase}/api/settings/dry-run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dry_run: activate, confirmed: activate ? true : confirmed }),
+        body: JSON.stringify({ dry_run: isDryRun, confirmed: isDryRun ? true : confirmed }),
       });
       if (!res.ok) {
         const errJson = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(errJson.error || `Failed to update DRY_RUN (${res.status})`);
       }
-      setDryRun(activate);
+      setDryRun(isDryRun);
       setFeedback({
         type: 'success',
-        message: activate
-          ? 'DRY_RUN mode enabled: emails will not be sent to real mailboxes.'
-          : 'LIVE mode enabled: emails will be dispatched to real recipient inboxes.',
+        message: isDryRun
+          ? 'DRY_RUN enabled: emails will be simulated and not transmitted.'
+          : 'LIVE dispatch enabled: approved emails will send to actual recipients.',
       });
       onRefresh?.();
     } catch (err) {
@@ -145,76 +159,61 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
       });
     } finally {
       setSaving(false);
-      setShowDryRunModal(false);
     }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile) return;
-
     try {
       setSaving(true);
       setFeedback(null);
 
-      const parsedSkills = skillsText
+      const skills = skillsText
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
-
-      const parsedTitles = titleFiltersText
+      const titles = titleFiltersText
         .split(',')
-        .map((s) => s.trim())
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const companyBlacklist = companyBlacklistText
+        .split(',')
+        .map((c) => c.trim())
         .filter(Boolean);
 
-      const parsedBlacklist = companyBlacklistText
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const updatedProfile: Profile = {
-        ...profile,
-        name: name.trim(),
-        email: email.trim(),
-        skills: parsedSkills,
+      const payload = {
+        name,
+        email,
+        skills,
         send_settings: {
           daily_cap: Number(dailyCap),
           ramp_base: Number(rampBase),
           ramp_step: Number(rampStep),
           window: {
-            start: windowStart.trim(),
-            end: windowEnd.trim(),
+            start: windowStart,
+            end: windowEnd,
           },
-          timezone: timezone.trim(),
+          timezone,
           auto_approve_above_score: Number(autoApproveScore),
-          max_follow_ups: profile.send_settings?.max_follow_ups ?? 1,
         },
         filters: {
-          ...profile.filters,
-          titles: parsedTitles,
-          company_blacklist: parsedBlacklist,
+          titles,
+          company_blacklist: companyBlacklist,
           min_score: Number(minScore),
-          locations: profile.filters?.locations ?? ['Remote'],
         },
       };
 
       const res = await fetch(`${apiBase}/api/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile: updatedProfile }),
+        body: JSON.stringify(payload),
       });
-
       if (!res.ok) {
         const errJson = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(errJson.error || `Failed to save profile (${res.status})`);
+        throw new Error(errJson.error || `Failed to save settings (${res.status})`);
       }
 
-      const resData = (await res.json()) as { ok: boolean; profile: Profile };
-      setProfile(resData.profile);
-      setFeedback({
-        type: 'success',
-        message: 'Profile and send settings saved successfully!',
-      });
+      setFeedback({ type: 'success', message: 'Settings saved successfully.' });
       onRefresh?.();
     } catch (err) {
       setFeedback({
@@ -228,8 +227,9 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
 
   if (loading && !profile) {
     return (
-      <div className="flex items-center justify-center py-20 text-gray-500 text-sm">
-        <span className="animate-spin mr-2">🔄</span> Loading configuration settings...
+      <div className="flex items-center justify-center py-20 text-fg-muted text-[14px] gap-2">
+        <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
+        <span>Loading configuration settings...</span>
       </div>
     );
   }
@@ -237,82 +237,151 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-        <h2 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-          <span>⚙️</span>
-          <span>System Settings & Operational Controls</span>
-        </h2>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Configure profile facts, sending caps, ramp-up schedule, send window, and safety gates.
+      <div className="bg-surface p-5 rounded-[6px] border border-border">
+        <div className="flex items-center gap-2">
+          <Sliders
+            size={16}
+            strokeWidth={1.5}
+            className="text-fg-muted shrink-0"
+            aria-hidden="true"
+          />
+          <h2 className="text-[16px] font-semibold text-fg">
+            System Settings & Operational Controls
+          </h2>
+        </div>
+        <p className="text-[13px] text-fg-muted mt-1">
+          Configure profile facts, appearance theme, sending caps, ramp-up schedule, and safety
+          gates.
         </p>
       </div>
 
       {feedback && (
         <div
-          className={`p-3.5 rounded-xl border text-xs font-medium ${
+          className={`p-3.5 rounded-[6px] border text-[13px] font-medium ${
             feedback.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
+              ? 'bg-state-ok-bg border-state-ok-border text-state-ok-fg'
+              : 'bg-state-danger-bg border-state-danger-border text-state-danger-fg'
           }`}
         >
           {feedback.message}
         </div>
       )}
 
+      {/* Appearance & Theme Selector */}
+      <div className="bg-surface p-5 rounded-[6px] border border-border space-y-3">
+        <div className="flex items-center gap-2 border-b border-border pb-2">
+          <Palette
+            size={16}
+            strokeWidth={1.5}
+            className="text-fg-muted shrink-0"
+            aria-hidden="true"
+          />
+          <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
+            Appearance & Theme
+          </h3>
+        </div>
+        <div className="flex flex-wrap gap-3 pt-1">
+          <button
+            type="button"
+            onClick={() => handleThemeChange('system')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-[6px] border text-[13px] font-medium cursor-pointer transition-colors ${
+              themePref === 'system'
+                ? 'bg-surface-subtle border-accent text-fg ring-1 ring-accent'
+                : 'bg-surface border-border text-fg-muted hover:text-fg hover:bg-surface-subtle'
+            }`}
+          >
+            <SunMoon size={14} strokeWidth={1.5} aria-hidden="true" />
+            <span>System Default</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleThemeChange('light')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-[6px] border text-[13px] font-medium cursor-pointer transition-colors ${
+              themePref === 'light'
+                ? 'bg-surface-subtle border-accent text-fg ring-1 ring-accent'
+                : 'bg-surface border-border text-fg-muted hover:text-fg hover:bg-surface-subtle'
+            }`}
+          >
+            <Sun size={14} strokeWidth={1.5} aria-hidden="true" />
+            <span>Light Theme</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleThemeChange('dark')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-[6px] border text-[13px] font-medium cursor-pointer transition-colors ${
+              themePref === 'dark'
+                ? 'bg-surface-subtle border-accent text-fg ring-1 ring-accent'
+                : 'bg-surface border-border text-fg-muted hover:text-fg hover:bg-surface-subtle'
+            }`}
+          >
+            <Moon size={14} strokeWidth={1.5} aria-hidden="true" />
+            <span>Dark Theme</span>
+          </button>
+        </div>
+      </div>
+
       {/* Safety Gates Card */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-        <h3 className="text-sm font-bold text-gray-900 border-b pb-2 flex items-center space-x-2">
-          <span>🛡️</span>
-          <span>Safety Gates & Emergency Controls</span>
-        </h3>
+      <div className="bg-surface p-5 rounded-[6px] border border-border space-y-4">
+        <div className="flex items-center gap-2 border-b border-border pb-2">
+          <Shield
+            size={16}
+            strokeWidth={1.5}
+            className="text-fg-muted shrink-0"
+            aria-hidden="true"
+          />
+          <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
+            Safety Gates & Emergency Controls
+          </h3>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Kill Switch Toggle */}
           <div
-            className={`p-4 rounded-xl border ${
-              killSwitch ? 'bg-rose-50 border-rose-300' : 'bg-gray-50 border-gray-200'
+            className={`p-4 rounded-[6px] border ${
+              killSwitch
+                ? 'bg-state-danger-bg border-state-danger-border'
+                : 'bg-surface-subtle border-border'
             }`}
           >
             <div className="flex items-start justify-between">
               <div>
-                <span className="font-bold text-sm text-gray-900">Kill Switch</span>
-                <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                <span className="font-semibold text-[14px] text-fg block">Kill Switch</span>
+                <p className="text-[12px] text-fg-muted mt-1 leading-relaxed">
                   Stored directly in KV. Checked dynamically before every email send attempt. When
                   active, no applications will be dispatched under any circumstances.
                 </p>
               </div>
             </div>
             <div className="mt-4">
-              <button
-                type="button"
+              <Button
+                variant={killSwitch ? 'destructive' : 'secondary'}
+                size="md"
+                loading={saving}
                 onClick={() => {
                   setTargetKsState(!killSwitch);
                   setShowKsModal(true);
                 }}
-                disabled={saving}
-                className={`w-full py-2 px-4 rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer ${
-                  killSwitch
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white'
-                    : 'bg-gray-800 hover:bg-gray-900 text-white'
-                }`}
+                className="w-full"
               >
-                {killSwitch ? '🚨 KILL SWITCH IS ACTIVE (Click to Disarm)' : 'Activate Kill Switch'}
-              </button>
+                {killSwitch ? 'KILL SWITCH IS ACTIVE (Click to Disarm)' : 'Activate Kill Switch'}
+              </Button>
             </div>
           </div>
 
           {/* DRY RUN Toggle */}
-          <div className="p-4 rounded-xl border bg-gray-50 border-gray-200">
+          <div className="p-4 rounded-[6px] border bg-surface-subtle border-border">
             <div>
-              <span className="font-bold text-sm text-gray-900">DRY_RUN Mode</span>
-              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              <span className="font-semibold text-[14px] text-fg block">DRY_RUN Mode</span>
+              <p className="text-[12px] text-fg-muted mt-1 leading-relaxed">
                 When enabled, applications simulate the send pipeline without connecting to
                 recipient mailboxes.
               </p>
             </div>
             <div className="mt-4">
-              <button
-                type="button"
+              <Button
+                variant={dryRun ? 'secondary' : 'primary'}
+                size="md"
+                loading={saving}
                 onClick={() => {
                   if (dryRun) {
                     setShowDryRunModal(true);
@@ -320,15 +389,10 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
                     void handleToggleDryRun(true);
                   }
                 }}
-                disabled={saving}
-                className={`w-full py-2 px-4 rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer ${
-                  dryRun
-                    ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                }`}
+                className="w-full"
               >
                 {dryRun ? 'DRY_RUN: ENABLED (Simulation)' : 'LIVE DISPATCH: ACTIVE'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -337,204 +401,254 @@ export function SettingsView({ apiBase = '', onRefresh }: Props): React.JSX.Elem
       {/* Profile & Send Settings Form */}
       <form
         onSubmit={handleSaveProfile}
-        className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6"
+        className="bg-surface p-6 rounded-[6px] border border-border space-y-6"
       >
-        <h3 className="text-sm font-bold text-gray-900 border-b pb-2 flex items-center space-x-2">
-          <span>👤</span>
-          <span>Profile & Candidate Information</span>
-        </h3>
+        <div className="flex items-center gap-2 border-b border-border pb-2">
+          <User size={16} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
+          <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
+            Profile & Candidate Information
+          </h3>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="candidate-name-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Candidate Full Name
             </label>
             <input
+              id="candidate-name-input"
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="candidate-email-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Email Address
             </label>
             <input
+              id="candidate-email-input"
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+          <label
+            htmlFor="candidate-skills-input"
+            className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+          >
             Skills (comma-separated, strictly grounded in cover letters)
           </label>
           <input
+            id="candidate-skills-input"
             type="text"
             value={skillsText}
             onChange={(e) => setSkillsText(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             placeholder="TypeScript, Cloudflare Workers, Distributed Systems, Node.js"
           />
         </div>
 
-        <h3 className="text-sm font-bold text-gray-900 border-b pb-2 pt-2 flex items-center space-x-2">
-          <span>📨</span>
-          <span>Sending Rules & Schedule</span>
-        </h3>
+        <div className="flex items-center gap-2 border-b border-border pb-2 pt-2">
+          <Mail size={16} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
+          <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
+            Sending Rules & Schedule
+          </h3>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="daily-cap-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Daily Send Cap (1 - 200)
             </label>
             <input
+              id="daily-cap-input"
               type="number"
               min={1}
               max={200}
               required
               value={dailyCap}
               onChange={(e) => setDailyCap(Number(e.target.value))}
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="ramp-base-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Ramp Base (initial daily cap)
             </label>
             <input
+              id="ramp-base-input"
               type="number"
               min={1}
               value={rampBase}
               onChange={(e) => setRampBase(Number(e.target.value))}
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="ramp-step-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Ramp Step (+sends per day)
             </label>
             <input
+              id="ramp-step-input"
               type="number"
               min={1}
               value={rampStep}
               onChange={(e) => setRampStep(Number(e.target.value))}
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="window-start-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Window Start (HH:MM)
             </label>
             <input
+              id="window-start-input"
               type="text"
               required
               pattern="^([01]\d|2[0-3]):[0-5]\d$"
               value={windowStart}
               onChange={(e) => setWindowStart(e.target.value)}
               placeholder="09:00"
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="window-end-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Window End (HH:MM)
             </label>
             <input
+              id="window-end-input"
               type="text"
               required
               pattern="^([01]\d|2[0-3]):[0-5]\d$"
               value={windowEnd}
               onChange={(e) => setWindowEnd(e.target.value)}
               placeholder="18:00"
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">Timezone</label>
+            <label
+              htmlFor="timezone-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
+              Timezone
+            </label>
             <input
+              id="timezone-input"
               type="text"
               required
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
               placeholder="UTC or Asia/Kolkata"
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="min-score-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Minimum Score Threshold (0 - 100)
             </label>
             <input
+              id="min-score-input"
               type="number"
               min={0}
               max={100}
               value={minScore}
               onChange={(e) => setMinScore(Number(e.target.value))}
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
-            <p className="text-[11px] text-gray-400 mt-1">
+            <p className="text-[11px] text-fg-muted mt-1">
               Jobs with fit score below min_score are filtered out during evaluation.
             </p>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="auto-approve-score-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Auto-Approve Threshold Score (0 - 100)
             </label>
             <input
+              id="auto-approve-score-input"
               type="number"
               min={0}
               max={100}
               value={autoApproveScore}
               onChange={(e) => setAutoApproveScore(Number(e.target.value))}
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
-            <p className="text-[11px] text-gray-400 mt-1">
+            <p className="text-[11px] text-fg-muted mt-1">
               Applications with match score above this threshold and trusted contact are eligible
               for safe bulk approval.
             </p>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+            <label
+              htmlFor="company-blacklist-input"
+              className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+            >
               Company Blacklist (comma-separated)
             </label>
             <input
+              id="company-blacklist-input"
               type="text"
               value={companyBlacklistText}
               onChange={(e) => setCompanyBlacklistText(e.target.value)}
               placeholder="SpamCorp, BadCo, UnwantedVentures"
-              className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
           </div>
         </div>
 
-        <div className="pt-4 border-t flex items-center justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-sm cursor-pointer disabled:opacity-50 transition-colors"
-          >
+        <div className="pt-4 border-t border-border flex items-center justify-end">
+          <Button variant="primary" size="md" loading={saving} type="submit">
             {saving ? 'Saving Settings...' : 'Save Settings'}
-          </button>
+          </Button>
         </div>
       </form>
 

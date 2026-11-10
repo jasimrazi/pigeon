@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { FolderX, Layers, Loader2, Search } from 'lucide-react';
+import { Button } from './ui/Button.js';
+import { StatusChip } from './ui/StatusChip.js';
 
 export interface ApplicationItem {
   id: string;
@@ -101,62 +104,52 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'interview':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'offer':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      case 'sent':
-      case 'applied':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'replied':
-        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
-      case 'draft':
-      case 'manual_pending':
-        return 'bg-amber-100 text-amber-800 border-amber-200';
-      case 'needs_review':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'bounced':
-      case 'rejected':
-      case 'failed':
-        return 'bg-rose-100 text-rose-800 border-rose-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header & Filter Controls */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+      <div className="bg-surface p-5 rounded-[6px] border border-border space-y-4">
         <div>
-          <h2 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-            <span>🗂️</span>
-            <span>All Applications</span>
-            <span className="text-xs bg-gray-100 text-gray-600 font-semibold px-2 py-0.5 rounded-full">
+          <div className="flex items-center gap-2">
+            <Layers
+              size={16}
+              strokeWidth={1.5}
+              className="text-fg-muted shrink-0"
+              aria-hidden="true"
+            />
+            <h2 className="text-[16px] font-semibold text-fg">All Applications</h2>
+            <span className="text-[12px] bg-surface-subtle text-fg-muted font-medium font-mono tabular-nums px-2 py-0.5 rounded-[4px] border border-border">
               {apps.length}
             </span>
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          </div>
+          <p className="text-[13px] text-fg-muted mt-1">
             Search, filter by route and status, and record responses and interview outcomes.
           </p>
         </div>
 
         {/* Filter Inputs Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-          <input
-            type="text"
-            placeholder="Search company or title..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
+          <div className="relative">
+            <Search
+              size={14}
+              strokeWidth={1.5}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none"
+              aria-hidden="true"
+            />
+            <input
+              type="text"
+              aria-label="Search company or title"
+              placeholder="Search company or title..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full text-[13px] pl-8 pr-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+          </div>
 
           <select
+            aria-label="Filter by application status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">All Statuses</option>
             <option value="draft">Draft</option>
@@ -173,9 +166,10 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
           </select>
 
           <select
+            aria-label="Filter by application channel"
             value={channelFilter}
             onChange={(e) => setChannelFilter(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">All Channels</option>
             <option value="email">Email</option>
@@ -183,9 +177,10 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
           </select>
 
           <select
+            aria-label="Filter by job source"
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">All Sources</option>
             <option value="greenhouse">Greenhouse</option>
@@ -201,84 +196,82 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
       </div>
 
       {/* Applications Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-surface rounded-[6px] border border-border overflow-hidden">
         {loading && apps.length === 0 ? (
-          <div className="p-12 text-center text-xs text-gray-400">Loading applications...</div>
+          <div className="p-12 text-center text-[13px] text-fg-muted flex items-center justify-center gap-2">
+            <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
+            <span>Loading applications...</span>
+          </div>
         ) : error ? (
-          <div className="p-4 bg-rose-50 text-rose-700 text-xs">{error}</div>
+          <div className="p-4 bg-state-danger-bg text-state-danger-fg text-[13px]">{error}</div>
         ) : apps.length === 0 ? (
-          <div className="p-12 text-center text-xs text-gray-500">
-            No applications match your filter criteria.
+          <div className="p-12 text-center">
+            <FolderX
+              size={24}
+              strokeWidth={1.5}
+              className="mx-auto text-fg-muted mb-2"
+              aria-hidden="true"
+            />
+            <div className="text-[14px] font-medium text-fg">
+              No applications match your filter criteria.
+            </div>
+            <p className="text-[12px] text-fg-muted mt-1">Try clearing filters or search terms.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase font-semibold">
-                  <th className="py-3 px-4">Company & Role</th>
-                  <th className="py-3 px-4">Channel</th>
-                  <th className="py-3 px-4">Source</th>
-                  <th className="py-3 px-4">Score</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+          <div className="overflow-x-auto max-h-[640px]">
+            <table className="w-full text-left border-collapse text-[13px]">
+              <thead className="sticky top-0 bg-surface-subtle border-b border-border z-10">
+                <tr className="text-fg-muted uppercase text-[11px] font-medium tracking-wider">
+                  <th className="py-2.5 px-4">Company & Role</th>
+                  <th className="py-2.5 px-4">Channel</th>
+                  <th className="py-2.5 px-4">Source</th>
+                  <th className="py-2.5 px-4">Score</th>
+                  <th className="py-2.5 px-4">Status</th>
+                  <th className="py-2.5 px-4">Date</th>
+                  <th className="py-2.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-border-subtle">
                 {apps.map((app) => (
-                  <tr key={app.id} className="hover:bg-gray-50/70 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-gray-900">{app.company}</div>
-                      <div className="text-gray-600 truncate max-w-xs">{app.title}</div>
+                  <tr key={app.id} className="hover:bg-surface-subtle/50 transition-colors">
+                    <td className="py-2.5 px-4">
+                      <div className="font-semibold text-fg">{app.company}</div>
+                      <div className="text-fg-muted truncate max-w-xs">{app.title}</div>
                       {app.location && (
-                        <div className="text-[11px] text-gray-400">{app.location}</div>
+                        <div className="text-[11px] text-fg-muted font-mono">{app.location}</div>
                       )}
                     </td>
 
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase ${
-                          app.channel === 'email'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        }`}
-                      >
+                    <td className="py-2.5 px-4">
+                      <span className="font-mono text-[12px] uppercase text-fg-muted">
                         {app.channel}
                       </span>
                     </td>
 
-                    <td className="py-3 px-4 text-gray-600 font-mono text-[11px]">{app.source}</td>
+                    <td className="py-2.5 px-4 text-fg-muted font-mono text-[12px]">
+                      {app.source}
+                    </td>
 
-                    <td className="py-3 px-4">
-                      <span className="font-bold text-gray-900">
+                    <td className="py-2.5 px-4">
+                      <span className="font-mono tabular-nums font-semibold text-fg">
                         {app.match_score !== null ? `${app.match_score}%` : '—'}
                       </span>
                     </td>
 
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${getStatusBadge(
-                          app.status,
-                        )}`}
-                      >
-                        {app.status}
-                      </span>
+                    <td className="py-2.5 px-4">
+                      <StatusChip status={app.status} size="sm" />
                     </td>
 
-                    <td className="py-3 px-4 text-gray-500 text-[11px]">
+                    <td className="py-2.5 px-4 text-fg-muted font-mono tabular-nums text-[12px]">
                       {app.sent_at || app.applied_at
                         ? new Date(app.sent_at || app.applied_at || '').toLocaleDateString()
                         : new Date(app.updated_at).toLocaleDateString()}
                     </td>
 
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedApp(app)}
-                        className="px-2.5 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors"
-                      >
+                    <td className="py-2.5 px-4 text-right">
+                      <Button variant="ghost" size="xs" onClick={() => setSelectedApp(app)}>
                         Record Outcome
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -290,66 +283,76 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
 
       {/* Record Outcome Modal */}
       {selectedApp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-gray-100">
-            <h3 className="text-base font-bold text-gray-900">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+        >
+          <div className="bg-surface rounded-[6px] max-w-md w-full p-6 border border-border shadow-sm">
+            <h3 className="text-[16px] font-semibold text-fg">
               Record Outcome: {selectedApp.company}
             </h3>
-            <p className="text-xs text-gray-500 mt-1">
-              Position: <span className="font-medium text-gray-700">{selectedApp.title}</span>
+            <p className="text-[13px] text-fg-muted mt-1">
+              Position: <span className="font-medium text-fg">{selectedApp.title}</span>
             </p>
 
             <div className="mt-4 space-y-3">
               <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                <label
+                  htmlFor="outcome-choice-select"
+                  className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+                >
                   Outcome Type
                 </label>
                 <select
+                  id="outcome-choice-select"
+                  aria-label="Outcome Type"
                   value={outcomeChoice}
                   onChange={(e) =>
                     setOutcomeChoice(
                       e.target.value as 'replied' | 'interview' | 'rejected' | 'offer',
                     )
                   }
-                  className="w-full text-xs p-2.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  <option value="interview">🎉 Interview Scheduled</option>
-                  <option value="replied">💬 Recruiter Replied</option>
-                  <option value="offer">🏆 Offer Received</option>
-                  <option value="rejected">❌ Rejection</option>
+                  <option value="interview">Interview Scheduled</option>
+                  <option value="replied">Recruiter Replied</option>
+                  <option value="offer">Offer Received</option>
+                  <option value="rejected">Rejection</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                <label
+                  htmlFor="outcome-notes-input"
+                  className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+                >
                   Notes (optional)
                 </label>
                 <textarea
+                  id="outcome-notes-input"
+                  aria-label="Notes"
                   rows={3}
                   value={outcomeNotes}
                   onChange={(e) => setOutcomeNotes(e.target.value)}
                   placeholder="e.g. Technical round scheduled for next Tuesday with engineering director"
-                  className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-[13px] p-2.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent leading-relaxed"
                 />
               </div>
             </div>
 
-            <div className="mt-6 flex items-center justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => setSelectedApp(null)}
-                className="px-3.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer"
-              >
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setSelectedApp(null)}>
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                loading={savingOutcome}
                 onClick={() => void handleRecordOutcome()}
-                disabled={savingOutcome}
-                className="px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer disabled:opacity-50"
               >
-                {savingOutcome ? 'Saving...' : 'Save Outcome'}
-              </button>
+                Save Outcome
+              </Button>
             </div>
           </div>
         </div>

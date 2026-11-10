@@ -1,1 +1,181 @@
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+
 @import 'tailwindcss';
+
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-subtle: #f1f5f9;
+  --surface-hover: #f8fafc;
+  --border: #e2e8f0;
+  --border-subtle: #edf2f7;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --accent: #1e3a8a;
+  --accent-hover: #172554;
+  --accent-fg: #ffffff;
+
+  --state-ok-bg: #ecfdf5;
+  --state-ok-fg: #065f46;
+  --state-ok-border: #a7f3d0;
+
+  --state-warn-bg: #fffbeb;
+  --state-warn-fg: #92400e;
+  --state-warn-border: #fde68a;
+
+  --state-danger-bg: #fef2f2;
+  --state-danger-fg: #991b1b;
+  --state-danger-border: #fecaca;
+
+  --state-unknown-bg: #f1f5f9;
+  --state-unknown-fg: #475569;
+  --state-unknown-border: #cbd5e1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0b0d11;
+    --surface: #14171d;
+    --surface-subtle: #1c2028;
+    --surface-hover: #1f242e;
+    --border: #2d333f;
+    --border-subtle: #232832;
+    --text: #f3f4f6;
+    --text-muted: #9ca3af;
+    --accent: #60a5fa;
+    --accent-hover: #3b82f6;
+    --accent-fg: #0b0d11;
+
+    --state-ok-bg: #06281e;
+    --state-ok-fg: #34d399;
+    --state-ok-border: #0d543f;
+
+    --state-warn-bg: #2a1d08;
+    --state-warn-fg: #fbbf24;
+    --state-warn-border: #573b0f;
+
+    --state-danger-bg: #2d0f11;
+    --state-danger-fg: #f87171;
+    --state-danger-border: #5c1e22;
+
+    --state-unknown-bg: #1c2028;
+    --state-unknown-fg: #9ca3af;
+    --state-unknown-border: #323946;
+  }
+}
+
+[data-theme='dark'] {
+  --bg: #0b0d11;
+  --surface: #14171d;
+  --surface-subtle: #1c2028;
+  --surface-hover: #1f242e;
+  --border: #2d333f;
+  --border-subtle: #232832;
+  --text: #f3f4f6;
+  --text-muted: #9ca3af;
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --accent-fg: #0b0d11;
+
+  --state-ok-bg: #06281e;
+  --state-ok-fg: #34d399;
+  --state-ok-border: #0d543f;
+
+  --state-warn-bg: #2a1d08;
+  --state-warn-fg: #fbbf24;
+  --state-warn-border: #573b0f;
+
+  --state-danger-bg: #2d0f11;
+  --state-danger-fg: #f87171;
+  --state-danger-border: #5c1e22;
+
+  --state-unknown-bg: #1c2028;
+  --state-unknown-fg: #9ca3af;
+  --state-unknown-border: #323946;
+}
+
+[data-theme='light'] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-subtle: #f1f5f9;
+  --surface-hover: #f8fafc;
+  --border: #e2e8f0;
+  --border-subtle: #edf2f7;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --accent: #1e3a8a;
+  --accent-hover: #172554;
+  --accent-fg: #ffffff;
+
+  --state-ok-bg: #ecfdf5;
+  --state-ok-fg: #065f46;
+  --state-ok-border: #a7f3d0;
+
+  --state-warn-bg: #fffbeb;
+  --state-warn-fg: #92400e;
+  --state-warn-border: #fde68a;
+
+  --state-danger-bg: #fef2f2;
+  --state-danger-fg: #991b1b;
+  --state-danger-border: #fecaca;
+
+  --state-unknown-bg: #f1f5f9;
+  --state-unknown-fg: #475569;
+  --state-unknown-border: #cbd5e1;
+}
+
+@theme {
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --color-canvas: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-fg: var(--text);
+  --color-fg-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+
+  --color-state-ok-bg: var(--state-ok-bg);
+  --color-state-ok-fg: var(--state-ok-fg);
+  --color-state-ok-border: var(--state-ok-border);
+
+  --color-state-warn-bg: var(--state-warn-bg);
+  --color-state-warn-fg: var(--state-warn-fg);
+  --color-state-warn-border: var(--state-warn-border);
+
+  --color-state-danger-bg: var(--state-danger-bg);
+  --color-state-danger-fg: var(--state-danger-fg);
+  --color-state-danger-border: var(--state-danger-border);
+
+  --color-state-unknown-bg: var(--state-unknown-bg);
+  --color-state-unknown-fg: var(--state-unknown-fg);
+  --color-state-unknown-border: var(--state-unknown-border);
+
+  --radius-ops: 6px;
+}
+
+html,
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

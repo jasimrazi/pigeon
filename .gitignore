@@ -54,6 +54,8 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+screenshots/
+**/screenshots/
 
 # IDE and Editor files
 .vscode/*

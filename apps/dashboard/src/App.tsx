@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Layers, Menu, X } from 'lucide-react';
 import { OverviewView } from './components/OverviewView.js';
 import { ReviewQueueView } from './components/ReviewQueueView.js';
 import { ManualQueueView } from './components/ManualQueueView.js';
@@ -19,6 +20,7 @@ export function App(): React.JSX.Element {
   const [authHealth, setAuthHealth] = useState<'ok' | 'invalid' | 'unknown' | null>(null);
   const [showKsModal, setShowKsModal] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const loadHeaderStatus = useCallback(async () => {
     try {
@@ -70,77 +72,88 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
-    { key: 'overview', label: 'Overview', icon: '📊' },
-    { key: 'review-queue', label: 'Review Queue', icon: '📫' },
-    { key: 'manual-apply', label: 'Manual Apply', icon: '✍️' },
-    { key: 'applications', label: 'Applications', icon: '🗂️' },
-    { key: 'sources', label: 'Sources', icon: '🔌' },
-    { key: 'settings', label: 'Settings', icon: '⚙️' },
-    { key: 'events', label: 'Events', icon: '📜' },
+  const navItems: Array<{ key: TabKey; label: string }> = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'review-queue', label: 'Review Queue' },
+    { key: 'manual-apply', label: 'Manual Apply' },
+    { key: 'applications', label: 'Applications' },
+    { key: 'sources', label: 'Sources' },
+    { key: 'settings', label: 'Settings' },
+    { key: 'events', label: 'Events' },
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
+    <div className="min-h-screen flex flex-col bg-canvas text-fg">
       {/* Top Header */}
-      <header className="border-b bg-white shadow-sm sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
-          <div className="flex items-center space-x-6">
+      <header className="border-b border-border bg-surface sticky top-0 z-40">
+        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
+          <div className="flex items-center gap-6">
             <button
               onClick={() => setActiveTab('overview')}
-              className="flex items-center space-x-2.5 cursor-pointer text-left focus:outline-none"
+              className="flex items-center gap-2 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[4px]"
             >
-              <span className="text-2xl">🕊️</span>
-              <span className="text-lg font-black tracking-tight text-gray-900">Pigeon</span>
+              <Layers size={18} strokeWidth={1.5} className="text-fg shrink-0" aria-hidden="true" />
+              <span className="text-[16px] font-semibold tracking-tight text-fg">Pigeon</span>
             </button>
 
-            {/* Navigation Tabs (Desktop) */}
-            <nav className="hidden md:flex items-center space-x-1">
+            {/* Navigation Tabs (Desktop: text-only, 2px underline active indicator) */}
+            <nav className="hidden md:flex items-center gap-1 h-14">
               {navItems.map((item) => {
                 const isActive = activeTab === item.key;
                 return (
                   <button
                     key={item.key}
                     onClick={() => setActiveTab(item.key)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1.5 ${
+                    className={`h-full px-3 text-[13px] font-medium transition-colors cursor-pointer border-b-2 flex items-center ${
                       isActive
-                        ? 'bg-gray-100 text-indigo-700'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                        ? 'border-accent text-fg bg-surface-subtle/50'
+                        : 'border-transparent text-fg-muted hover:text-fg hover:bg-surface-subtle/30'
                     }`}
                   >
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
+                    {item.label}
                   </button>
                 );
               })}
             </nav>
           </div>
 
-          {/* Right Header Status Indicators */}
-          <div className="flex items-center space-x-2.5">
+          {/* Right Header Status Indicators (Compact Dot + Label Chips) */}
+          <div className="flex items-center gap-2">
             {headerState === 'loading' ? (
               <>
                 <span
                   data-testid="badge-google-loading"
-                  className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-gray-100 text-gray-500 border border-gray-200"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted"
                   title="Checking Google OAuth status..."
                 >
-                  ⚪ Google: Loading...
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-state-unknown-fg shrink-0"
+                    aria-hidden="true"
+                  />
+                  Google: Loading...
                 </span>
                 <span
                   data-testid="badge-dryrun-loading"
-                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-gray-100 text-gray-500 border border-gray-200"
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted"
                   title="Checking DRY_RUN mode..."
                 >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-state-unknown-fg shrink-0"
+                    aria-hidden="true"
+                  />
                   DRY_RUN: Loading...
                 </span>
                 <button
                   type="button"
                   disabled
                   data-testid="badge-killswitch-loading"
-                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed"
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted cursor-not-allowed"
                   title="Checking Kill Switch status from KV..."
                 >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-state-unknown-fg shrink-0"
+                    aria-hidden="true"
+                  />
                   Kill Switch: unknown
                 </button>
               </>
@@ -148,67 +161,97 @@ export function App(): React.JSX.Element {
               <>
                 <span
                   data-testid="badge-google-error"
-                  className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-rose-50 text-rose-700 border border-rose-200"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg"
                   title="Backend API is unreachable"
                 >
-                  ⚠️ Google: API unreachable
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-state-danger-fg shrink-0"
+                    aria-hidden="true"
+                  />
+                  Google: API unreachable
                 </span>
                 <span
                   data-testid="badge-dryrun-error"
-                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200"
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg"
                   title="Backend API is unreachable"
                 >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-state-danger-fg shrink-0"
+                    aria-hidden="true"
+                  />
                   DRY_RUN: API unreachable
                 </span>
                 <button
                   type="button"
                   disabled
                   data-testid="badge-killswitch-error"
-                  className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200 cursor-not-allowed"
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg cursor-not-allowed"
                   title="Backend API is unreachable"
                 >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-state-danger-fg shrink-0"
+                    aria-hidden="true"
+                  />
                   Kill Switch: API unreachable
                 </button>
               </>
             ) : (
               <>
-                {/* Google Auth Status Badge */}
+                {/* Google Auth Status Chip */}
                 {authHealth === 'ok' ? (
                   <span
                     data-testid="badge-google-ok"
-                    className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-ok-border bg-state-ok-bg text-state-ok-fg"
                     title="Google OAuth token healthy"
                   >
-                    ✅ Google OK
+                    <span
+                      className="w-1.5 h-1.5 rounded-full bg-state-ok-fg shrink-0"
+                      aria-hidden="true"
+                    />
+                    Google OK
                   </span>
                 ) : authHealth === 'invalid' ? (
                   <a
                     href="/auth/google/start"
                     data-testid="badge-google-invalid"
-                    className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg hover:opacity-90 transition-opacity"
                     title="Google OAuth expired or revoked. Click to reconnect."
                   >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full bg-state-danger-fg shrink-0"
+                      aria-hidden="true"
+                    />
                     Google: reconnect
                   </a>
                 ) : (
                   <a
                     href="/auth/google/start"
                     data-testid="badge-google-unknown"
-                    className="hidden sm:inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200 transition-colors"
+                    className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted hover:text-fg transition-colors"
                     title="Google OAuth not connected. Click to authenticate."
                   >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full bg-state-unknown-fg shrink-0"
+                      aria-hidden="true"
+                    />
                     Google: not connected
                   </a>
                 )}
 
-                {/* DRY RUN Badge */}
+                {/* DRY RUN Status Chip */}
                 <span
-                  className={`px-2.5 py-1 text-[11px] font-bold rounded-full border ${
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border ${
                     dryRun
-                      ? 'bg-amber-50 text-amber-800 border-amber-200'
-                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      ? 'border-state-warn-border bg-state-warn-bg text-state-warn-fg'
+                      : 'border-state-ok-border bg-state-ok-bg text-state-ok-fg'
                   }`}
                 >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      dryRun ? 'bg-state-warn-fg' : 'bg-state-ok-fg'
+                    }`}
+                    aria-hidden="true"
+                  />
                   {dryRun ? 'DRY_RUN' : 'LIVE'}
                 </span>
 
@@ -217,40 +260,67 @@ export function App(): React.JSX.Element {
                   type="button"
                   onClick={() => setShowKsModal(true)}
                   data-testid={killSwitch ? 'badge-killswitch-active' : 'badge-killswitch-off'}
-                  className={`px-2.5 py-1 text-[11px] font-bold rounded-full border shadow-xs cursor-pointer transition-colors ${
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     killSwitch
-                      ? 'bg-rose-600 text-white border-rose-700 animate-pulse'
-                      : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
+                      ? 'border-state-danger-border bg-state-danger-bg text-state-danger-fg font-semibold'
+                      : 'border-border bg-surface-subtle text-fg-muted hover:text-fg hover:bg-surface'
                   }`}
                 >
-                  {killSwitch ? '🚨 KILL SWITCH ON' : '🛡️ Kill Switch Off'}
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      killSwitch ? 'bg-state-danger-fg' : 'bg-state-unknown-fg'
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {killSwitch ? 'KILL SWITCH ON' : 'Kill Switch Off'}
                 </button>
               </>
             )}
+
+            {/* Mobile Menu Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              aria-label="Toggle navigation menu"
+              className="md:hidden p-1.5 rounded-[4px] text-fg-muted hover:text-fg hover:bg-surface-subtle"
+            >
+              {mobileMenuOpen ? (
+                <X size={18} strokeWidth={1.5} aria-hidden="true" />
+              ) : (
+                <Menu size={18} strokeWidth={1.5} aria-hidden="true" />
+              )}
+            </button>
           </div>
         </div>
 
-        {/* Mobile Navigation Tabs */}
-        <div className="md:hidden flex overflow-x-auto border-t px-2 py-1 space-x-1">
-          {navItems.map((item) => {
-            const isActive = activeTab === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => setActiveTab(item.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                  isActive ? 'bg-gray-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {item.icon} {item.label}
-              </button>
-            );
-          })}
-        </div>
+        {/* Collapsed Mobile Navigation Menu */}
+        {mobileMenuOpen && (
+          <nav className="md:hidden border-t border-border bg-surface px-4 py-2 space-y-1">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => {
+                    setActiveTab(item.key);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-[13px] font-medium rounded-[4px] transition-colors ${
+                    isActive
+                      ? 'bg-surface-subtle text-fg font-semibold'
+                      : 'text-fg-muted hover:text-fg hover:bg-surface-subtle'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-4 sm:p-6 max-w-7xl mx-auto w-full">
+      {/* Main Operations Content Area */}
+      <main className="flex-1 max-w-[1200px] mx-auto w-full px-4 sm:px-6 py-6">
         {activeTab === 'overview' && (
           <OverviewView
             onNavigateTab={(tab) => setActiveTab(tab as TabKey)}

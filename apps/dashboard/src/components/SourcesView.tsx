@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { AlertTriangle, Loader2, Radio, RefreshCw } from 'lucide-react';
+import { Button } from './ui/Button.js';
+import { StatusChip } from './ui/StatusChip.js';
 
 export interface SourceStatusItem {
   name: string;
@@ -44,46 +47,40 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
     void loadSources();
   }, [loadSources]);
 
-  const getCircuitBadge = (state: string) => {
-    switch (state) {
-      case 'closed':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      case 'half-open':
-        return 'bg-amber-100 text-amber-800 border-amber-200';
-      case 'open':
-        return 'bg-rose-100 text-rose-800 border-rose-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-surface p-5 rounded-[6px] border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-            <span>🔌</span>
-            <span>Job Sources & Ingestion Health</span>
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <div className="flex items-center gap-2">
+            <Radio
+              size={16}
+              strokeWidth={1.5}
+              className="text-fg-muted shrink-0"
+              aria-hidden="true"
+            />
+            <h2 className="text-[16px] font-semibold text-fg">Job Sources & Ingestion Health</h2>
+          </div>
+          <p className="text-[13px] text-fg-muted mt-1">
             Monitor API connectors, ATS scrapers, circuit breaker states, and email parser health
             streaks.
           </p>
         </div>
 
-        <button
-          onClick={() => void loadSources()}
-          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer self-start sm:self-auto"
-        >
+        <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void loadSources()}>
           Refresh Status
-        </button>
+        </Button>
       </div>
 
       {loading && sources.length === 0 ? (
-        <div className="p-12 text-center text-xs text-gray-400">Loading sources...</div>
+        <div className="p-12 text-center text-[13px] text-fg-muted flex items-center justify-center gap-2">
+          <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
+          <span>Loading sources...</span>
+        </div>
       ) : error ? (
-        <div className="p-4 bg-rose-50 text-rose-700 text-xs rounded-xl">{error}</div>
+        <div className="p-4 bg-state-danger-bg text-state-danger-fg text-[13px] rounded-[6px] border border-state-danger-border">
+          {error}
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sources.map((src) => {
@@ -91,39 +88,42 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
             return (
               <div
                 key={src.name}
-                className={`bg-white rounded-xl border p-5 shadow-sm space-y-3 transition-all ${
+                className={`bg-surface rounded-[6px] border p-5 space-y-3 transition-colors ${
                   isSuspect
-                    ? 'border-amber-300 ring-1 ring-amber-300'
+                    ? 'border-state-warn-border ring-1 ring-state-warn-border'
                     : src.circuit_state === 'open'
-                      ? 'border-rose-300 ring-1 ring-rose-300'
-                      : 'border-gray-200'
+                      ? 'border-state-danger-border ring-1 ring-state-danger-border'
+                      : 'border-border'
                 }`}
               >
                 {/* Header line */}
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="font-bold text-sm text-gray-900 capitalize">{src.name}</h3>
-                    <span className="text-[11px] font-mono text-gray-500 uppercase">
+                    <h3 className="font-semibold text-[14px] text-fg capitalize">{src.name}</h3>
+                    <span className="text-[11px] font-mono text-fg-muted uppercase">
                       {src.kind}
                     </span>
                   </div>
-                  <span
-                    className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${getCircuitBadge(
-                      src.circuit_state,
-                    )}`}
-                  >
-                    Circuit: {src.circuit_state}
-                  </span>
+                  <StatusChip
+                    status={src.circuit_state}
+                    label={`Circuit: ${src.circuit_state}`}
+                    size="sm"
+                  />
                 </div>
 
                 {/* Parser Health Warning Banner */}
                 {isSuspect && (
-                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-[11px] font-medium space-y-0.5">
-                    <div className="font-bold flex items-center space-x-1">
-                      <span>⚠️</span>
+                  <div className="p-2.5 bg-state-warn-bg border border-state-warn-border rounded-[4px] text-state-warn-fg text-[12px] space-y-1">
+                    <div className="font-semibold flex items-center gap-1.5">
+                      <AlertTriangle
+                        size={14}
+                        strokeWidth={1.5}
+                        className="shrink-0"
+                        aria-hidden="true"
+                      />
                       <span>Parser Suspect Warning</span>
                     </div>
-                    <p>
+                    <p className="text-state-warn-fg/90">
                       {src.parser_empty_streak} consecutive emails yielded 0 jobs. Portal HTML
                       structure may have changed.
                     </p>
@@ -131,50 +131,41 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
                 )}
 
                 {/* Metrics */}
-                <div className="space-y-1.5 text-xs text-gray-600 border-t pt-3">
+                <div className="space-y-1.5 text-[12px] text-fg border-t border-border-subtle pt-3">
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Failures:</span>
-                    <span className="font-medium text-gray-800">{src.failure_count}</span>
+                    <span className="text-fg-muted">Failures:</span>
+                    <span className="font-mono tabular-nums font-semibold text-fg">
+                      {src.failure_count}
+                    </span>
                   </div>
 
                   {src.boards_total !== undefined &&
                     src.boards_total !== null &&
                     src.boards_total > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Boards:</span>
+                        <span className="text-fg-muted">Boards:</span>
                         <span
-                          className={
-                            src.boards_failed ? 'text-amber-600 font-semibold' : 'text-gray-800'
-                          }
+                          className={`font-mono tabular-nums font-semibold ${
+                            src.boards_failed ? 'text-state-warn-fg' : 'text-fg'
+                          }`}
                         >
                           {src.boards_failed ?? 0} of {src.boards_total} boards failed
                         </span>
                       </div>
                     )}
 
-                  {src.parser_empty_streak !== undefined && src.parser_empty_streak !== null && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">Empty Streak:</span>
-                      <span
-                        className={`font-semibold ${
-                          (src.parser_empty_streak ?? 0) >= 3 ? 'text-amber-600' : 'text-gray-800'
-                        }`}
-                      >
-                        {src.parser_empty_streak}
-                      </span>
-                    </div>
-                  )}
-
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Last Run:</span>
-                    <span className="text-gray-800 text-[11px]">
+                    <span className="text-fg-muted">Last Run:</span>
+                    <span className="font-mono tabular-nums text-fg-muted">
                       {src.last_run ? new Date(src.last_run).toLocaleString() : 'Never'}
                     </span>
                   </div>
 
                   {src.last_error && (
-                    <div className="mt-2 p-2 bg-rose-50 text-rose-700 rounded text-[11px] break-words">
-                      <span className="font-semibold">Error:</span> {src.last_error}
+                    <div className="pt-1">
+                      <span className="text-state-danger-fg text-[11px] font-mono break-all line-clamp-2">
+                        {src.last_error}
+                      </span>
                     </div>
                   )}
                 </div>

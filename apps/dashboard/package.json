@@ -12,11 +12,15 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "@pigeon/shared": "workspace:*",
+    "lucide-react": "^1.70.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.0.9",
     "@types/react": "^19.0.10",

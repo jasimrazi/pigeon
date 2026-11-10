@@ -2,6 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.js';
 import './index.css';
+import { applyTheme } from './theme.js';
+
+// Apply stored theme on initial page load
+applyTheme();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

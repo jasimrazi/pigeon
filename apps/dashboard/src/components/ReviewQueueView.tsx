@@ -1,4 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  CheckCheck,
+  Copy,
+  Inbox,
+  Loader2,
+  Mail,
+} from 'lucide-react';
+import { Button } from './ui/Button.js';
+import { StatusChip } from './ui/StatusChip.js';
 
 export interface ReviewQueueItem {
   id: string;
@@ -118,14 +130,18 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/letter`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cover_letter: editedLetter }),
+        body: JSON.stringify({ letter: editedLetter }),
       });
-      if (!res.ok) {
-        throw new Error(`Failed to save cover letter (${res.status})`);
+      const data = (await res.json()) as {
+        ok: boolean;
+        errors?: string[];
+        is_safe_for_bulk?: boolean;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error((data.errors || []).join(', ') || 'Validation failed');
       }
-      const data = (await res.json()) as { ok: boolean; validator_errors: string[] };
 
-      // Update local state
+      // Update local state with new validation outcome
       setItems((prev) =>
         prev.map((it) =>
           it.id === selectedItem.id
@@ -133,17 +149,14 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
                 ...it,
                 cover_letter: editedLetter,
                 validator_errors:
-                  data.validator_errors.length > 0 ? JSON.stringify(data.validator_errors) : null,
+                  data.errors && data.errors.length > 0 ? JSON.stringify(data.errors) : null,
+                is_safe_for_bulk: Boolean(data.is_safe_for_bulk),
               }
             : it,
         ),
       );
-      setActionFeedback(
-        data.validator_errors.length > 0
-          ? 'Letter saved with guardrail warnings'
-          : 'Letter saved & all guardrails passed!',
-      );
-      setTimeout(() => setActionFeedback(null), 4000);
+      setActionFeedback('Letter updated and validated successfully.');
+      setTimeout(() => setActionFeedback(null), 3500);
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     } finally {
@@ -158,119 +171,133 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/resume`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resume_id: resumeId }),
+        body: JSON.stringify({ resume_id: resumeId || null }),
       });
       if (!res.ok) {
-        throw new Error(`Failed to update resume (${res.status})`);
+        throw new Error('Failed to update resume attachment');
       }
-      const selectedResume = resumes.find((r) => r.id === resumeId);
       setItems((prev) =>
         prev.map((it) =>
           it.id === selectedItem.id
-            ? { ...it, resume_id: resumeId, resume_label: selectedResume?.label ?? it.resume_label }
+            ? {
+                ...it,
+                resume_id: resumeId || null,
+                resume_label: resumes.find((r) => r.id === resumeId)?.label || null,
+              }
             : it,
         ),
       );
+      setActionFeedback('Attached resume updated.');
+      setTimeout(() => setActionFeedback(null), 3000);
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
   };
 
-  // Handle Single Approve
+  // Handle Approve Single Item
   const handleApprove = async () => {
     if (!selectedItem) return;
     try {
       const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm_risk: true }),
       });
       if (!res.ok) {
-        throw new Error(`Failed to approve application (${res.status})`);
+        const errJson = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errJson.error || `Approval failed (${res.status})`);
       }
-      setActionFeedback(`Approved application for ${selectedItem.company}!`);
-      setTimeout(() => setActionFeedback(null), 3000);
-
-      // Remove from list and select next
-      const remaining = items.filter((it) => it.id !== selectedItem.id);
-      setItems(remaining);
-      setSelectedId(remaining[0]?.id ?? null);
+      setItems((prev) => prev.filter((it) => it.id !== selectedItem.id));
+      setSelectedId(null);
+      setActionFeedback(`Approved application for ${selectedItem.company}.`);
+      setTimeout(() => setActionFeedback(null), 3500);
       onActionComplete?.();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
   };
 
-  // Handle Single Reject
+  // Handle Reject Single Item
   const handleReject = async () => {
     if (!selectedItem) return;
+    if (!confirm(`Reject and dismiss application for ${selectedItem.company}?`)) return;
     try {
       const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/reject`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) {
-        throw new Error(`Failed to reject application (${res.status})`);
+        throw new Error('Failed to reject application');
       }
-      setActionFeedback(`Rejected draft for ${selectedItem.company}`);
-      setTimeout(() => setActionFeedback(null), 3000);
-
-      // Remove from list and select next
-      const remaining = items.filter((it) => it.id !== selectedItem.id);
-      setItems(remaining);
-      setSelectedId(remaining[0]?.id ?? null);
+      setItems((prev) => prev.filter((it) => it.id !== selectedItem.id));
+      setSelectedId(null);
+      setActionFeedback(`Rejected application for ${selectedItem.company}.`);
+      setTimeout(() => setActionFeedback(null), 3500);
       onActionComplete?.();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
   };
 
-  // Handle Bulk Approve Safe Items
+  // Handle Bulk Approve
   const handleBulkApprove = async () => {
     if (safeItems.length === 0) return;
-    const ids = safeItems.map((it) => it.id);
+    const count = safeItems.length;
+    if (
+      !confirm(
+        `Approve all ${count} safe applications ready for dispatch? Unsafe items will remain for review.`,
+      )
+    ) {
+      return;
+    }
+
     try {
+      const safeIds = safeItems.map((it) => it.id);
       const res = await fetch(`${apiBase}/api/applications/bulk-approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ application_ids: ids }),
+        body: JSON.stringify({ ids: safeIds }),
       });
       if (!res.ok) {
-        throw new Error(`Bulk approve failed (${res.status})`);
+        throw new Error(`Bulk approval failed (${res.status})`);
       }
-      setActionFeedback(`Successfully bulk-approved ${ids.length} safe applications!`);
+      const data = (await res.json()) as { ok: boolean; approved_count: number };
+      setItems((prev) => prev.filter((it) => !safeIds.includes(it.id)));
+      setSelectedId(null);
+      setActionFeedback(`Successfully bulk-approved ${data.approved_count} applications.`);
       setTimeout(() => setActionFeedback(null), 4000);
-
-      // Refresh data
-      await loadData();
       onActionComplete?.();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const handleCopyLetter = () => {
+  // Click-to-copy cover letter
+  const handleCopyLetter = async () => {
     if (!editedLetter) return;
-    navigator.clipboard.writeText(editedLetter);
-    setCopyFeedback('Copied to clipboard!');
-    setTimeout(() => setCopyFeedback(null), 2000);
+    try {
+      await navigator.clipboard.writeText(editedLetter);
+      setCopyFeedback('Copied!');
+      setTimeout(() => setCopyFeedback(null), 2000);
+    } catch {
+      setCopyFeedback('Failed to copy');
+      setTimeout(() => setCopyFeedback(null), 2000);
+    }
   };
 
   if (loading && items.length === 0) {
     return (
-      <div className="flex items-center justify-center py-20 text-gray-500 text-sm">
-        <span className="animate-spin mr-2">🔄</span> Loading review queue...
+      <div className="flex items-center justify-center py-20 text-fg-muted text-[14px] gap-2">
+        <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
+        <span>Loading review queue...</span>
       </div>
     );
   }
 
   if (error && items.length === 0) {
     return (
-      <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm">
+      <div className="p-4 bg-state-danger-bg border border-state-danger-border rounded-[6px] text-state-danger-fg text-[14px]">
         <strong>Error:</strong> {error}
         <button
           onClick={() => void loadData()}
-          className="ml-4 underline font-medium hover:text-rose-900 cursor-pointer"
+          className="ml-4 underline font-medium hover:opacity-80 cursor-pointer"
         >
           Retry
         </button>
@@ -281,46 +308,51 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
   return (
     <div className="space-y-6">
       {/* Header & Bulk Approve Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-5 rounded-[6px] border border-border">
         <div>
-          <h2 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-            <span>📫</span>
-            <span>Email Review Queue</span>
-            <span className="text-xs bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded-full border border-indigo-100">
+          <div className="flex items-center gap-2">
+            <Mail
+              size={16}
+              strokeWidth={1.5}
+              className="text-fg-muted shrink-0"
+              aria-hidden="true"
+            />
+            <h2 className="text-[16px] font-semibold text-fg">Email Review Queue</h2>
+            <span className="text-[12px] bg-surface-subtle text-fg-muted font-medium px-2 py-0.5 rounded-[4px] border border-border">
               {items.length} pending
             </span>
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          </div>
+          <p className="text-[13px] text-fg-muted mt-1">
             Review and personalize auto-generated email applications before approving for dispatch.
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <button
+        <div className="flex items-center gap-3">
+          <Button
+            variant="primary"
+            size="md"
+            icon={CheckCheck}
             onClick={() => void handleBulkApprove()}
             disabled={safeItems.length === 0}
-            className={`px-3.5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center space-x-1.5 ${
-              safeItems.length > 0
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            }`}
           >
-            <span>⚡ Bulk Approve Safe ({safeItems.length})</span>
-          </button>
+            Bulk Approve Safe ({safeItems.length})
+          </Button>
         </div>
       </div>
 
       {actionFeedback && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-medium animate-in fade-in">
+        <div className="p-3 bg-state-ok-bg border border-state-ok-border text-state-ok-fg rounded-[6px] text-[13px] font-medium">
           {actionFeedback}
         </div>
       )}
 
       {items.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-sm">
-          <span className="text-4xl">🎉</span>
-          <h3 className="mt-2 text-sm font-bold text-gray-900">Queue is Clear!</h3>
-          <p className="mt-1 text-xs text-gray-500 max-w-sm mx-auto">
+        <div className="bg-surface rounded-[6px] border border-border p-12 text-center">
+          <div className="w-10 h-10 rounded-full bg-surface-subtle text-fg-muted border border-border flex items-center justify-center mx-auto mb-3">
+            <Inbox size={20} strokeWidth={1.5} aria-hidden="true" />
+          </div>
+          <h3 className="text-[14px] font-semibold text-fg">Queue is Clear!</h3>
+          <p className="mt-1 text-[13px] text-fg-muted max-w-sm mx-auto">
             There are no email applications currently awaiting your review. New items will arrive
             from ingestion.
           </p>
@@ -329,7 +361,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Column: Item List */}
           <div className="lg:col-span-4 space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 px-1">
+            <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted px-1">
               Applications ({items.length})
             </h3>
             <div className="space-y-2 max-h-[700px] overflow-y-auto pr-1">
@@ -340,44 +372,30 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
                   <button
                     key={it.id}
                     onClick={() => setSelectedId(it.id)}
-                    className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
+                    className={`w-full text-left p-3.5 rounded-[6px] border transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-50/70 border-indigo-400 shadow-sm ring-1 ring-indigo-400'
-                        : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        ? 'bg-surface-subtle border-accent ring-1 ring-accent'
+                        : 'bg-surface border-border hover:border-border-subtle hover:bg-surface-subtle/50'
                     }`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="font-semibold text-sm text-gray-900 truncate">
-                        {it.company}
-                      </div>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-bold ${
-                          it.match_score >= 85
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : it.match_score >= 70
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold text-[14px] text-fg truncate">{it.company}</div>
+                      <span className="text-[12px] font-mono font-semibold tabular-nums px-1.5 py-0.5 rounded-[4px] border border-border bg-surface-subtle text-fg">
                         {it.match_score}%
                       </span>
                     </div>
-                    <div className="text-xs text-gray-600 truncate mt-0.5">{it.title}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <div className="text-[13px] text-fg-muted truncate mt-0.5">{it.title}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {it.is_safe_for_bulk && (
-                        <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
-                          Safe for bulk
-                        </span>
+                        <StatusChip variant="ok" label="Safe for bulk" size="sm" />
                       )}
-                      {isUntrusted && (
-                        <span className="bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded border border-rose-200">
-                          Untrusted
-                        </span>
-                      )}
+                      {isUntrusted && <StatusChip variant="danger" label="Untrusted" size="sm" />}
                       {it.red_flags.length > 0 && (
-                        <span className="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
-                          Red flags ({it.red_flags.length})
-                        </span>
+                        <StatusChip
+                          variant="warn"
+                          label={`Red flags (${it.red_flags.length})`}
+                          size="sm"
+                        />
                       )}
                     </div>
                   </button>
@@ -388,11 +406,16 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
 
           {/* Right Column: Detail & Letter Editor */}
           {selectedItem && (
-            <div className="lg:col-span-8 bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
+            <div className="lg:col-span-8 bg-surface rounded-[6px] border border-border p-6 space-y-6">
               {/* Warnings */}
               {Boolean(selectedItem.untrusted) && (
-                <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-semibold flex items-center space-x-2">
-                  <span>⚠️</span>
+                <div className="p-3 bg-state-warn-bg border border-state-warn-border text-state-warn-fg rounded-[6px] text-[13px] font-medium flex items-center gap-2">
+                  <AlertTriangle
+                    size={16}
+                    strokeWidth={1.5}
+                    className="shrink-0"
+                    aria-hidden="true"
+                  />
                   <span>
                     Warning: Job was ingested while portal source had empty parse streaks or circuit
                     issues. Verify details carefully.
@@ -401,23 +424,27 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
               )}
 
               {/* Title & Metadata */}
-              <div className="flex items-start justify-between border-b pb-4">
+              <div className="flex items-start justify-between border-b border-border pb-4">
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">{selectedItem.title}</h3>
-                  <div className="text-sm font-medium text-gray-600 mt-0.5">
+                  <h3 className="text-[16px] font-semibold text-fg">{selectedItem.title}</h3>
+                  <div className="text-[13px] font-medium text-fg-muted mt-0.5">
                     {selectedItem.company}{' '}
                     {selectedItem.location ? `• ${selectedItem.location}` : ''}
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div className="text-[12px] text-fg-muted mt-1">
                     Contact:{' '}
-                    <span className="font-mono">{selectedItem.contact_email || 'None'}</span>{' '}
+                    <span className="font-mono text-fg">
+                      {selectedItem.contact_email || 'None'}
+                    </span>{' '}
                     (source: {selectedItem.contact_source || 'unknown'})
                   </div>
                 </div>
 
                 <div className="text-right">
-                  <div className="text-xs uppercase text-gray-400 font-bold">Match Score</div>
-                  <div className="text-2xl font-black text-indigo-600">
+                  <div className="text-[12px] uppercase text-fg-muted font-medium tracking-wider">
+                    Match Score
+                  </div>
+                  <div className="text-[24px] font-mono font-semibold tabular-nums text-accent">
                     {selectedItem.match_score}%
                   </div>
                 </div>
@@ -425,13 +452,18 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
 
               {/* Resume Selector */}
               <div>
-                <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                <label
+                  htmlFor="attached-resume-select"
+                  className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+                >
                   Attached Resume
                 </label>
                 <select
+                  id="attached-resume-select"
+                  aria-label="Attached Resume"
                   value={selectedItem.resume_id || ''}
                   onChange={(e) => void handleChangeResume(e.target.value)}
-                  className="w-full text-xs font-medium p-2.5 rounded-lg border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-[13px] font-medium p-2 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   <option value="">No Resume Attached</option>
                   {resumes.map((r) => (
@@ -444,12 +476,17 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
 
               {/* Guardrail Validator Errors Banner */}
               {validatorErrors.length > 0 && (
-                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-1">
-                  <div className="font-bold flex items-center space-x-1.5">
-                    <span>🛑</span>
+                <div className="p-3.5 bg-state-danger-bg border border-state-danger-border rounded-[6px] text-[13px] text-state-danger-fg space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <AlertCircle
+                      size={16}
+                      strokeWidth={1.5}
+                      className="shrink-0"
+                      aria-hidden="true"
+                    />
                     <span>Guardrail Validation Failed ({validatorErrors.length} errors)</span>
                   </div>
-                  <ul className="list-disc pl-5 space-y-0.5 text-rose-700">
+                  <ul className="list-disc pl-5 space-y-0.5 text-state-danger-fg/90 text-[12px]">
                     {validatorErrors.map((err, idx) => (
                       <li key={idx}>{err}</li>
                     ))}
@@ -460,66 +497,72 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
               {/* Cover Letter Editor */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase text-gray-600">
+                  <label
+                    htmlFor="cover-letter-editor"
+                    className="text-[12px] font-medium uppercase tracking-wider text-fg-muted"
+                  >
                     Cover Letter (150-250 words, strict guardrails)
                   </label>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center gap-2">
                     {copyFeedback && (
-                      <span className="text-xs text-emerald-600 font-medium">{copyFeedback}</span>
+                      <span className="text-[12px] text-state-ok-fg font-medium">
+                        {copyFeedback}
+                      </span>
                     )}
                     <button
                       type="button"
                       onClick={handleCopyLetter}
-                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer"
+                      className="text-[12px] text-accent hover:underline font-medium cursor-pointer inline-flex items-center gap-1"
                     >
-                      Copy Letter
+                      <Copy size={12} strokeWidth={1.5} aria-hidden="true" />
+                      <span>Copy Letter</span>
                     </button>
                   </div>
                 </div>
 
-                <div className="text-xs font-mono bg-gray-50 p-2.5 rounded-lg border border-gray-200 text-gray-700">
-                  <span className="text-gray-400 font-sans">Subject:</span> {selectedItem.subject}
+                <div className="text-[13px] font-mono bg-surface-subtle p-2.5 rounded-[6px] border border-border text-fg">
+                  <span className="text-fg-muted font-sans text-[12px]">Subject:</span>{' '}
+                  {selectedItem.subject}
                 </div>
 
                 <textarea
+                  id="cover-letter-editor"
+                  aria-label="Cover Letter"
                   rows={10}
                   value={editedLetter}
                   onChange={(e) => setEditedLetter(e.target.value)}
-                  className="w-full p-3 text-xs leading-relaxed font-sans rounded-lg border border-gray-300 shadow-inner focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full p-3 text-[13px] leading-relaxed font-sans rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   placeholder="Cover letter body..."
                 />
 
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-gray-400">
+                  <span className="text-[12px] text-fg-muted font-mono tabular-nums">
                     Word count: {editedLetter.trim().split(/\s+/).filter(Boolean).length} words
                   </span>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={savingLetter}
                     onClick={() => void handleSaveLetter()}
-                    disabled={savingLetter}
-                    className="px-3 py-1.5 bg-gray-800 hover:bg-gray-900 text-white text-xs font-semibold rounded-lg shadow-sm cursor-pointer disabled:opacity-50"
                   >
                     {savingLetter ? 'Validating & Saving...' : 'Save & Validate Letter'}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               {/* Action Buttons: Approve / Reject */}
-              <div className="pt-4 border-t flex items-center justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => void handleReject()}
-                  className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-lg border border-rose-200 shadow-sm cursor-pointer transition-colors"
-                >
+              <div className="pt-4 border-t border-border flex items-center justify-end gap-3">
+                <Button variant="destructive" size="md" onClick={() => void handleReject()}>
                   Reject Application
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="primary"
+                  size="md"
+                  icon={Check}
                   onClick={() => void handleApprove()}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-sm cursor-pointer transition-colors"
                 >
                   Approve Application
-                </button>
+                </Button>
               </div>
             </div>
           )}

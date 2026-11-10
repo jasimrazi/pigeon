@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ManualQueueResponse, ManualKit } from '@pigeon/shared';
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  ExternalLink,
+  Flag,
+  Info,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react';
+import { Button } from './ui/Button.js';
+import { StatusChip } from './ui/StatusChip.js';
 
 interface Props {
   apiBase?: string;
@@ -105,7 +117,6 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       if (res.ok) {
         setActionFeedback('Application marked as applied!');
         setTimeout(() => setActionFeedback(null), 3000);
-        // Refresh queue and select next
         void loadQueue();
       }
     } catch {
@@ -192,7 +203,6 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   // Keyboard navigation shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Ignore key events when typing inside inputs or textareas
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') {
         return;
@@ -201,39 +211,32 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       const currentIndex = displayedItems.findIndex((i) => i.application_id === selectedId);
 
       if (e.key === 'j') {
-        // Next
         e.preventDefault();
         if (currentIndex < displayedItems.length - 1) {
           const next = displayedItems[currentIndex + 1];
           if (next) setSelectedId(next.application_id);
         }
       } else if (e.key === 'k') {
-        // Previous
         e.preventDefault();
         if (currentIndex > 0) {
           const prev = displayedItems[currentIndex - 1];
           if (prev) setSelectedId(prev.application_id);
         }
       } else if (e.key === 'o') {
-        // Open link
         e.preventDefault();
         handleOpenLink();
       } else if (e.key === 'c') {
-        // Copy letter
         e.preventDefault();
         if (kit?.cover_letter) {
           handleCopyText(kit.cover_letter, 'Cover Letter');
         }
       } else if (e.key === 'a') {
-        // Mark applied
         e.preventDefault();
         void handleMarkApplied();
       } else if (e.key === 's') {
-        // Skip
         e.preventDefault();
         void handleSkip();
       } else if (e.key === 'z') {
-        // Snooze
         e.preventDefault();
         void handleSnooze(3);
       }
@@ -255,86 +258,104 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   return (
     <div className="flex flex-col h-full space-y-4">
       {/* Top Banner & Stats */}
-      <div className="flex flex-wrap items-center justify-between border-b pb-4 gap-4">
+      <div className="flex flex-wrap items-center justify-between border-b border-border pb-4 gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-gray-900">Manual Apply Queue</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="text-[20px] font-semibold tracking-tight text-fg">Manual Apply Queue</h2>
+          <p className="text-[13px] text-fg-muted mt-0.5">
             Keyboard shortcuts:{' '}
-            <kbd className="px-1 py-0.5 border rounded bg-gray-50 text-xs">j</kbd>/
-            <kbd className="px-1 py-0.5 border rounded bg-gray-50 text-xs">k</kbd> navigate,{' '}
-            <kbd className="px-1 py-0.5 border rounded bg-gray-50 text-xs">o</kbd> open link,{' '}
-            <kbd className="px-1 py-0.5 border rounded bg-gray-50 text-xs">c</kbd> copy letter,{' '}
-            <kbd className="px-1 py-0.5 border rounded bg-gray-50 text-xs">a</kbd> mark applied,{' '}
-            <kbd className="px-1 py-0.5 border rounded bg-gray-50 text-xs">s</kbd> skip,{' '}
-            <kbd className="px-1 py-0.5 border rounded bg-gray-50 text-xs">z</kbd> snooze
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              j
+            </kbd>
+            /
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              k
+            </kbd>{' '}
+            navigate,{' '}
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              o
+            </kbd>{' '}
+            open link,{' '}
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              c
+            </kbd>{' '}
+            copy letter,{' '}
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              a
+            </kbd>{' '}
+            mark applied,{' '}
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              s
+            </kbd>{' '}
+            skip,{' '}
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              z
+            </kbd>{' '}
+            snooze
           </p>
         </div>
 
         {/* Counts & Refresh */}
-        <div className="flex items-center space-x-2 text-sm">
-          <span className="bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded font-medium">
+        <div className="flex items-center gap-2 text-[12px]">
+          <span className="bg-surface-subtle text-fg border border-border px-2 py-0.5 rounded-[4px] font-medium font-mono tabular-nums">
             Waiting: {data?.counts.total ?? 0}
           </span>
-          <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded font-medium">
+          <span className="bg-state-warn-bg text-state-warn-fg border border-state-warn-border px-2 py-0.5 rounded-[4px] font-medium font-mono tabular-nums">
             Needs Review: {data?.counts.needs_review ?? 0}
           </span>
-          <span className="bg-gray-100 text-gray-700 px-2.5 py-0.5 rounded font-medium">
+          <span className="bg-surface-subtle text-fg-muted border border-border px-2 py-0.5 rounded-[4px] font-medium font-mono tabular-nums">
             Snoozed: {data?.counts.snoozed ?? 0}
           </span>
-          <button
-            onClick={() => void loadQueue()}
-            className="px-3 py-1 bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700 cursor-pointer"
-          >
+          <Button variant="secondary" size="xs" icon={RefreshCw} onClick={() => void loadQueue()}>
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Notifications / Toast */}
+      {/* Notifications / Feedback */}
       {actionFeedback && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded text-sm animate-pulse">
+        <div className="bg-state-ok-bg border border-state-ok-border text-state-ok-fg px-4 py-2 rounded-[6px] text-[13px] font-medium">
           {actionFeedback}
         </div>
       )}
       {copyFeedback && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-2 rounded text-sm animate-pulse">
+        <div className="bg-surface-subtle border border-border text-fg px-4 py-2 rounded-[6px] text-[13px] font-medium">
           {copyFeedback}
         </div>
       )}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-2 rounded text-sm">
+        <div className="bg-state-danger-bg border border-state-danger-border text-state-danger-fg px-4 py-2 rounded-[6px] text-[13px] font-medium">
           {error}
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex space-x-2 border-b">
+      <div className="flex gap-2 border-b border-border">
         <button
           onClick={() => setActiveTab('focus')}
-          className={`py-2 px-4 text-sm font-medium border-b-2 cursor-pointer ${
+          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors ${
             activeTab === 'focus'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-accent text-fg font-semibold'
+              : 'border-transparent text-fg-muted hover:text-fg'
           }`}
         >
           Today's Focus ({data?.todays_focus.length ?? 0})
         </button>
         <button
           onClick={() => setActiveTab('needs_attention')}
-          className={`py-2 px-4 text-sm font-medium border-b-2 cursor-pointer ${
+          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors ${
             activeTab === 'needs_attention'
-              ? 'border-amber-600 text-amber-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-accent text-fg font-semibold'
+              : 'border-transparent text-fg-muted hover:text-fg'
           }`}
         >
           Needs Attention ({data?.needs_attention.length ?? 0})
         </button>
         <button
           onClick={() => setActiveTab('all')}
-          className={`py-2 px-4 text-sm font-medium border-b-2 cursor-pointer ${
+          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors ${
             activeTab === 'all'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'border-accent text-fg font-semibold'
+              : 'border-transparent text-fg-muted hover:text-fg'
           }`}
         >
           All Active ({data?.items.length ?? 0})
@@ -346,9 +367,11 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         {/* Left: Queue List */}
         <div className="lg:col-span-5 flex flex-col space-y-2 overflow-y-auto max-h-[800px] pr-2">
           {loading ? (
-            <div className="text-gray-500 text-center py-12">Loading manual queue...</div>
+            <div className="text-fg-muted text-center py-12 text-[14px]">
+              Loading manual queue...
+            </div>
           ) : displayedItems.length === 0 ? (
-            <div className="text-gray-500 text-center py-12 border border-dashed rounded-lg">
+            <div className="text-fg-muted text-center py-12 border border-dashed border-border rounded-[6px] text-[14px]">
               No applications waiting in this view!
             </div>
           ) : (
@@ -358,58 +381,50 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                 <div
                   key={item.application_id}
                   onClick={() => setSelectedId(item.application_id)}
-                  className={`p-4 rounded-lg border text-left cursor-pointer transition-colors ${
+                  className={`p-4 rounded-[6px] border text-left cursor-pointer transition-colors ${
                     isSelected
-                      ? 'border-blue-500 bg-blue-50/50 shadow-sm'
-                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                      ? 'border-accent bg-surface-subtle shadow-xs'
+                      : 'border-border hover:border-border-subtle bg-surface hover:bg-surface-subtle/40'
                   }`}
                 >
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0 pr-2">
-                      <h4 className="font-semibold text-gray-900 truncate">{item.title}</h4>
-                      <p className="text-sm text-gray-600 truncate">{item.company}</p>
+                      <h4 className="font-semibold text-fg text-[14px] truncate">{item.title}</h4>
+                      <p className="text-[13px] text-fg-muted truncate">{item.company}</p>
                     </div>
                     {item.match_score !== null && (
-                      <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                      <span className="text-[12px] font-mono font-semibold tabular-nums px-2 py-0.5 rounded-[4px] bg-surface-subtle border border-border text-fg">
                         {item.match_score}
                       </span>
                     )}
                   </div>
 
                   {/* Badges / Warnings */}
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-                    <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[12px]">
+                    <span className="bg-surface-subtle text-fg-muted border border-border px-1.5 py-0.5 rounded-[4px]">
                       {item.source}
                     </span>
                     {item.location && (
-                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                      <span className="bg-surface-subtle text-fg-muted border border-border px-1.5 py-0.5 rounded-[4px]">
                         {item.location}
                       </span>
                     )}
                     {item.may_be_closed && (
-                      <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-medium">
-                        May be closed (&gt;14d)
-                      </span>
+                      <StatusChip variant="danger" label="May be closed (>14d)" size="sm" />
                     )}
                     {item.applied_before_warning && (
-                      <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium">
-                        Applied before
-                      </span>
+                      <StatusChip variant="warn" label="Applied before" size="sm" />
                     )}
                     {item.untrusted && (
-                      <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">
-                        Untrusted source
-                      </span>
+                      <StatusChip variant="danger" label="Untrusted source" size="sm" />
                     )}
                     {item.needs_attention && (
-                      <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-medium">
-                        Needs attention
-                      </span>
+                      <StatusChip variant="warn" label="Needs attention" size="sm" />
                     )}
                   </div>
 
                   {item.route_reason_explained && (
-                    <p className="mt-1.5 text-xs text-gray-500 truncate">
+                    <p className="mt-1.5 text-[12px] text-fg-muted truncate">
                       {item.route_reason_explained}
                     </p>
                   )}
@@ -420,32 +435,35 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         </div>
 
         {/* Right: Kit Side Panel */}
-        <div className="lg:col-span-7 bg-white border rounded-lg p-6 flex flex-col space-y-6 overflow-y-auto max-h-[800px]">
+        <div className="lg:col-span-7 bg-surface border border-border rounded-[6px] p-6 flex flex-col space-y-6 overflow-y-auto max-h-[800px]">
           {kitLoading ? (
-            <div className="text-gray-500 text-center py-24">Loading application kit...</div>
+            <div className="text-fg-muted text-center py-24 text-[14px] flex items-center justify-center gap-2">
+              <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
+              <span>Loading application kit...</span>
+            </div>
           ) : !kit ? (
-            <div className="text-gray-400 text-center py-24">
+            <div className="text-fg-muted text-center py-24 text-[14px]">
               Select an application from the queue to view its kit.
             </div>
           ) : (
             <>
               {/* Header */}
-              <div className="border-b pb-4">
+              <div className="border-b border-border pb-4">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900">{kit.title}</h3>
-                    <p className="text-base text-gray-700 font-medium">{kit.company}</p>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <h3 className="text-[18px] font-semibold text-fg">{kit.title}</h3>
+                    <p className="text-[14px] text-fg-muted font-medium">{kit.company}</p>
+                    <p className="text-[12px] text-fg-muted mt-1">
                       Source: {kit.source} • Location: {kit.location || 'Not specified'} • Salary:{' '}
                       {kit.salary || 'Not specified'}
                     </p>
                   </div>
                   {kit.match_score !== null && (
-                    <div className="text-center bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
-                      <span className="block text-2xl font-black text-emerald-700">
+                    <div className="text-center bg-surface-subtle border border-border px-3 py-1.5 rounded-[6px]">
+                      <span className="block text-[24px] font-mono font-semibold tabular-nums text-accent leading-none">
                         {kit.match_score}
                       </span>
-                      <span className="text-[10px] text-emerald-800 font-semibold uppercase">
+                      <span className="text-[11px] text-fg-muted font-medium uppercase tracking-wider">
                         Fit Score
                       </span>
                     </div>
@@ -454,74 +472,80 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
 
                 {/* Banners */}
                 {kit.untrusted && (
-                  <div className="mt-3 bg-purple-50 border border-purple-200 text-purple-800 p-2.5 rounded text-xs">
-                    ⚠️ Untrusted Source: This job posting arrived while the source adapter circuit
-                    was half-open. Verify details carefully.
+                  <div className="mt-3 bg-state-warn-bg border border-state-warn-border text-state-warn-fg p-2.5 rounded-[6px] text-[13px] flex items-center gap-2">
+                    <AlertTriangle
+                      size={16}
+                      strokeWidth={1.5}
+                      className="shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>
+                      Untrusted Source: This job posting arrived while the source adapter circuit
+                      was half-open. Verify details carefully.
+                    </span>
                   </div>
                 )}
                 {kit.route_reason_explained && (
-                  <div className="mt-2 bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded text-xs">
-                    ℹ️ Route Info: {kit.route_reason_explained}
+                  <div className="mt-2 bg-surface-subtle border border-border text-fg p-2.5 rounded-[6px] text-[13px] flex items-center gap-2">
+                    <Info
+                      size={16}
+                      strokeWidth={1.5}
+                      className="text-fg-muted shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>Route Info: {kit.route_reason_explained}</span>
                   </div>
                 )}
 
-                {/* Apply Link */}
-                <div className="mt-4 flex items-center space-x-3">
+                {/* Apply Link & Action Buttons */}
+                <div className="mt-4 flex flex-wrap items-center gap-3">
                   {kit.apply_url ? (
                     <a
                       href={kit.apply_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded font-medium text-sm hover:bg-blue-700"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg rounded-[6px] font-medium text-[13px] transition-colors"
                     >
-                      Open Application ({kit.apply_domain || 'Portal'}) ↗
+                      <span>Open Application ({kit.apply_domain || 'Portal'})</span>
+                      <ExternalLink size={14} strokeWidth={1.5} aria-hidden="true" />
                     </a>
                   ) : (
-                    <span className="text-xs text-red-600 font-medium">
+                    <span className="text-[12px] text-state-danger-fg font-medium">
                       No valid HTTP/HTTPS apply link available
                     </span>
                   )}
 
-                  {/* Actions */}
-                  <button
-                    onClick={() => void handleMarkApplied()}
-                    className="px-3 py-2 bg-emerald-600 text-white rounded text-sm font-medium hover:bg-emerald-700 cursor-pointer"
-                  >
+                  <Button variant="primary" size="sm" onClick={() => void handleMarkApplied()}>
                     Mark Applied [a]
-                  </button>
-                  <button
-                    onClick={() => void handleSkip()}
-                    className="px-3 py-2 bg-gray-100 text-gray-700 rounded text-sm font-medium hover:bg-gray-200 cursor-pointer"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => void handleSkip()}>
                     Skip [s]
-                  </button>
-                  <button
-                    onClick={() => void handleSnooze(3)}
-                    className="px-3 py-2 bg-gray-100 text-gray-700 rounded text-sm font-medium hover:bg-gray-200 cursor-pointer"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => void handleSnooze(3)}>
                     Snooze (3d) [z]
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               {/* Skills & Flags */}
               <div className="space-y-2">
-                <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                <h5 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
                   Skills & Fit Analysis
                 </h5>
                 <div className="flex flex-wrap gap-1.5">
                   {kit.matched_skills.map((s) => (
                     <span
                       key={s}
-                      className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs px-2 py-0.5 rounded"
+                      className="bg-state-ok-bg text-state-ok-fg border border-state-ok-border text-[12px] px-2 py-0.5 rounded-[4px] inline-flex items-center gap-1"
                     >
-                      ✓ {s}
+                      <Check size={12} strokeWidth={1.5} aria-hidden="true" />
+                      <span>{s}</span>
                     </span>
                   ))}
                   {kit.missing_skills.map((s) => (
                     <span
                       key={s}
-                      className="bg-gray-50 text-gray-600 border border-gray-200 text-xs px-2 py-0.5 rounded"
+                      className="bg-surface-subtle text-fg-muted border border-border text-[12px] px-2 py-0.5 rounded-[4px]"
                     >
                       - {s}
                     </span>
@@ -529,9 +553,10 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                   {kit.red_flags.map((rf) => (
                     <span
                       key={rf}
-                      className="bg-red-50 text-red-700 border border-red-200 text-xs px-2 py-0.5 rounded font-semibold"
+                      className="bg-state-danger-bg text-state-danger-fg border border-state-danger-border text-[12px] px-2 py-0.5 rounded-[4px] font-medium inline-flex items-center gap-1"
                     >
-                      🚩 {rf}
+                      <Flag size={12} strokeWidth={1.5} aria-hidden="true" />
+                      <span>{rf}</span>
                     </span>
                   ))}
                 </div>
@@ -540,28 +565,31 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
               {/* Cover Letter Section */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                  <h5 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
                     Cover Letter
                   </h5>
-                  <div className="space-x-2">
-                    <button
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      icon={Copy}
                       onClick={() => handleCopyText(editedLetter, 'Cover Letter')}
-                      className="px-2.5 py-1 bg-white border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 cursor-pointer"
                     >
                       Copy Letter [c]
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="xs"
+                      loading={savingLetter}
                       onClick={() => void handleSaveLetter()}
-                      disabled={savingLetter}
-                      className="px-2.5 py-1 bg-blue-50 border border-blue-200 rounded text-xs font-medium text-blue-700 hover:bg-blue-100 cursor-pointer"
                     >
-                      {savingLetter ? 'Saving...' : 'Save & Validate'}
-                    </button>
+                      Save & Validate
+                    </Button>
                   </div>
                 </div>
 
                 {letterErrors.length > 0 && (
-                  <div className="bg-red-50 border border-red-200 text-red-800 p-2.5 rounded text-xs space-y-1">
+                  <div className="bg-state-danger-bg border border-state-danger-border text-state-danger-fg p-2.5 rounded-[6px] text-[12px] space-y-1">
                     <p className="font-semibold">Guardrail errors:</p>
                     {letterErrors.map((err, idx) => (
                       <p key={idx}>• {err}</p>
@@ -573,32 +601,33 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                   value={editedLetter}
                   onChange={(e) => setEditedLetter(e.target.value)}
                   rows={8}
-                  className="w-full text-xs font-mono p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="w-full text-[13px] font-mono p-3 border border-border rounded-[6px] bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent leading-relaxed"
                   placeholder="Cover letter text..."
                 />
               </div>
 
               {/* Resume Download */}
               {kit.resume && (
-                <div className="p-3 bg-gray-50 border rounded-lg flex items-center justify-between text-xs">
+                <div className="p-3 bg-surface-subtle border border-border rounded-[6px] flex items-center justify-between text-[13px]">
                   <div>
-                    <span className="font-semibold text-gray-900">Recommended Resume:</span>{' '}
-                    <span className="text-gray-700">{kit.resume.label}</span>
+                    <span className="font-semibold text-fg">Recommended Resume:</span>{' '}
+                    <span className="text-fg-muted">{kit.resume.label}</span>
                   </div>
                   <a
                     href={kit.resume.download_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline font-medium"
+                    className="text-accent hover:underline font-medium inline-flex items-center gap-1"
                   >
-                    Download PDF ↗
+                    <span>Download PDF</span>
+                    <ExternalLink size={12} strokeWidth={1.5} aria-hidden="true" />
                   </a>
                 </div>
               )}
 
               {/* Quick Copy Profile Answers */}
               <div className="space-y-2">
-                <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                <h5 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
                   Quick-Copy Candidate Answers
                 </h5>
                 <div className="flex flex-wrap gap-2">
@@ -609,9 +638,15 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                           handleCopyText(kit.answers.notice_period, 'Notice Period');
                         }
                       }}
-                      className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-700 cursor-pointer"
+                      className="px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-[4px] text-[12px] text-fg cursor-pointer inline-flex items-center gap-1.5 transition-colors"
                     >
-                      Notice: {kit.answers.notice_period} 📋
+                      <span>Notice: {kit.answers.notice_period}</span>
+                      <Copy
+                        size={12}
+                        strokeWidth={1.5}
+                        className="text-fg-muted"
+                        aria-hidden="true"
+                      />
                     </button>
                   ) : null}
                   {kit.answers.current_ctc ? (
@@ -621,9 +656,15 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                           handleCopyText(kit.answers.current_ctc, 'Current CTC');
                         }
                       }}
-                      className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-700 cursor-pointer"
+                      className="px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-[4px] text-[12px] text-fg cursor-pointer inline-flex items-center gap-1.5 transition-colors"
                     >
-                      Current: {kit.answers.current_ctc} 📋
+                      <span>Current: {kit.answers.current_ctc}</span>
+                      <Copy
+                        size={12}
+                        strokeWidth={1.5}
+                        className="text-fg-muted"
+                        aria-hidden="true"
+                      />
                     </button>
                   ) : null}
                   {kit.answers.expected_ctc ? (
@@ -633,9 +674,15 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                           handleCopyText(kit.answers.expected_ctc, 'Expected CTC');
                         }
                       }}
-                      className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-700 cursor-pointer"
+                      className="px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-[4px] text-[12px] text-fg cursor-pointer inline-flex items-center gap-1.5 transition-colors"
                     >
-                      Expected: {kit.answers.expected_ctc} 📋
+                      <span>Expected: {kit.answers.expected_ctc}</span>
+                      <Copy
+                        size={12}
+                        strokeWidth={1.5}
+                        className="text-fg-muted"
+                        aria-hidden="true"
+                      />
                     </button>
                   ) : null}
                   {kit.answers.work_authorisation ? (
@@ -645,9 +692,15 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                           handleCopyText(kit.answers.work_authorisation, 'Work Authorisation');
                         }
                       }}
-                      className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-700 cursor-pointer"
+                      className="px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-[4px] text-[12px] text-fg cursor-pointer inline-flex items-center gap-1.5 transition-colors"
                     >
-                      Work Auth: {kit.answers.work_authorisation} 📋
+                      <span>Work Auth: {kit.answers.work_authorisation}</span>
+                      <Copy
+                        size={12}
+                        strokeWidth={1.5}
+                        className="text-fg-muted"
+                        aria-hidden="true"
+                      />
                     </button>
                   ) : null}
                   {kit.answers.links &&
@@ -655,9 +708,17 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                       <button
                         key={k}
                         onClick={() => handleCopyText(url, k)}
-                        className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-700 cursor-pointer"
+                        className="px-2.5 py-1 bg-surface-subtle hover:bg-surface border border-border rounded-[4px] text-[12px] text-fg cursor-pointer inline-flex items-center gap-1.5 transition-colors"
                       >
-                        {k}: {url} 📋
+                        <span>
+                          {k}: {url}
+                        </span>
+                        <Copy
+                          size={12}
+                          strokeWidth={1.5}
+                          className="text-fg-muted"
+                          aria-hidden="true"
+                        />
                       </button>
                     ))}
                 </div>
@@ -665,12 +726,12 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
 
               {/* Job Description (Strictly plain text, NEVER HTML) */}
               <div className="space-y-2">
-                <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                <h5 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
                   Job Description (Plain Text)
                 </h5>
                 <div
                   data-testid="job-description-plain"
-                  className="p-4 bg-gray-50 border rounded-lg text-xs whitespace-pre-wrap text-gray-800 font-mono leading-relaxed"
+                  className="p-4 bg-surface-subtle border border-border rounded-[6px] text-[13px] whitespace-pre-wrap text-fg font-mono leading-relaxed"
                 >
                   {kit.description}
                 </div>

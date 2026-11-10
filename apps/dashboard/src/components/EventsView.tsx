@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { History, Loader2, RefreshCw } from 'lucide-react';
+import { Button } from './ui/Button.js';
+import { StatusChip } from './ui/StatusChip.js';
 
 export interface AuditEventItem {
   id: string;
@@ -49,36 +52,24 @@ export function EventsView({ apiBase = '' }: Props): React.JSX.Element {
     void loadEvents();
   }, [loadEvents]);
 
-  const getEntityBadge = (entity: string) => {
-    switch (entity) {
-      case 'settings':
-        return 'bg-purple-50 text-purple-700 border-purple-200';
-      case 'application':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'job':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      case 'auth':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'source':
-        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
-      default:
-        return 'bg-gray-50 text-gray-700 border-gray-200';
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header & Filter Controls */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+      <div className="bg-surface p-5 rounded-[6px] border border-border space-y-4">
         <div>
-          <h2 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-            <span>📜</span>
-            <span>Audit Events Log</span>
-            <span className="text-xs bg-gray-100 text-gray-600 font-semibold px-2 py-0.5 rounded-full">
+          <div className="flex items-center gap-2">
+            <History
+              size={16}
+              strokeWidth={1.5}
+              className="text-fg-muted shrink-0"
+              aria-hidden="true"
+            />
+            <h2 className="text-[16px] font-semibold text-fg">Audit Events Log</h2>
+            <span className="text-[12px] bg-surface-subtle text-fg-muted font-medium font-mono tabular-nums px-2 py-0.5 rounded-[4px] border border-border">
               {events.length}
             </span>
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          </div>
+          <p className="text-[13px] text-fg-muted mt-1">
             Immutable log of state changes, notifications, sending operations, and configuration
             updates.
           </p>
@@ -86,9 +77,10 @@ export function EventsView({ apiBase = '' }: Props): React.JSX.Element {
 
         <div className="flex flex-wrap items-center gap-3">
           <select
+            aria-label="Filter by audit entity"
             value={entityFilter}
             onChange={(e) => setEntityFilter(e.target.value)}
-            className="text-xs p-2.5 rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">All Entities</option>
             <option value="settings">settings</option>
@@ -100,84 +92,79 @@ export function EventsView({ apiBase = '' }: Props): React.JSX.Element {
 
           <input
             type="text"
+            aria-label="Filter by event type"
             placeholder="Filter by event type (e.g. approved, kill_switch)..."
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="text-xs p-2.5 rounded-lg border border-gray-300 min-w-[280px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg min-w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />
 
-          <button
-            onClick={() => void loadEvents()}
-            className="px-3.5 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg cursor-pointer"
-          >
+          <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void loadEvents()}>
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Events List */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-surface rounded-[6px] border border-border overflow-hidden">
         {loading && events.length === 0 ? (
-          <div className="p-12 text-center text-xs text-gray-400">Loading audit events...</div>
+          <div className="p-12 text-center text-[13px] text-fg-muted flex items-center justify-center gap-2">
+            <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
+            <span>Loading audit events...</span>
+          </div>
         ) : error ? (
-          <div className="p-4 bg-rose-50 text-rose-700 text-xs">{error}</div>
+          <div className="p-4 bg-state-danger-bg text-state-danger-fg text-[13px]">{error}</div>
         ) : events.length === 0 ? (
-          <div className="p-12 text-center text-xs text-gray-500">
+          <div className="p-12 text-center text-[13px] text-fg-muted">
             No events found matching your filter.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase font-semibold">
-                  <th className="py-3 px-4">Timestamp</th>
-                  <th className="py-3 px-4">Entity</th>
-                  <th className="py-3 px-4">Entity ID</th>
-                  <th className="py-3 px-4">Event Type</th>
-                  <th className="py-3 px-4 text-right">Payload</th>
+          <div className="overflow-x-auto max-h-[640px]">
+            <table className="w-full text-left border-collapse text-[13px]">
+              <thead className="sticky top-0 bg-surface-subtle border-b border-border z-10">
+                <tr className="text-fg-muted uppercase text-[11px] font-medium tracking-wider">
+                  <th className="py-2.5 px-4">Timestamp</th>
+                  <th className="py-2.5 px-4">Entity</th>
+                  <th className="py-2.5 px-4">Entity ID</th>
+                  <th className="py-2.5 px-4">Event Type</th>
+                  <th className="py-2.5 px-4 text-right">Payload</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 font-mono text-[11px]">
+              <tbody className="divide-y divide-border-subtle font-mono text-[12px]">
                 {events.map((evt) => {
                   const isExpanded = expandedId === evt.id;
                   return (
                     <React.Fragment key={evt.id}>
-                      <tr className="hover:bg-gray-50/70 transition-colors">
-                        <td className="py-3 px-4 text-gray-500 whitespace-nowrap">
+                      <tr className="hover:bg-surface-subtle/50 transition-colors">
+                        <td className="py-2.5 px-4 text-fg-muted whitespace-nowrap tabular-nums">
                           {new Date(evt.created_at).toLocaleString()}
                         </td>
 
-                        <td className="py-3 px-4">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getEntityBadge(
-                              evt.entity,
-                            )}`}
-                          >
-                            {evt.entity}
-                          </span>
+                        <td className="py-2.5 px-4">
+                          <StatusChip variant="unknown" dot={false} label={evt.entity} size="sm" />
                         </td>
 
-                        <td className="py-3 px-4 text-gray-700 truncate max-w-[120px]">
+                        <td className="py-2.5 px-4 text-fg truncate max-w-[140px]">
                           {evt.entity_id}
                         </td>
 
-                        <td className="py-3 px-4 font-semibold text-gray-900">{evt.type}</td>
+                        <td className="py-2.5 px-4 font-semibold text-fg">{evt.type}</td>
 
-                        <td className="py-3 px-4 text-right">
-                          <button
-                            type="button"
+                        <td className="py-2.5 px-4 text-right font-sans">
+                          <Button
+                            variant="ghost"
+                            size="xs"
                             onClick={() => setExpandedId(isExpanded ? null : evt.id)}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-sans cursor-pointer"
                           >
                             {isExpanded ? 'Hide' : 'View Payload'}
-                          </button>
+                          </Button>
                         </td>
                       </tr>
 
                       {isExpanded && (
-                        <tr className="bg-gray-50">
+                        <tr className="bg-surface-subtle">
                           <td colSpan={5} className="p-4">
-                            <pre className="text-[11px] font-mono bg-white p-3 rounded-lg border border-gray-200 text-gray-800 overflow-x-auto whitespace-pre-wrap">
+                            <pre className="text-[12px] font-mono bg-surface p-3 rounded-[6px] border border-border text-fg overflow-x-auto whitespace-pre-wrap">
                               {JSON.stringify(evt.payload, null, 2)}
                             </pre>
                           </td>

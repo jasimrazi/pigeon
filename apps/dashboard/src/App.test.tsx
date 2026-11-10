@@ -539,19 +539,19 @@ describe('Dashboard App & Operations Components', () => {
 
       expect(googleLoading).not.toBeNull();
       expect(googleLoading?.textContent).toContain('Google: Loading...');
-      expect(googleLoading?.className).toContain('bg-gray-100');
+      expect(googleLoading?.className).toContain('bg-surface-subtle');
 
       expect(dryRunLoading).not.toBeNull();
       expect(dryRunLoading?.textContent).toContain('DRY_RUN: Loading...');
-      expect(dryRunLoading?.className).toContain('bg-gray-100');
+      expect(dryRunLoading?.className).toContain('bg-surface-subtle');
 
       expect(ksLoading).not.toBeNull();
       expect(ksLoading?.textContent).toContain('Kill Switch: unknown');
-      expect(ksLoading?.className).toContain('bg-gray-100');
+      expect(ksLoading?.className).toContain('bg-surface-subtle');
 
       // Verify it does NOT default to "Google OK" or "Kill Switch Off"
-      expect(container?.textContent).not.toContain('✅ Google OK');
-      expect(container?.textContent).not.toContain('🛡️ Kill Switch Off');
+      expect(container?.textContent).not.toContain('Google OK');
+      expect(container?.textContent).not.toContain('Kill Switch Off');
     });
 
     it('header badges show "API unreachable" on error instead of defaulting to OK/Off', async () => {
@@ -576,8 +576,8 @@ describe('Dashboard App & Operations Components', () => {
       expect(ksError?.textContent).toContain('Kill Switch: API unreachable');
 
       // Verify it does NOT default to "Google OK" or "Kill Switch Off"
-      expect(container?.textContent).not.toContain('✅ Google OK');
-      expect(container?.textContent).not.toContain('🛡️ Kill Switch Off');
+      expect(container?.textContent).not.toContain('Google OK');
+      expect(container?.textContent).not.toContain('Kill Switch Off');
     });
 
     it('header badges show healthy green "Google OK" only when authHealth is ok', async () => {
@@ -613,11 +613,11 @@ describe('Dashboard App & Operations Components', () => {
 
       const googleBadge = container?.querySelector('[data-testid="badge-google-ok"]');
       expect(googleBadge).not.toBeNull();
-      expect(googleBadge?.textContent).toContain('✅ Google OK');
-      expect(googleBadge?.className).toContain('bg-emerald-50');
-      expect(googleBadge?.className).toContain('text-emerald-700');
+      expect(googleBadge?.textContent).toContain('Google OK');
+      expect(googleBadge?.className).toContain('bg-state-ok-bg');
+      expect(googleBadge?.className).toContain('text-state-ok-fg');
       expect(container?.textContent).toContain('DRY_RUN');
-      expect(container?.textContent).toContain('🛡️ Kill Switch Off');
+      expect(container?.textContent).toContain('Kill Switch Off');
     });
 
     it('header Google badge shows grey "Google: not connected" when authHealth is unknown', async () => {
@@ -657,16 +657,15 @@ describe('Dashboard App & Operations Components', () => {
       const unknownBadge = container?.querySelector('[data-testid="badge-google-unknown"]');
       expect(unknownBadge).not.toBeNull();
       expect(unknownBadge?.textContent).toContain('Google: not connected');
-      expect(unknownBadge?.className).toContain('bg-gray-100');
-      expect(unknownBadge?.className).toContain('text-gray-600');
+      expect(unknownBadge?.className).toContain('bg-surface-subtle');
+      expect(unknownBadge?.className).toContain('text-fg-muted');
       expect(unknownBadge?.getAttribute('href')).toBe('/auth/google/start');
 
       // CRITICAL: Must NEVER be green or say Google OK
       expect(container?.querySelector('[data-testid="badge-google-ok"]')).toBeNull();
-      expect(container?.textContent).not.toContain('✅ Google OK');
       expect(container?.textContent).not.toContain('Google OK');
-      expect(unknownBadge?.className).not.toContain('bg-emerald-50');
-      expect(unknownBadge?.className).not.toContain('text-emerald-700');
+      expect(unknownBadge?.className).not.toContain('bg-state-ok-bg');
+      expect(unknownBadge?.className).not.toContain('text-state-ok-fg');
     });
 
     it('header Google badge shows red "Google: reconnect" when authHealth is invalid', async () => {
@@ -706,16 +705,15 @@ describe('Dashboard App & Operations Components', () => {
       const invalidBadge = container?.querySelector('[data-testid="badge-google-invalid"]');
       expect(invalidBadge).not.toBeNull();
       expect(invalidBadge?.textContent).toContain('Google: reconnect');
-      expect(invalidBadge?.className).toContain('bg-rose-50');
-      expect(invalidBadge?.className).toContain('text-rose-700');
+      expect(invalidBadge?.className).toContain('bg-state-danger-bg');
+      expect(invalidBadge?.className).toContain('text-state-danger-fg');
       expect(invalidBadge?.getAttribute('href')).toBe('/auth/google/start');
 
       // CRITICAL: Must NEVER be green or say Google OK
       expect(container?.querySelector('[data-testid="badge-google-ok"]')).toBeNull();
-      expect(container?.textContent).not.toContain('✅ Google OK');
       expect(container?.textContent).not.toContain('Google OK');
-      expect(invalidBadge?.className).not.toContain('bg-emerald-50');
-      expect(invalidBadge?.className).not.toContain('text-emerald-700');
+      expect(invalidBadge?.className).not.toContain('bg-state-ok-bg');
+      expect(invalidBadge?.className).not.toContain('text-state-ok-fg');
     });
 
     it('FAILS if Google badge defaults to ok when authHealth is unknown or omitted from API', async () => {
@@ -754,7 +752,6 @@ describe('Dashboard App & Operations Components', () => {
       const okBadge = container?.querySelector('[data-testid="badge-google-ok"]');
       expect(okBadge).toBeNull();
       expect(container?.textContent).not.toContain('Google OK');
-      expect(container?.textContent).not.toContain('✅ Google OK');
 
       const unknownBadge = container?.querySelector('[data-testid="badge-google-unknown"]');
       expect(unknownBadge).not.toBeNull();
@@ -794,8 +791,8 @@ describe('Dashboard App & Operations Components', () => {
 
       const ksActiveBadge = container?.querySelector('[data-testid="badge-killswitch-active"]');
       expect(ksActiveBadge).not.toBeNull();
-      expect(ksActiveBadge?.textContent).toContain('🚨 KILL SWITCH ON');
-      expect(ksActiveBadge?.className).toContain('bg-rose-600');
+      expect(ksActiveBadge?.textContent).toContain('KILL SWITCH ON');
+      expect(ksActiveBadge?.className).toContain('bg-state-danger-bg');
     });
 
     it('Kill Switch badge renders disarmed state when killSwitch is false in KV', async () => {
@@ -831,8 +828,8 @@ describe('Dashboard App & Operations Components', () => {
 
       const ksOffBadge = container?.querySelector('[data-testid="badge-killswitch-off"]');
       expect(ksOffBadge).not.toBeNull();
-      expect(ksOffBadge?.textContent).toContain('🛡️ Kill Switch Off');
-      expect(ksOffBadge?.className).toContain('bg-gray-100');
+      expect(ksOffBadge?.textContent).toContain('Kill Switch Off');
+      expect(ksOffBadge?.className).toContain('bg-surface-subtle');
     });
   });
 });
