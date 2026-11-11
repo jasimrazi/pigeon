@@ -22,6 +22,7 @@
     "feed:eml": "node scripts/feed-eml.mjs",
     "seed:local": "node scripts/seed-local.mjs",
     "db:reset:local": "node scripts/db-reset-local.mjs",
+    "settings:rotate": "node scripts/settings-rotate.mjs",
     "dev:local": "node scripts/dev-local.mjs",
     "smoke:local": "node scripts/smoke-local.mjs"
   },

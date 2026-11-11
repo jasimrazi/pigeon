@@ -1,4 +1,12 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  uniqueIndex,
+  index,
+  check,
+} from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 export type JobSourceKind = 'api' | 'ats' | 'alert_email';
@@ -174,6 +182,27 @@ export const profile = sqliteTable('profile', {
   updated_at: text('updated_at').notNull(),
 });
 
+// 10. App Settings table
+export const appSettings = sqliteTable(
+  'app_settings',
+  {
+    key: text('key').primaryKey(),
+    value: text('value'),
+    ciphertext: text('ciphertext'),
+    iv: text('iv'),
+    key_version: integer('key_version').notNull().default(1),
+    is_secret: integer('is_secret', { mode: 'boolean' }).notNull().default(false),
+    updated_at: text('updated_at').notNull(),
+    updated_by: text('updated_by').notNull().default('system'),
+  },
+  (table) => [
+    check(
+      'check_setting_value_or_ciphertext',
+      sql`(${table.is_secret} = 0 AND ${table.value} IS NOT NULL AND ${table.ciphertext} IS NULL AND ${table.iv} IS NULL) OR (${table.is_secret} = 1 AND ${table.value} IS NULL AND ${table.ciphertext} IS NOT NULL AND ${table.iv} IS NOT NULL)`,
+    ),
+  ],
+);
+
 // Inferred Types
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
@@ -201,3 +230,6 @@ export type NewEvent = typeof events.$inferInsert;
 
 export type ProfileRow = typeof profile.$inferSelect;
 export type NewProfileRow = typeof profile.$inferInsert;
+
+export type AppSetting = typeof appSettings.$inferSelect;
+export type NewAppSetting = typeof appSettings.$inferInsert;
