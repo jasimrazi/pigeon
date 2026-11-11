@@ -5,15 +5,29 @@ import { ReviewQueueView } from './components/ReviewQueueView.js';
 import { ManualQueueView } from './components/ManualQueueView.js';
 import { ApplicationsView } from './components/ApplicationsView.js';
 import { SourcesView } from './components/SourcesView.js';
-import { SettingsView } from './components/SettingsView.js';
+import { SettingsView, type SettingsSubTab } from './components/SettingsView.js';
 import { EventsView } from './components/EventsView.js';
+import { SetupView } from './components/SetupView.js';
 import { ConfirmationModal } from './components/ConfirmationModal.js';
 
 export type TabKey =
-  'overview' | 'review-queue' | 'manual-apply' | 'applications' | 'sources' | 'settings' | 'events';
+  | 'overview'
+  | 'review-queue'
+  | 'manual-apply'
+  | 'applications'
+  | 'sources'
+  | 'settings'
+  | 'events'
+  | 'setup';
 
 export function App(): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname === '/setup') {
+      return 'setup';
+    }
+    return 'overview';
+  });
+  const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTab>('profile');
   const [headerState, setHeaderState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [killSwitch, setKillSwitch] = useState<boolean | null>(null);
   const [dryRun, setDryRun] = useState<boolean | null>(null);
@@ -334,9 +348,23 @@ export function App(): React.JSX.Element {
         {activeTab === 'applications' && <ApplicationsView />}
         {activeTab === 'sources' && <SourcesView />}
         {activeTab === 'settings' && (
-          <SettingsView onRefresh={() => setRefreshTrigger((prev) => prev + 1)} />
+          <SettingsView
+            initialSubTab={settingsSubTab}
+            onSubTabChange={setSettingsSubTab}
+            onRefresh={() => setRefreshTrigger((prev) => prev + 1)}
+          />
         )}
         {activeTab === 'events' && <EventsView />}
+        {activeTab === 'setup' && (
+          <SetupView
+            onNavigateTab={(tab, subTab) => {
+              setActiveTab(tab as TabKey);
+              if (subTab) {
+                setSettingsSubTab(subTab as SettingsSubTab);
+              }
+            }}
+          />
+        )}
       </main>
 
       {/* Header Kill Switch Confirmation Modal */}

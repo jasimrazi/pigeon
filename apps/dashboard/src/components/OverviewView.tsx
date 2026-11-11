@@ -35,6 +35,10 @@ export function OverviewView({
   onDataRefresh,
 }: Props): React.JSX.Element {
   const [data, setData] = useState<OverviewData | null>(null);
+  const [setupStatus, setSetupStatus] = useState<{
+    readyForDryRun: boolean;
+    readyToGoLive: boolean;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showKsModal, setShowKsModal] = useState(false);
@@ -52,6 +56,20 @@ export function OverviewView({
       }
       const json = (await res.json()) as OverviewData;
       setData(json);
+
+      // Check setup status
+      try {
+        const setupRes = await fetch(`${apiBase}/api/setup/status`);
+        if (setupRes.ok) {
+          const sJson = (await setupRes.json()) as {
+            readyForDryRun: boolean;
+            readyToGoLive: boolean;
+          };
+          setSetupStatus(sJson);
+        }
+      } catch {
+        // Non-blocking setup check
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -132,6 +150,20 @@ export function OverviewView({
 
   return (
     <div className="space-y-6">
+      {/* First-Run Setup Banner */}
+      {setupStatus && !setupStatus.readyForDryRun && (
+        <AlertBanner
+          variant="warn"
+          title="Initial Setup Incomplete"
+          description="Pigeon requires basic configuration (master encryption key, candidate profile, and LLM provider) before running simulations or processing applications."
+          action={
+            <Button variant="primary" size="sm" onClick={() => onNavigateTab?.('setup')}>
+              Open Setup Checklist
+            </Button>
+          }
+        />
+      )}
+
       {/* Kill Switch Alert Banner */}
       {data.killSwitch && (
         <AlertBanner

@@ -500,6 +500,15 @@ describe('Dashboard App & Operations Components', () => {
     const minScoreInput = container?.querySelector('input[type="number"]') as HTMLInputElement;
     expect(minScoreInput).not.toBeNull();
 
+    // Switch to Safety sub-tab
+    const safetyTab = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+      b.textContent?.includes('Safety'),
+    );
+    expect(safetyTab).toBeDefined();
+    await act(async () => {
+      safetyTab?.click();
+    });
+
     // Verify DRY_RUN toggle in Settings opens modal
     const dryRunBtn = Array.from(container?.querySelectorAll('button') || []).find((b) =>
       b.textContent?.includes('DRY_RUN: ENABLED'),
