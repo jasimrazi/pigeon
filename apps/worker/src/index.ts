@@ -29,8 +29,6 @@ import {
   approveApplication,
   bulkApproveApplications,
   canBulkApprove,
-  ConfigError,
-  getGoogleClient,
   getTokenKey,
   sendApplicationEmail,
   RestGmailSender,
@@ -52,6 +50,8 @@ import {
   seedLocalData,
   logger,
   purgeExpiredJobDescriptions,
+  getConfig,
+  type AppConfig,
   type Notifier,
   type NotificationPayload,
   type CloudflareAiBinding,
@@ -234,12 +234,14 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-export function createWorkerNotifier(env: Bindings): Notifier {
+export async function createWorkerNotifier(env: Bindings, config?: AppConfig): Promise<Notifier> {
   const eventsNotifier = new EventsNotifier(env.DB);
-  if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
+  const appConfig = config ?? (await getConfig(env, env.DB));
+  const telegram = appConfig.getTelegramConfig();
+  if (telegram.botToken && telegram.chatId) {
     const telegramNotifier = new TelegramNotifier({
-      botToken: env.TELEGRAM_BOT_TOKEN as string,
-      chatId: env.TELEGRAM_CHAT_ID as string,
+      botToken: telegram.botToken,
+      chatId: telegram.chatId,
       kv: env.CONFIG,
     });
     return {
@@ -504,12 +506,14 @@ app.post('/api/pipeline/run', async (c) => {
   }
 
   const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
-  const env = c.get('validatedEnv');
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const llmConfig = appConfig.getLlmConfig();
 
   const llmClient = createLLMClient({
-    provider: env.LLM_PROVIDER,
-    ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
-    geminiApiKey: env.GEMINI_API_KEY,
+    provider: llmConfig.provider,
+    ai: c.env.AI as CloudflareAiBinding | undefined,
+    geminiApiKey: llmConfig.geminiApiKey,
+    model: llmConfig.model,
   });
 
   const scorer = new DefaultScorer(llmClient);
@@ -544,12 +548,14 @@ app.post('/api/applications/create', async (c) => {
   }
 
   const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
-  const env = c.get('validatedEnv');
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const llmConfig = appConfig.getLlmConfig();
 
   const llmClient = createLLMClient({
-    provider: env.LLM_PROVIDER,
-    ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
-    geminiApiKey: env.GEMINI_API_KEY,
+    provider: llmConfig.provider,
+    ai: c.env.AI as CloudflareAiBinding | undefined,
+    geminiApiKey: llmConfig.geminiApiKey,
+    model: llmConfig.model,
   });
 
   const generator = new DefaultCoverLetterGenerator(llmClient);
@@ -796,26 +802,27 @@ app.get('/api/resumes/:id/download', async (c) => {
 // -------------------------------------------------------------
 
 app.get('/auth/google/start', async (c) => {
-  const env = c.get('validatedEnv');
-  let googleClient: { clientId: string; clientSecret: string };
-  try {
-    googleClient = getGoogleClient(env);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return c.json({ error: err.message }, 503);
-    }
-    throw err;
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const googleOAuth = appConfig.getGoogleOAuth();
+  if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+    return c.json(
+      {
+        error:
+          'Missing required Google OAuth credentials: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured',
+      },
+      503,
+    );
   }
 
   const redirectUri =
-    env.GOOGLE_REDIRECT_URI || new URL('/auth/google/callback', c.req.url).toString();
+    googleOAuth.redirectUri || new URL('/auth/google/callback', c.req.url).toString();
   const state = crypto.randomUUID();
 
   // Store state in KV for 10 minutes (600s), single use
   await c.env.CONFIG.put(`oauth_state:${state}`, 'valid', { expirationTtl: 600 });
 
   const authUrl = getGoogleAuthUrl({
-    clientId: googleClient.clientId,
+    clientId: googleOAuth.clientId,
     redirectUri,
     state,
   });
@@ -848,14 +855,16 @@ app.get('/auth/google/callback', async (c) => {
   // Single-use: delete state immediately
   await c.env.CONFIG.delete(`oauth_state:${state}`);
 
-  let googleClient: { clientId: string; clientSecret: string };
-  try {
-    googleClient = getGoogleClient(env);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return c.json({ error: err.message }, 503);
-    }
-    throw err;
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const googleOAuth = appConfig.getGoogleOAuth();
+  if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+    return c.json(
+      {
+        error:
+          'Missing required Google OAuth credentials: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured',
+      },
+      503,
+    );
   }
 
   let tokenEncryptionKey: string;
@@ -866,15 +875,15 @@ app.get('/auth/google/callback', async (c) => {
   }
 
   const redirectUri =
-    env.GOOGLE_REDIRECT_URI || new URL('/auth/google/callback', c.req.url).toString();
+    googleOAuth.redirectUri || new URL('/auth/google/callback', c.req.url).toString();
   const secrets: GoogleOAuthSecrets = {
-    clientId: googleClient.clientId,
-    clientSecret: googleClient.clientSecret,
+    clientId: googleOAuth.clientId,
+    clientSecret: googleOAuth.clientSecret,
     tokenEncryptionKey,
     redirectUri,
   };
 
-  const notifier = createWorkerNotifier(c.env);
+  const notifier = await createWorkerNotifier(c.env, appConfig);
   const ownerGmail = (c.env.OWNER_GMAIL as string) || env.OWNER_GMAIL || undefined;
 
   try {
@@ -906,15 +915,16 @@ app.get('/api/auth/google/health', async (c) => {
 });
 
 app.post('/api/auth/google/ping', async (c) => {
-  const env = c.get('validatedEnv');
-  let googleClient: { clientId: string; clientSecret: string };
-  try {
-    googleClient = getGoogleClient(env);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return c.json({ error: err.message }, 503);
-    }
-    throw err;
+  const appConfig = await getConfig(c.env, c.env.DB, { fresh: true });
+  const googleOAuth = appConfig.getGoogleOAuth();
+  if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+    return c.json(
+      {
+        error:
+          'Missing required Google OAuth credentials: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured',
+      },
+      503,
+    );
   }
 
   let tokenEncryptionKey: string;
@@ -925,12 +935,12 @@ app.post('/api/auth/google/ping', async (c) => {
   }
 
   const secrets: GoogleOAuthSecrets = {
-    clientId: googleClient.clientId,
-    clientSecret: googleClient.clientSecret,
+    clientId: googleOAuth.clientId,
+    clientSecret: googleOAuth.clientSecret,
     tokenEncryptionKey,
   };
 
-  const notifier = createWorkerNotifier(c.env);
+  const notifier = await createWorkerNotifier(c.env, appConfig);
   const health = await pingGoogleAuthHealth({
     config: c.env.CONFIG,
     secrets,
@@ -1047,23 +1057,25 @@ app.post('/api/applications/:id/send', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
   }
 
-  let googleClient: { clientId: string; clientSecret: string };
-  try {
-    googleClient = getGoogleClient(c.env);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return c.json({ error: err.message }, 503);
-    }
-    throw err;
+  const appConfig = await getConfig(c.env, c.env.DB, { fresh: true });
+  const googleOAuth = appConfig.getGoogleOAuth();
+  if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+    return c.json(
+      {
+        error:
+          'Missing required Google OAuth credentials: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured',
+      },
+      503,
+    );
   }
 
   const secrets: GoogleOAuthSecrets = {
-    clientId: googleClient.clientId,
-    clientSecret: googleClient.clientSecret,
+    clientId: googleOAuth.clientId,
+    clientSecret: googleOAuth.clientSecret,
     tokenEncryptionKey,
   };
 
-  const notifier = createWorkerNotifier(c.env);
+  const notifier = await createWorkerNotifier(c.env, appConfig);
   const gmailSender = new RestGmailSender(() =>
     getValidAccessToken({
       config: c.env.CONFIG,
@@ -1101,8 +1113,6 @@ app.post('/api/applications/:id/send', async (c) => {
 // -------------------------------------------------------------
 
 app.post('/api/sync/sheet', async (c) => {
-  const env = c.get('validatedEnv');
-
   let tokenEncryptionKey: string;
   try {
     tokenEncryptionKey = getTokenKey(c.env);
@@ -1110,23 +1120,25 @@ app.post('/api/sync/sheet', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
   }
 
-  let googleClient: { clientId: string; clientSecret: string };
-  try {
-    googleClient = getGoogleClient(c.env);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return c.json({ error: err.message }, 503);
-    }
-    throw err;
+  const appConfig = await getConfig(c.env, c.env.DB, { fresh: true });
+  const googleOAuth = appConfig.getGoogleOAuth();
+  if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+    return c.json(
+      {
+        error:
+          'Missing required Google OAuth credentials: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured',
+      },
+      503,
+    );
   }
 
   const secrets: GoogleOAuthSecrets = {
-    clientId: googleClient.clientId,
-    clientSecret: googleClient.clientSecret,
+    clientId: googleOAuth.clientId,
+    clientSecret: googleOAuth.clientSecret,
     tokenEncryptionKey,
   };
 
-  const notifier = createWorkerNotifier(c.env);
+  const notifier = await createWorkerNotifier(c.env, appConfig);
   const sheetsClient = new RestSheetsClient(() =>
     getValidAccessToken({
       config: c.env.CONFIG,
@@ -1135,11 +1147,13 @@ app.post('/api/sync/sheet', async (c) => {
     }),
   );
 
+  const sheetsConfig = appConfig.getSheetsConfig();
   const result = await syncApplicationsToSheet({
     db: c.env.DB,
     config: c.env.CONFIG,
     sheetsClient,
-    spreadsheetId: env.GOOGLE_SHEET_ID,
+    spreadsheetId: sheetsConfig.spreadsheetId,
+    tabName: sheetsConfig.tabApplications,
     notifier,
   });
 
@@ -1151,8 +1165,6 @@ app.post('/api/sync/sheet', async (c) => {
 // -------------------------------------------------------------
 
 app.post('/api/inbox/poll', async (c) => {
-  const env = c.get('validatedEnv');
-
   const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
     .bind('default')
     .first<{ data: string }>();
@@ -1169,19 +1181,21 @@ app.post('/api/inbox/poll', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 503);
   }
 
-  let googleClient: { clientId: string; clientSecret: string };
-  try {
-    googleClient = getGoogleClient(c.env);
-  } catch (err) {
-    if (err instanceof ConfigError) {
-      return c.json({ error: err.message }, 503);
-    }
-    throw err;
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const googleOAuth = appConfig.getGoogleOAuth();
+  if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+    return c.json(
+      {
+        error:
+          'Missing required Google OAuth credentials: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured',
+      },
+      503,
+    );
   }
 
   const secrets: GoogleOAuthSecrets = {
-    clientId: googleClient.clientId,
-    clientSecret: googleClient.clientSecret,
+    clientId: googleOAuth.clientId,
+    clientSecret: googleOAuth.clientSecret,
     tokenEncryptionKey,
   };
 
@@ -1194,13 +1208,15 @@ app.post('/api/inbox/poll', async (c) => {
     }),
   );
 
+  const llmConfig = appConfig.getLlmConfig();
   let llmClient = undefined;
-  if (c.env.AI || env.GEMINI_API_KEY) {
+  if (c.env.AI || llmConfig.geminiApiKey) {
     try {
       llmClient = createLLMClient({
-        provider: (env.LLM_PROVIDER as 'workers-ai' | 'gemini') || 'workers-ai',
+        provider: llmConfig.provider,
         aiBinding: c.env.AI as CloudflareAiBinding | undefined,
-        geminiApiKey: env.GEMINI_API_KEY,
+        geminiApiKey: llmConfig.geminiApiKey,
+        model: llmConfig.model,
       });
     } catch {
       // Deterministic rules fallback
@@ -1690,9 +1706,14 @@ app.post('/api/dev/trigger/:action', async (c) => {
 
   const action = c.req.param('action');
   const env = c.get('validatedEnv');
+  const appConfig = await getConfig(c.env, c.env.DB);
 
   if (action === 'ingest') {
     const enabledSources = await getEnabledSources(c.env.CONFIG);
+    const identity = appConfig.getIdentityConfig();
+    const userAgent = identity.userAgentContactEmail
+      ? `Pigeon/1.0 (Job Application Assistant; mailto:${identity.userAgentContactEmail}; +https://github.com/pigeon)`
+      : undefined;
     const results: Record<string, unknown> = {};
     for (const source of enabledSources) {
       try {
@@ -1700,9 +1721,10 @@ app.post('/api/dev/trigger/:action', async (c) => {
           db: c.env.DB,
           kv: c.env.CONFIG,
           secrets: {
-            ADZUNA_APP_ID: c.env.ADZUNA_APP_ID,
-            ADZUNA_APP_KEY: c.env.ADZUNA_APP_KEY,
+            ADZUNA_APP_ID: appConfig.getRawValue('ADZUNA_APP_ID'),
+            ADZUNA_APP_KEY: appConfig.getRawValue('ADZUNA_APP_KEY'),
           },
+          userAgent,
         });
         results[source] = res;
       } catch (err) {
@@ -1729,10 +1751,12 @@ app.post('/api/dev/trigger/:action', async (c) => {
       return c.json({ error: 'Profile not configured in database' }, 400);
     }
     const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+    const llmConfig = appConfig.getLlmConfig();
     const llmClient = createLLMClient({
-      provider: env.LLM_PROVIDER,
+      provider: llmConfig.provider,
       ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
-      geminiApiKey: env.GEMINI_API_KEY,
+      geminiApiKey: llmConfig.geminiApiKey,
+      model: llmConfig.model,
     });
     const scorer = new DefaultScorer(llmClient);
     const maxScoredRaw = await c.env.CONFIG.get('MAX_SCORED_PER_DAY');
@@ -1755,10 +1779,12 @@ app.post('/api/dev/trigger/:action', async (c) => {
       return c.json({ error: 'Profile not configured in database' }, 400);
     }
     const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+    const llmConfig = appConfig.getLlmConfig();
     const llmClient = createLLMClient({
-      provider: env.LLM_PROVIDER,
+      provider: llmConfig.provider,
       ai: (env.AI ?? c.env.AI) as CloudflareAiBinding | undefined,
-      geminiApiKey: env.GEMINI_API_KEY,
+      geminiApiKey: llmConfig.geminiApiKey,
+      model: llmConfig.model,
     });
     const generator = new DefaultCoverLetterGenerator(llmClient);
 
@@ -1800,14 +1826,18 @@ app.post('/api/dev/trigger/:action', async (c) => {
       return c.json({ error: 'Profile not configured in database' }, 400);
     }
     const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
-    const googleClient = getGoogleClient(env);
+    const freshConfig = await getConfig(c.env, c.env.DB, { fresh: true });
+    const googleOAuth = freshConfig.getGoogleOAuth();
+    if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+      return c.json({ error: 'Missing required Google OAuth credentials' }, 503);
+    }
     const tokenEncryptionKey = getTokenKey(c.env);
     const secrets: GoogleOAuthSecrets = {
-      clientId: googleClient.clientId,
-      clientSecret: googleClient.clientSecret,
+      clientId: googleOAuth.clientId,
+      clientSecret: googleOAuth.clientSecret,
       tokenEncryptionKey,
     };
-    const notifier = createWorkerNotifier(c.env);
+    const notifier = await createWorkerNotifier(c.env, freshConfig);
     const gmailSender = new RestGmailSender(() =>
       getValidAccessToken({
         config: c.env.CONFIG,
@@ -1869,14 +1899,18 @@ app.post('/api/dev/trigger/:action', async (c) => {
   }
 
   if (action === 'sheets') {
-    const googleClient = getGoogleClient(env);
+    const googleOAuth = appConfig.getGoogleOAuth();
+    if (!googleOAuth.clientId || !googleOAuth.clientSecret) {
+      return c.json({ error: 'Missing required Google OAuth credentials' }, 503);
+    }
     const tokenEncryptionKey = getTokenKey(c.env);
     const secrets: GoogleOAuthSecrets = {
-      clientId: googleClient.clientId,
-      clientSecret: googleClient.clientSecret,
+      clientId: googleOAuth.clientId,
+      clientSecret: googleOAuth.clientSecret,
       tokenEncryptionKey,
     };
-    const notifier = createWorkerNotifier(c.env);
+    const notifier = await createWorkerNotifier(c.env, appConfig);
+    const sheetsConfig = appConfig.getSheetsConfig();
     const sheetsClient = new RestSheetsClient(() =>
       getValidAccessToken({
         config: c.env.CONFIG,
@@ -1888,7 +1922,8 @@ app.post('/api/dev/trigger/:action', async (c) => {
       db: c.env.DB,
       config: c.env.CONFIG,
       sheetsClient,
-      spreadsheetId: env.GOOGLE_SHEET_ID as string | undefined,
+      spreadsheetId: sheetsConfig.spreadsheetId,
+      tabName: sheetsConfig.tabApplications,
       notifier,
     });
     return c.json({ ok: true, action: 'sheets', ...result });
@@ -1912,8 +1947,8 @@ app.post('/api/dev/feed-eml', async (c) => {
     .bind('default')
     .first<{ data: string }>();
 
-  let configuredForwardingAddress =
-    typeof c.env.ALERT_FORWARDING_ADDRESS === 'string' ? c.env.ALERT_FORWARDING_ADDRESS : undefined;
+  const appConfig = await getConfig(c.env, c.env.DB);
+  let configuredForwardingAddress = appConfig.getIdentityConfig().alertForwardingAddress;
 
   if (!configuredForwardingAddress && profileRow?.data) {
     try {
@@ -1926,7 +1961,7 @@ app.post('/api/dev/feed-eml', async (c) => {
     }
   }
 
-  const notifier = createWorkerNotifier(c.env);
+  const notifier = await createWorkerNotifier(c.env, appConfig);
   const result = await ingestAlertEmail(rawEml, {
     db: c.env.DB,
     envelope: {
@@ -1951,13 +1986,16 @@ export default {
     await expireStaleManualPending(env.DB);
     // Housekeeping: purge >90-day job descriptions for unapplied jobs
     await purgeExpiredJobDescriptions({ db: env.DB });
+    const appConfig = await getConfig(env, env.DB);
     // Send daily digest & check failure rate alert
-    const notifier = createWorkerNotifier(env);
+    const notifier = await createWorkerNotifier(env, appConfig);
     await sendManualDailyDigest({ db: env.DB, notifier });
     await checkFailureRateAlert({ db: env.DB, notifier });
 
+    const hasGoogleOAuth = appConfig.hasGoogleOAuth();
+
     // Sync to Google Sheet every cron run (10 min) if OAuth configured
-    if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+    if (hasGoogleOAuth) {
       try {
         await env.JOBS_QUEUE.send({ action: 'sync_sheet' });
       } catch (err) {
@@ -1966,7 +2004,7 @@ export default {
     }
 
     // Poll Gmail inbox every cron run (15 min) if OAuth configured
-    if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+    if (hasGoogleOAuth) {
       try {
         await env.JOBS_QUEUE.send({ action: 'poll_inbox' });
       } catch (err) {
@@ -1975,12 +2013,13 @@ export default {
     }
 
     // Daily Google Auth health ping if credentials configured
-    if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+    if (hasGoogleOAuth) {
       try {
+        const googleOAuth = appConfig.getGoogleOAuth();
         const tokenEncryptionKey = getTokenKey(env);
         const secrets: GoogleOAuthSecrets = {
-          clientId: env.GOOGLE_CLIENT_ID as string,
-          clientSecret: env.GOOGLE_CLIENT_SECRET as string,
+          clientId: googleOAuth.clientId as string,
+          clientSecret: googleOAuth.clientSecret as string,
           tokenEncryptionKey,
         };
         await pingGoogleAuthHealth({
@@ -1994,17 +2033,23 @@ export default {
     }
   },
   async queue(batch: MessageBatch<unknown>, env: Bindings): Promise<void> {
+    const appConfig = await getConfig(env, env.DB);
     for (const msg of batch.messages) {
       const body = msg.body as { source?: string; action?: string };
       if (body && typeof body.source === 'string') {
         try {
+          const identity = appConfig.getIdentityConfig();
+          const userAgent = identity.userAgentContactEmail
+            ? `Pigeon/1.0 (Job Application Assistant; mailto:${identity.userAgentContactEmail}; +https://github.com/pigeon)`
+            : undefined;
           await ingestSource(body.source, {
             db: env.DB,
             kv: env.CONFIG,
             secrets: {
-              ADZUNA_APP_ID: env.ADZUNA_APP_ID,
-              ADZUNA_APP_KEY: env.ADZUNA_APP_KEY,
+              ADZUNA_APP_ID: appConfig.getRawValue('ADZUNA_APP_ID'),
+              ADZUNA_APP_KEY: appConfig.getRawValue('ADZUNA_APP_KEY'),
             },
+            userAgent,
           });
         } catch (err) {
           // Log error so that one source failure does not break other sources in the batch
@@ -2018,10 +2063,12 @@ export default {
 
           if (profileRow?.data) {
             const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+            const llmConfig = appConfig.getLlmConfig();
             const llmClient = createLLMClient({
-              provider: (env.LLM_PROVIDER as 'workers-ai' | 'gemini') || 'workers-ai',
+              provider: llmConfig.provider,
               aiBinding: env.AI as CloudflareAiBinding | undefined,
-              geminiApiKey: env.GEMINI_API_KEY,
+              geminiApiKey: llmConfig.geminiApiKey,
+              model: llmConfig.model,
             });
             const scorer = new DefaultScorer(llmClient);
             const maxScoredRaw = await env.CONFIG.get('MAX_SCORED_PER_DAY');
@@ -2050,10 +2097,12 @@ export default {
 
           if (profileRow?.data) {
             const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
+            const llmConfig = appConfig.getLlmConfig();
             const llmClient = createLLMClient({
-              provider: (env.LLM_PROVIDER as 'workers-ai' | 'gemini') || 'workers-ai',
+              provider: llmConfig.provider,
               ai: env.AI as CloudflareAiBinding | undefined,
-              geminiApiKey: env.GEMINI_API_KEY,
+              geminiApiKey: llmConfig.geminiApiKey,
+              model: llmConfig.model,
             });
             const generator = new DefaultCoverLetterGenerator(llmClient);
             await ApplicationFactory.createForJob({
@@ -2092,41 +2141,46 @@ export default {
               .first<ApplicationToSend>();
 
             if (appRow) {
-              const tokenEncryptionKey = getTokenKey(env);
-              const googleClient = getGoogleClient(env);
-              const secrets: GoogleOAuthSecrets = {
-                clientId: googleClient.clientId,
-                clientSecret: googleClient.clientSecret,
-                tokenEncryptionKey,
-              };
+              const freshConfig = await getConfig(env, env.DB, { fresh: true });
+              if (freshConfig.hasGoogleOAuth()) {
+                const googleOAuth = freshConfig.getGoogleOAuth();
+                const tokenEncryptionKey = getTokenKey(env);
+                const secrets: GoogleOAuthSecrets = {
+                  clientId: googleOAuth.clientId,
+                  clientSecret: googleOAuth.clientSecret,
+                  tokenEncryptionKey,
+                };
 
-              const notifier = createWorkerNotifier(env);
-              const gmailSender = new RestGmailSender(() =>
-                getValidAccessToken({
+                const notifier = await createWorkerNotifier(env, freshConfig);
+                const gmailSender = new RestGmailSender(() =>
+                  getValidAccessToken({
+                    config: env.CONFIG,
+                    secrets,
+                    notifier,
+                  }),
+                );
+
+                const dryRunVal =
+                  typeof env.DRY_RUN === 'boolean' ? env.DRY_RUN : env.DRY_RUN !== 'false';
+                const killSwitchVal =
+                  typeof env.KILL_SWITCH === 'boolean'
+                    ? env.KILL_SWITCH
+                    : env.KILL_SWITCH === 'true';
+
+                await sendApplicationEmail({
+                  db: env.DB,
                   config: env.CONFIG,
-                  secrets,
+                  resumesBucket: env.RESUMES,
+                  gmailSender,
+                  profile,
                   notifier,
-                }),
-              );
-
-              const dryRunVal =
-                typeof env.DRY_RUN === 'boolean' ? env.DRY_RUN : env.DRY_RUN !== 'false';
-              const killSwitchVal =
-                typeof env.KILL_SWITCH === 'boolean' ? env.KILL_SWITCH : env.KILL_SWITCH === 'true';
-
-              await sendApplicationEmail({
-                db: env.DB,
-                config: env.CONFIG,
-                resumesBucket: env.RESUMES,
-                gmailSender,
-                profile,
-                notifier,
-                dryRun: dryRunVal,
-                killSwitch: killSwitchVal,
-                application: appRow,
-                env: env.ENV as string,
-                devRecipientAllowlist: (env.DEV_RECIPIENT_ALLOWLIST as string) || undefined,
-              });
+                  dryRun: dryRunVal,
+                  killSwitch: killSwitchVal,
+                  application: appRow,
+                  env: env.ENV as string,
+                  devRecipientAllowlist: (env.DEV_RECIPIENT_ALLOWLIST as string) || undefined,
+                });
+              }
             }
           }
         } catch (err) {
@@ -2134,30 +2188,34 @@ export default {
         }
       } else if (body && body.action === 'sync_sheet') {
         try {
-          const tokenEncryptionKey = getTokenKey(env);
-          const googleClient = getGoogleClient(env);
-          const secrets: GoogleOAuthSecrets = {
-            clientId: googleClient.clientId,
-            clientSecret: googleClient.clientSecret,
-            tokenEncryptionKey,
-          };
+          if (appConfig.hasGoogleOAuth()) {
+            const googleOAuth = appConfig.getGoogleOAuth();
+            const sheetsConfig = appConfig.getSheetsConfig();
+            const tokenEncryptionKey = getTokenKey(env);
+            const secrets: GoogleOAuthSecrets = {
+              clientId: googleOAuth.clientId,
+              clientSecret: googleOAuth.clientSecret,
+              tokenEncryptionKey,
+            };
 
-          const notifier = createWorkerNotifier(env);
-          const sheetsClient = new RestSheetsClient(() =>
-            getValidAccessToken({
+            const notifier = await createWorkerNotifier(env, appConfig);
+            const sheetsClient = new RestSheetsClient(() =>
+              getValidAccessToken({
+                config: env.CONFIG,
+                secrets,
+                notifier,
+              }),
+            );
+
+            await syncApplicationsToSheet({
+              db: env.DB,
               config: env.CONFIG,
-              secrets,
+              sheetsClient,
+              spreadsheetId: sheetsConfig.spreadsheetId,
+              tabName: sheetsConfig.tabApplications,
               notifier,
-            }),
-          );
-
-          await syncApplicationsToSheet({
-            db: env.DB,
-            config: env.CONFIG,
-            sheetsClient,
-            spreadsheetId: env.GOOGLE_SHEET_ID as string | undefined,
-            notifier,
-          });
+            });
+          }
         } catch (err) {
           logger.error('Error during sync_sheet queue task', err);
         }
@@ -2169,50 +2227,58 @@ export default {
 
           if (profileRow?.data) {
             const profile = ProfileSchema.parse(JSON.parse(profileRow.data));
-            const tokenEncryptionKey = getTokenKey(env);
-            const googleClient = getGoogleClient(env);
-            const secrets: GoogleOAuthSecrets = {
-              clientId: googleClient.clientId,
-              clientSecret: googleClient.clientSecret,
-              tokenEncryptionKey,
-            };
+            if (appConfig.hasGoogleOAuth()) {
+              const googleOAuth = appConfig.getGoogleOAuth();
+              const tokenEncryptionKey = getTokenKey(env);
+              const secrets: GoogleOAuthSecrets = {
+                clientId: googleOAuth.clientId,
+                clientSecret: googleOAuth.clientSecret,
+                tokenEncryptionKey,
+              };
 
-            const notifier = createWorkerNotifier(env);
-            const gmailSender = new RestGmailSender(() =>
-              getValidAccessToken({
-                config: env.CONFIG,
-                secrets,
-                notifier,
-              }),
-            );
+              const notifier = await createWorkerNotifier(env, appConfig);
+              const gmailSender = new RestGmailSender(() =>
+                getValidAccessToken({
+                  config: env.CONFIG,
+                  secrets,
+                  notifier,
+                }),
+              );
 
-            let llmClient = undefined;
-            if (env.AI || env.GEMINI_API_KEY) {
-              try {
-                llmClient = createLLMClient({
-                  provider: (env.LLM_PROVIDER as 'workers-ai' | 'gemini') || 'workers-ai',
-                  aiBinding: env.AI as CloudflareAiBinding | undefined,
-                  geminiApiKey: env.GEMINI_API_KEY,
-                });
-              } catch {
-                // Fallback to deterministic rules
+              const llmConfig = appConfig.getLlmConfig();
+              let llmClient = undefined;
+              if (env.AI || llmConfig.geminiApiKey) {
+                try {
+                  llmClient = createLLMClient({
+                    provider: llmConfig.provider,
+                    aiBinding: env.AI as CloudflareAiBinding | undefined,
+                    geminiApiKey: llmConfig.geminiApiKey,
+                    model: llmConfig.model,
+                  });
+                } catch {
+                  // Fallback to deterministic rules
+                }
               }
-            }
 
-            const result = await pollInboxAndTrackOutcomes({
-              db: env.DB,
-              config: env.CONFIG,
-              gmailSender,
-              profile,
-              notifier,
-              llmClient,
-            });
+              const result = await pollInboxAndTrackOutcomes({
+                db: env.DB,
+                config: env.CONFIG,
+                gmailSender,
+                profile,
+                notifier,
+                llmClient,
+              });
 
-            if (result.bouncedCount > 0 || result.repliedCount > 0 || result.followUpsCreated > 0) {
-              try {
-                await env.JOBS_QUEUE.send({ action: 'sync_sheet' });
-              } catch {
-                // Non-fatal
+              if (
+                result.bouncedCount > 0 ||
+                result.repliedCount > 0 ||
+                result.followUpsCreated > 0
+              ) {
+                try {
+                  await env.JOBS_QUEUE.send({ action: 'sync_sheet' });
+                } catch {
+                  // Non-fatal
+                }
               }
             }
           }
@@ -2228,8 +2294,8 @@ export default {
     env: Bindings,
     _ctx?: ExecutionContext,
   ): Promise<void> {
-    let configuredForwardingAddress =
-      typeof env.ALERT_FORWARDING_ADDRESS === 'string' ? env.ALERT_FORWARDING_ADDRESS : undefined;
+    const appConfig = await getConfig(env, env.DB);
+    let configuredForwardingAddress = appConfig.getIdentityConfig().alertForwardingAddress;
 
     if (!configuredForwardingAddress) {
       const profileRow = await env.DB.prepare('SELECT data FROM profile WHERE id = ?')
@@ -2248,7 +2314,7 @@ export default {
       }
     }
 
-    const notifier = createWorkerNotifier(env);
+    const notifier = await createWorkerNotifier(env, appConfig);
 
     await ingestAlertEmail(message.raw, {
       db: env.DB,

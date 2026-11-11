@@ -113,16 +113,17 @@ export function createLLMClient(config: {
   aiBinding?: WorkersAiBindingLike | undefined;
   geminiApiKey?: string | undefined;
   mockClient?: LLMClient | undefined;
+  model?: string | undefined;
 }): LLMClient {
   if (config.mockClient) {
     return config.mockClient;
   }
   if (config.provider === 'gemini' && config.geminiApiKey) {
-    return new GeminiClient(config.geminiApiKey);
+    return new GeminiClient(config.geminiApiKey, config.model ?? 'gemini-2.0-flash');
   }
   const ai = config.ai ?? config.aiBinding;
   if (ai) {
-    return new WorkersAiClient(ai);
+    return new WorkersAiClient(ai, config.model ?? '@cf/meta/llama-3.1-8b-instruct');
   }
   throw new Error(
     `Cannot create LLMClient: provider is '${config.provider}', but missing binding or API key.`,
