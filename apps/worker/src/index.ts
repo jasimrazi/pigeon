@@ -67,6 +67,13 @@ import {
   type GoogleOAuthSecrets,
   type ApplicationToSend,
   type Profile,
+  MAX_RESUMES_COUNT,
+  RESUME_TAG_REGEX,
+  normalizeResumeTags,
+  formatContentDisposition,
+  UpdateResumeSchema,
+  ReassignResumeSchema,
+  type ResumeSummary,
 } from '@pigeon/shared';
 import { validateWorkerEnv, type Bindings, type ValidatedEnv } from './env.js';
 
@@ -125,7 +132,8 @@ app.use('*', async (c, next) => {
   const maxSize = isResumeUpload ? 5 * 1024 * 1024 : 1024 * 1024;
   return bodyLimit({
     maxSize,
-    onError: (ctx) => ctx.json({ error: 'Payload Too Large' }, 413),
+    onError: (ctx) =>
+      ctx.json({ ok: false, code: 'PAYLOAD_TOO_LARGE', error: 'Payload Too Large' }, 413),
   })(c, next);
 });
 
@@ -303,10 +311,20 @@ app.post('/api/resumes', async (c) => {
     return c.json({ error: 'Missing or invalid file' }, 400);
   }
 
-  // Max 5 MB check
+  // Enforce 5 MB limit on streamed bytes
   const arrayBuffer = await file.arrayBuffer();
   if (arrayBuffer.byteLength > 5 * 1024 * 1024) {
-    return c.json({ error: 'File size exceeds 5 MB limit' }, 400);
+    return c.json(
+      { ok: false, code: 'PAYLOAD_TOO_LARGE', error: 'File size exceeds 5 MB limit' },
+      413,
+    );
+  }
+
+  if (arrayBuffer.byteLength === 0) {
+    return c.json(
+      { ok: false, code: 'EMPTY_FILE', error: 'Empty file: uploaded file contains 0 bytes' },
+      400,
+    );
   }
 
   // PDF magic bytes check: %PDF (0x25, 0x50, 0x44, 0x46)
@@ -318,35 +336,72 @@ app.post('/api/resumes', async (c) => {
     bytes[2] !== 0x44 ||
     bytes[3] !== 0x46
   ) {
-    return c.json({ error: 'Invalid file: only PDF documents are allowed' }, 400);
+    return c.json(
+      { ok: false, code: 'INVALID_PDF', error: 'Invalid file: only PDF documents are allowed' },
+      400,
+    );
   }
 
+  // Invariant: Maximum 20 resumes
+  const activeCountRow = await c.env.DB.prepare(
+    'SELECT count(*) as count FROM resumes WHERE archived = 0',
+  ).first<{ count: number }>();
+  const activeCount = activeCountRow?.count ?? 0;
+  if (activeCount >= MAX_RESUMES_COUNT) {
+    return c.json(
+      {
+        ok: false,
+        code: 'RESUME_LIMIT_REACHED',
+        error: `Maximum limit of ${MAX_RESUMES_COUNT} resumes reached`,
+      },
+      400,
+    );
+  }
+
+  // Label handling: required, trimmed, max 80 chars
   const labelRaw = formData.get('label');
-  const fileName = 'name' in file ? (file as { name?: string }).name : undefined;
-  const label =
+  const fileName =
+    'name' in file && typeof (file as { name?: unknown }).name === 'string'
+      ? (file as { name: string }).name.replace(/\.pdf$/i, '').trim()
+      : '';
+  const candidateLabel =
     typeof labelRaw === 'string' && labelRaw.trim() ? labelRaw.trim() : fileName || 'Resume';
 
-  const tagsRaw = formData.get('tags');
-  let tags: string[] = [];
-  if (typeof tagsRaw === 'string') {
-    try {
-      const parsed = JSON.parse(tagsRaw);
-      if (Array.isArray(parsed)) {
-        tags = parsed.map(String);
-      } else {
-        tags = [tagsRaw];
-      }
-    } catch {
-      tags = tagsRaw
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
+  if (!candidateLabel || candidateLabel.length > 80) {
+    return c.json(
+      {
+        ok: false,
+        code: 'INVALID_LABEL',
+        error: 'Resume label is required and must be between 1 and 80 characters',
+      },
+      400,
+    );
+  }
+  const label = candidateLabel;
+
+  // Tags handling: normalized, max 10 tags, max 24 chars, regex [a-z0-9+#._-]
+  const tags = normalizeResumeTags(formData.get('tags'));
+  for (const tag of tags) {
+    if (!RESUME_TAG_REGEX.test(tag) || tag.length > 24) {
+      return c.json(
+        {
+          ok: false,
+          code: 'INVALID_TAGS',
+          error: `Invalid tag '${tag}': tags must be lowercase alphanumeric with + # . _ - and max 24 chars`,
+        },
+        400,
+      );
     }
   }
+  if (tags.length > 10) {
+    return c.json({ ok: false, code: 'TOO_MANY_TAGS', error: 'Maximum 10 tags allowed' }, 400);
+  }
 
-  const isDefaultRaw = formData.get('is_default');
-  const isDefault = isDefaultRaw === 'true' || isDefaultRaw === '1';
+  // Invariant: The first uploaded resume is automatically the default
+  const isDefaultRaw = formData.get('is_default') === 'true' || formData.get('is_default') === '1';
+  const isDefault = activeCount === 0 ? true : isDefaultRaw;
 
+  // Key generation: server-generated UUID only, never the client filename
   const id = crypto.randomUUID();
   const r2Key = `resumes/${id}.pdf`;
   const now = new Date().toISOString();
@@ -356,11 +411,20 @@ app.post('/api/resumes', async (c) => {
     httpMetadata: { contentType: 'application/pdf' },
   });
 
-  // Store in D1 and write event
-  await c.env.DB.batch([
+  // Single D1 batch for default switch + insert + events
+  const batchStatements = [];
+  if (isDefault) {
+    batchStatements.push(
+      c.env.DB.prepare('UPDATE resumes SET is_default = 0 WHERE is_default = 1'),
+    );
+  }
+  batchStatements.push(
     c.env.DB.prepare(
-      `INSERT INTO resumes (id, label, r2_key, tags, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    ).bind(id, label, r2Key, JSON.stringify(tags), isDefault ? 1 : 0, now),
+      `INSERT INTO resumes (id, label, r2_key, tags, is_default, size_bytes, archived, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+    ).bind(id, label, r2Key, JSON.stringify(tags), isDefault ? 1 : 0, arrayBuffer.byteLength, now),
+  );
+  batchStatements.push(
     c.env.DB.prepare(
       `INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
     ).bind(
@@ -368,32 +432,403 @@ app.post('/api/resumes', async (c) => {
       'resume',
       id,
       'resume_uploaded',
-      JSON.stringify({ label, r2_key: r2Key, tags, is_default: isDefault }),
+      JSON.stringify({ id, label }),
       now,
     ),
-  ]);
+  );
+  if (isDefault) {
+    batchStatements.push(
+      c.env.DB.prepare(
+        `INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        crypto.randomUUID(),
+        'resume',
+        id,
+        'resume_default_changed',
+        JSON.stringify({ id, label }),
+        now,
+      ),
+    );
+  }
+
+  await c.env.DB.batch(batchStatements);
 
   return c.json(
     {
+      ok: true,
       resume: {
         id,
         label,
         r2_key: r2Key,
         tags,
         is_default: isDefault,
+        size_bytes: arrayBuffer.byteLength,
+        archived: false,
         created_at: now,
+        usage: { open: 0, sent: 0 },
+        download_url: `/api/resumes/${id}/download`,
       },
     },
     201,
   );
 });
 
-// GET /api/resumes: list available resumes
+// GET /api/resumes: list available resumes with usage counts
 app.get('/api/resumes', async (c) => {
   const { results } = await c.env.DB.prepare(
-    `SELECT id, label, tags, is_default, created_at FROM resumes ORDER BY is_default DESC, created_at DESC`,
-  ).all();
-  return c.json({ ok: true, resumes: results || [] });
+    `
+    SELECT 
+      r.id, r.label, r.r2_key, r.tags, r.is_default, r.size_bytes, r.archived, r.created_at,
+      COUNT(CASE WHEN a.status IN ('draft', 'needs_review', 'approved', 'sending') THEN 1 END) as open_count,
+      COUNT(CASE WHEN a.status NOT IN ('draft', 'needs_review', 'approved', 'sending') AND a.id IS NOT NULL THEN 1 END) as sent_count
+    FROM resumes r
+    LEFT JOIN applications a ON a.resume_id = r.id
+    GROUP BY r.id
+    ORDER BY r.archived ASC, r.is_default DESC, r.created_at DESC
+  `,
+  ).all<{
+    id: string;
+    label: string;
+    r2_key: string;
+    tags: string;
+    is_default: number;
+    size_bytes: number;
+    archived: number;
+    created_at: string;
+    open_count: number;
+    sent_count: number;
+  }>();
+
+  const resumeList: ResumeSummary[] = (results || []).map((row) => ({
+    id: row.id,
+    label: row.label,
+    tags: normalizeResumeTags(row.tags),
+    is_default: Boolean(row.is_default),
+    size_bytes: Number(row.size_bytes || 0),
+    created_at: row.created_at,
+    archived: Boolean(row.archived),
+    usage: {
+      open: Number(row.open_count || 0),
+      sent: Number(row.sent_count || 0),
+    },
+    download_url: `/api/resumes/${row.id}/download`,
+  }));
+
+  return c.json({ ok: true, resumes: resumeList });
+});
+
+// PATCH /api/resumes/:id: edit label, tags and is_default
+app.patch('/api/resumes/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+
+  const parsed = UpdateResumeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      {
+        ok: false,
+        code: 'INVALID_INPUT',
+        error: parsed.error.issues[0]?.message || 'Invalid resume update',
+      },
+      400,
+    );
+  }
+
+  const existing = await c.env.DB.prepare(
+    'SELECT id, label, tags, is_default, size_bytes, archived, created_at FROM resumes WHERE id = ?',
+  )
+    .bind(id)
+    .first<{
+      id: string;
+      label: string;
+      tags: string;
+      is_default: number;
+      size_bytes: number;
+      archived: number;
+      created_at: string;
+    }>();
+
+  if (!existing) {
+    return c.json({ ok: false, code: 'RESUME_NOT_FOUND', error: 'Resume not found' }, 404);
+  }
+
+  if (existing.archived) {
+    return c.json(
+      { ok: false, code: 'RESUME_ARCHIVED', error: 'Cannot update an archived resume' },
+      400,
+    );
+  }
+
+  // Invariant: cannot unset the only default resume
+  if (parsed.data.is_default === false && existing.is_default === 1) {
+    return c.json(
+      {
+        ok: false,
+        code: 'CANNOT_UNSET_DEFAULT',
+        error: 'Cannot unset default resume. Set another resume as default instead.',
+      },
+      400,
+    );
+  }
+
+  const newLabel = parsed.data.label !== undefined ? parsed.data.label : existing.label;
+  const newTags =
+    parsed.data.tags !== undefined ? parsed.data.tags : normalizeResumeTags(existing.tags);
+  const newDefault =
+    parsed.data.is_default !== undefined ? parsed.data.is_default : Boolean(existing.is_default);
+
+  const defaultChanging = newDefault && !existing.is_default;
+  const now = new Date().toISOString();
+
+  const batch = [];
+  if (defaultChanging) {
+    batch.push(c.env.DB.prepare('UPDATE resumes SET is_default = 0 WHERE is_default = 1'));
+  }
+  batch.push(
+    c.env.DB.prepare('UPDATE resumes SET label = ?, tags = ?, is_default = ? WHERE id = ?').bind(
+      newLabel,
+      JSON.stringify(newTags),
+      newDefault ? 1 : 0,
+      id,
+    ),
+  );
+  batch.push(
+    c.env.DB.prepare(
+      'INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(
+      crypto.randomUUID(),
+      'resume',
+      id,
+      'resume_updated',
+      JSON.stringify({ id, label: newLabel }),
+      now,
+    ),
+  );
+  if (defaultChanging) {
+    batch.push(
+      c.env.DB.prepare(
+        'INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).bind(
+        crypto.randomUUID(),
+        'resume',
+        id,
+        'resume_default_changed',
+        JSON.stringify({ id, label: newLabel }),
+        now,
+      ),
+    );
+  }
+
+  await c.env.DB.batch(batch);
+
+  return c.json({
+    ok: true,
+    resume: {
+      id,
+      label: newLabel,
+      tags: newTags,
+      is_default: newDefault,
+      size_bytes: existing.size_bytes,
+      archived: Boolean(existing.archived),
+      created_at: existing.created_at,
+      download_url: `/api/resumes/${id}/download`,
+    },
+  });
+});
+
+// DELETE /api/resumes/:id: delete or archive according to invariants & usage
+app.delete('/api/resumes/:id', async (c) => {
+  const id = c.req.param('id');
+  const existing = await c.env.DB.prepare(
+    'SELECT id, label, r2_key, is_default, archived FROM resumes WHERE id = ?',
+  )
+    .bind(id)
+    .first<{ id: string; label: string; r2_key: string; is_default: number; archived: number }>();
+
+  if (!existing) {
+    return c.json({ ok: false, code: 'RESUME_NOT_FOUND', error: 'Resume not found' }, 404);
+  }
+
+  // Invariant: The default resume cannot be deleted or archived while it is the only one.
+  // Deleting the default while others exist is refused until another is made default.
+  if (existing.is_default === 1) {
+    const activeRow = await c.env.DB.prepare(
+      'SELECT count(*) as count FROM resumes WHERE archived = 0',
+    ).first<{ count: number }>();
+    const activeCount = activeRow?.count ?? 0;
+
+    if (activeCount <= 1) {
+      return c.json(
+        {
+          ok: false,
+          code: 'CANNOT_DELETE_ONLY_DEFAULT',
+          error: 'The default resume cannot be deleted or archived while it is the only one.',
+        },
+        400,
+      );
+    }
+    return c.json(
+      {
+        ok: false,
+        code: 'CANNOT_DELETE_DEFAULT',
+        error: 'Deleting the default while others exist is refused until another is made default.',
+      },
+      409,
+    );
+  }
+
+  // Check applications referencing this resume
+  const usageRow = await c.env.DB.prepare(
+    `
+    SELECT 
+      COUNT(CASE WHEN status IN ('draft', 'needs_review', 'approved', 'sending') THEN 1 END) as open_count,
+      COUNT(CASE WHEN status NOT IN ('draft', 'needs_review', 'approved', 'sending') THEN 1 END) as sent_count
+    FROM applications WHERE resume_id = ?
+  `,
+  )
+    .bind(id)
+    .first<{ open_count: number; sent_count: number }>();
+
+  const openCount = usageRow?.open_count ?? 0;
+  const sentCount = usageRow?.sent_count ?? 0;
+  const now = new Date().toISOString();
+
+  // Rule 1: If open applications reference it -> return 409
+  if (openCount > 0) {
+    return c.json(
+      {
+        ok: false,
+        code: 'RESUME_IN_USE',
+        message: `Cannot delete resume referenced by ${openCount} open application(s).`,
+        openCount,
+        sentCount,
+      },
+      409,
+    );
+  }
+
+  // Rule 2: If only sent or terminal applications reference it -> archive (soft delete)
+  if (sentCount > 0) {
+    await c.env.DB.batch([
+      c.env.DB.prepare('UPDATE resumes SET archived = 1, is_default = 0 WHERE id = ?').bind(id),
+      c.env.DB.prepare(
+        'INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).bind(
+        crypto.randomUUID(),
+        'resume',
+        id,
+        'resume_archived',
+        JSON.stringify({ id, label: existing.label }),
+        now,
+      ),
+    ]);
+    return c.json({ ok: true, action: 'archived', id, label: existing.label, sentCount });
+  }
+
+  // Rule 3: If nothing references it -> hard delete
+  await c.env.RESUMES.delete(existing.r2_key);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM resumes WHERE id = ?').bind(id),
+    c.env.DB.prepare(
+      'INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(
+      crypto.randomUUID(),
+      'resume',
+      id,
+      'resume_deleted',
+      JSON.stringify({ id, label: existing.label }),
+      now,
+    ),
+  ]);
+
+  return c.json({ ok: true, action: 'deleted', id, label: existing.label });
+});
+
+// POST /api/resumes/:id/reassign: bulk reassign open applications to another resume
+app.post('/api/resumes/:id/reassign', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = ReassignResumeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      { ok: false, error: parsed.error.issues[0]?.message || 'Invalid reassign request' },
+      400,
+    );
+  }
+
+  const targetId = parsed.data.target_resume_id;
+  if (targetId === id) {
+    return c.json({ ok: false, error: 'Target resume must be different from source resume' }, 400);
+  }
+
+  // Verify target resume exists and is active
+  const targetResume = await c.env.DB.prepare(
+    'SELECT id, label, archived FROM resumes WHERE id = ?',
+  )
+    .bind(targetId)
+    .first<{ id: string; label: string; archived: number }>();
+
+  if (!targetResume || targetResume.archived) {
+    return c.json({ ok: false, error: 'Target resume not found or is archived' }, 404);
+  }
+
+  // Find all open applications for source resume
+  const { results: openApps } = await c.env.DB.prepare(
+    `SELECT id, status FROM applications WHERE resume_id = ? AND status IN ('draft', 'needs_review', 'approved', 'sending')`,
+  )
+    .bind(id)
+    .all<{ id: string; status: string }>();
+
+  if (!openApps || openApps.length === 0) {
+    return c.json({ ok: true, reassignedCount: 0, message: 'No open applications to reassign' });
+  }
+
+  // Check if any application is currently in-flight (sending)
+  if (openApps.some((a) => a.status === 'sending')) {
+    return c.json(
+      {
+        ok: false,
+        code: 'APPLICATION_SENDING',
+        error: 'Cannot reassign resume while application is in sending status.',
+      },
+      409,
+    );
+  }
+
+  // For approved applications, transition back to draft through state-machine helper
+  for (const app of openApps) {
+    if (app.status === 'approved') {
+      await transition(
+        c.env.DB,
+        'application',
+        app.id,
+        'draft',
+        'Resume reassigned - moved to draft for review',
+      );
+    }
+  }
+
+  const now = new Date().toISOString();
+  await c.env.DB.prepare(
+    `UPDATE applications SET resume_id = ?, updated_at = ? WHERE resume_id = ? AND status IN ('draft', 'needs_review')`,
+  )
+    .bind(targetId, now, id)
+    .run();
+
+  await c.env.DB.prepare(
+    'INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+  )
+    .bind(
+      crypto.randomUUID(),
+      'resume',
+      id,
+      'resume_reassigned',
+      JSON.stringify({ id, target_resume_id: targetId, count: openApps.length }),
+      now,
+    )
+    .run();
+
+  return c.json({ ok: true, reassignedCount: openApps.length, target_resume_id: targetId });
 });
 
 // GET /api/profile
@@ -801,17 +1236,19 @@ app.get('/api/resumes/:id/download', async (c) => {
     .first<{ r2_key: string; label: string }>();
 
   if (!resume) {
-    return c.json({ error: 'Resume not found' }, 404);
+    return c.json({ ok: false, error: 'Resume not found' }, 404);
   }
 
   const object = await c.env.RESUMES.get(resume.r2_key);
   if (!object) {
-    return c.json({ error: 'Resume file not found in storage' }, 404);
+    return c.json({ ok: false, error: 'Resume file not found in storage' }, 404);
   }
 
-  const safeFilename = `${resume.label.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+  const dispositionType = c.req.query('disposition') === 'inline' ? 'inline' : 'attachment';
   c.header('Content-Type', 'application/pdf');
-  c.header('Content-Disposition', `inline; filename="${safeFilename}"`);
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('Cache-Control', 'private, no-store');
+  c.header('Content-Disposition', formatContentDisposition(resume.label, dispositionType));
   return c.body(object.body);
 });
 
@@ -1443,6 +1880,14 @@ app.patch('/api/applications/:id/resume', async (c) => {
 
   if (!body.resume_id) {
     return c.json({ error: 'Missing resume_id in body' }, 400);
+  }
+
+  const targetResume = await c.env.DB.prepare('SELECT id, archived FROM resumes WHERE id = ?')
+    .bind(body.resume_id)
+    .first<{ id: string; archived: number }>();
+
+  if (!targetResume || targetResume.archived) {
+    return c.json({ error: 'Selected resume not found or is archived' }, 400);
   }
 
   const nowIso = new Date().toISOString();
@@ -2086,7 +2531,12 @@ app.get('/api/setup/status', async (c) => {
   const telegramConfig = appConfig.getTelegramConfig();
   const telegramOk = telegramConfig.isConfigured;
 
-  const readyForDryRun = masterKeyOk && profileConfigured && llmOk;
+  const defaultResumeRow = await c.env.DB.prepare(
+    'SELECT id, label FROM resumes WHERE is_default = 1 AND archived = 0 LIMIT 1',
+  ).first<{ id: string; label: string }>();
+  const resumeOk = !!defaultResumeRow;
+
+  const readyForDryRun = masterKeyOk && profileConfigured && resumeOk && llmOk;
   const readyToGoLive = readyForDryRun && googleOAuthOk && googleAccountOk && sheetsOk;
 
   const items = [
@@ -2100,11 +2550,19 @@ app.get('/api/setup/status', async (c) => {
     },
     {
       id: 'profile',
-      name: 'Profile & Resume',
+      name: 'Profile',
       status: profileConfigured ? 'ok' : 'missing',
       message: profileConfigured
         ? 'User profile is configured'
         : 'Profile name and email must be configured in Settings > Profile',
+    },
+    {
+      id: 'resume',
+      name: 'Default Resume',
+      status: resumeOk ? 'ok' : 'missing',
+      message: resumeOk
+        ? `Default resume uploaded (${defaultResumeRow?.label || 'Active'})`
+        : 'Upload at least one default PDF resume in Settings > Resumes',
     },
     {
       id: 'llm',

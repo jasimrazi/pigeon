@@ -49,7 +49,7 @@ describe('Resume Validation and Helpers', () => {
 
   it('formats Content-Disposition with sanitized ASCII and RFC 5987 UTF-8', () => {
     const dis = formatContentDisposition('Alex Mercer - Systems & Cloud');
-    expect(dis).toContain('attachment; filename="Alex Mercer - Systems & Cloud.pdf"');
+    expect(dis).toContain('attachment; filename="Alex_Mercer_-_Systems___Cloud.pdf"');
     expect(dis).toContain("filename*=UTF-8''Alex%20Mercer%20-%20Systems%20%26%20Cloud.pdf");
   });
 

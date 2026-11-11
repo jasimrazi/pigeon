@@ -108,11 +108,11 @@ export function formatContentDisposition(
   label: string,
   disposition: 'attachment' | 'inline' = 'attachment',
 ): string {
-  // Strip CR, LF, and double quotes
+  // Strip CR, LF, and double quotes, and replace non-alphanumerics with _ for ASCII fallback
   const safeAscii =
     label
       .replace(/[\r\n"]/g, '')
-      .replace(/[^\x20-\x7E]/g, '_')
+      .replace(/[^a-zA-Z0-9_.-]/g, '_')
       .trim() || 'resume';
 
   const asciiFilename = `${safeAscii.endsWith('.pdf') ? safeAscii : `${safeAscii}.pdf`}`;

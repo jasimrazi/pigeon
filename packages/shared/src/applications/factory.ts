@@ -114,7 +114,7 @@ export async function createForJob(options: CreateForJobOptions): Promise<Create
   // 4. Select Resume
   let selectedResumeId: string | null = null;
   const { results: resumes } = await db
-    .prepare(`SELECT id, label, tags, is_default FROM resumes`)
+    .prepare(`SELECT id, label, tags, is_default FROM resumes WHERE archived = 0`)
     .bind()
     .all<SelectableResume>();
 
