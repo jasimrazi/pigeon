@@ -114,14 +114,24 @@ export const applications = sqliteTable(
 );
 
 // 3. Resumes table
-export const resumes = sqliteTable('resumes', {
-  id: text('id').primaryKey(),
-  label: text('label').notNull(),
-  r2_key: text('r2_key').notNull(),
-  tags: text('tags').notNull(),
-  is_default: integer('is_default', { mode: 'boolean' }).notNull().default(false),
-  created_at: text('created_at').notNull(),
-});
+export const resumes = sqliteTable(
+  'resumes',
+  {
+    id: text('id').primaryKey(),
+    label: text('label').notNull(),
+    r2_key: text('r2_key').notNull(),
+    tags: text('tags').notNull(),
+    is_default: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    size_bytes: integer('size_bytes').notNull().default(0),
+    archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    created_at: text('created_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_resumes_single_default')
+      .on(table.is_default)
+      .where(sql`is_default = 1 AND archived = 0`),
+  ],
+);
 
 // 4. Companies contacted table
 export const companiesContacted = sqliteTable('companies_contacted', {

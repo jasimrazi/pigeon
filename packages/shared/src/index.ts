@@ -34,3 +34,4 @@ export * from './logger.js';
 export * from './dev-seed.js';
 export * from './settings-crypto.js';
 export * from './config.js';
+export * from './resumes.js';
