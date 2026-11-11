@@ -23,6 +23,9 @@
     "seed:local": "node scripts/seed-local.mjs",
     "db:reset:local": "node scripts/db-reset-local.mjs",
     "settings:rotate": "node scripts/settings-rotate.mjs",
+    "setup:cloudflare": "node scripts/setup-cloudflare.mjs",
+    "setup:secrets": "node scripts/setup-secrets.mjs",
+    "check:config": "node scripts/check-config.mjs",
     "dev:local": "node scripts/dev-local.mjs",
     "smoke:local": "node scripts/smoke-local.mjs"
   },

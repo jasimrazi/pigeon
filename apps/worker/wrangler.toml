@@ -11,7 +11,6 @@ crons = ["0 */3 * * *", "*/10 * * * *", "*/15 * * * *"]
 [vars]
 ENV = "dev"
 DRY_RUN = "true"
-LLM_PROVIDER = "workers-ai"
 DEV_RECIPIENT_ALLOWLIST = ""
 
 [ai]
@@ -41,7 +40,7 @@ max_batch_timeout = 5
 
 [env.dev]
 name = "pigeon-worker"
-vars = { ENV = "dev", DRY_RUN = "true", LLM_PROVIDER = "workers-ai", DEV_RECIPIENT_ALLOWLIST = "" }
+vars = { ENV = "dev", DRY_RUN = "true", DEV_RECIPIENT_ALLOWLIST = "" }
 
 [env.dev.ai]
 binding = "AI"
@@ -70,7 +69,7 @@ max_batch_timeout = 5
 
 [env.staging]
 name = "pigeon-worker-staging"
-vars = { ENV = "staging", DRY_RUN = "true", LLM_PROVIDER = "workers-ai" }
+vars = { ENV = "staging", DRY_RUN = "true" }
 
 [env.staging.ai]
 binding = "AI"
@@ -99,7 +98,7 @@ max_batch_timeout = 5
 
 [env.prod]
 name = "pigeon-worker-prod"
-vars = { ENV = "prod", DRY_RUN = "true", LLM_PROVIDER = "workers-ai" }
+vars = { ENV = "prod", DRY_RUN = "true" }
 
 [env.prod.ai]
 binding = "AI"

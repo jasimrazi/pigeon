@@ -83,6 +83,23 @@ If the Worker API is unreachable or returns an error, the badges transition to a
 
 ---
 
+## Step 3.5: First-Run Setup & Integrations Sub-Navigation
+
+Navigate to the setup checklist in your browser:
+[http://localhost:5173/setup](http://localhost:5173/setup)
+
+### What to verify:
+
+1. **Readiness Indicators**: Shows **Ready for Dry-Run** and **Ready to Go Live** milestone statuses driven by `/api/setup/status`.
+2. **Overview Setup Banner**: The Overview tab displays a banner linking to the setup checklist until dry-run readiness is met.
+3. **Settings Sub-Navigation**: Navigate to **Settings** [http://localhost:5173/settings](http://localhost:5173/settings) and test the 3 sub-navigation tabs:
+   - **Profile**: Candidate information, skills, and target filters.
+   - **Integrations**: Google Cloud (with computed redirect URI and copy button), Google Sheets (spreadsheet ID and tab names), LLM provider (Workers AI default or Gemini), Telegram notifications, and User-Agent identity.
+   - **Safety**: Kill switch, DRY_RUN toggle, sending caps, ramp-up schedules, and appearance theme.
+4. **Secret Fields**: Secret inputs are write-only with masked hints (`ends in ••••xxxx`), Replace actions, and Clear actions.
+
+---
+
 ## Step 4: Seed Realistic Test Data
 
 In a second PowerShell terminal, seed the local database:
