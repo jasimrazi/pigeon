@@ -25,6 +25,7 @@ import {
   getGoogleAuthUrl,
   completeGoogleAuthCallback,
   getGoogleAuthHealth,
+  setGoogleAuthHealth,
   pingGoogleAuthHealth,
   approveApplication,
   bulkApproveApplications,
@@ -51,6 +52,14 @@ import {
   logger,
   purgeExpiredJobDescriptions,
   getConfig,
+  setAppSetting,
+  deleteAppSetting,
+  invalidateConfigCache,
+  validateSettingValue,
+  getMasterKey,
+  MIGRATED_SETTING_KEYS,
+  SETTING_DEFINITIONS,
+  type MigratedSettingKey,
   type AppConfig,
   type Notifier,
   type NotificationPayload,
@@ -143,14 +152,23 @@ app.use('*', async (c, next) => {
   const origin = c.req.header('origin') || '';
   const dashboardOrigin = (c.env.DASHBOARD_ORIGIN as string) || 'http://localhost:5173';
 
-  // Allowed origins: dashboardOrigin or localhost dev/test origins
+  // Allowed origins: dashboardOrigin, localhost dev/test origins, or matching request host
+  let isHostMatch = false;
+  try {
+    if (origin) {
+      isHostMatch = new URL(origin).host === new URL(c.req.url).host;
+    }
+  } catch {
+    isHostMatch = false;
+  }
+
   const allowedOrigins = [
     dashboardOrigin,
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://localhost:3000',
   ];
-  const isAllowedOrigin = origin ? allowedOrigins.includes(origin) : false;
+  const isAllowedOrigin = origin ? allowedOrigins.includes(origin) || isHostMatch : false;
 
   if (origin && isAllowedOrigin) {
     c.header('Access-Control-Allow-Origin', origin);
@@ -1579,11 +1597,22 @@ app.get('/api/settings', async (c) => {
   const killSwitch = await isKillSwitchActive(c.env.CONFIG, env.KILL_SWITCH);
   const dryRun = await getEffectiveDryRun(env.DRY_RUN, c.env.CONFIG);
 
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const fields = appConfig.getAllFields();
+
+  if (c.req.query('format') === 'array' || c.req.query('format') === 'list') {
+    return c.json(fields);
+  }
+
   return c.json({
+    settings: fields,
     profile,
     resumes: rawResumes || [],
     dryRun,
     killSwitch,
+    masterKeyConfigured: appConfig.masterKeyConfigured,
+    masterKeyError: appConfig.masterKeyError,
+    legacyEnvKeys: appConfig.getLegacyEnvKeys(),
   });
 });
 
@@ -1671,6 +1700,543 @@ app.post('/api/settings/kill-switch', async (c) => {
     .run();
 
   return c.json({ ok: true, killSwitch: body.kill_switch });
+});
+
+// -------------------------------------------------------------
+// App Settings Configuration & Diagnostic Routes (Phase 12 / Stage 3)
+// -------------------------------------------------------------
+
+// PUT /api/settings/:key: Set or update an app setting
+app.put('/api/settings/:key', async (c) => {
+  const key = c.req.param('key') as MigratedSettingKey;
+  if (!MIGRATED_SETTING_KEYS.includes(key)) {
+    return c.json({ error: 'Unknown setting key' }, 400);
+  }
+
+  const body = await c.req.json<{ value?: unknown; confirmed?: boolean }>().catch(() => null);
+  if (!body || body.value === undefined) {
+    return c.json({ error: 'Missing value in request body' }, 400);
+  }
+
+  const validation = validateSettingValue(key, body.value);
+  if (!validation.success) {
+    return c.json({ error: `Validation failed: ${validation.error}` }, 400);
+  }
+  const normalizedValue = validation.data;
+
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const def = SETTING_DEFINITIONS[key];
+  const isSecret = def.class === 'SECRET';
+
+  if (isSecret && !appConfig.masterKeyConfigured) {
+    return c.json(
+      { error: 'Cannot save secret: master encryption key is missing or invalid' },
+      503,
+    );
+  }
+
+  const masterKey = getMasterKey(c.env as Record<string, unknown>);
+  if (isSecret && !masterKey) {
+    return c.json({ error: 'Cannot save secret: master encryption key is missing' }, 503);
+  }
+
+  const sourceBefore = appConfig.getField(key).source;
+
+  // Side Effect: Spreadsheet ID changed requires confirmation & resets sync cursor
+  if (key === 'GOOGLE_SHEET_ID') {
+    const currentSheetId = appConfig.getSheetsConfig().spreadsheetId;
+    if (currentSheetId && currentSheetId !== normalizedValue) {
+      if (body.confirmed !== true) {
+        return c.json(
+          {
+            error:
+              'Changing spreadsheet ID requires confirmed: true to reset sync cursors and backfill new sheet',
+          },
+          400,
+        );
+      }
+      await c.env.CONFIG.delete('sheets:last_synced_at');
+      await c.env.CONFIG.delete('sheets:sync_cursor');
+      await c.env.DB.prepare(
+        'UPDATE applications SET synced_at = NULL WHERE synced_at IS NOT NULL',
+      ).run();
+      await c.env.DB.prepare(
+        `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+         VALUES (?, 'sheets', ?, 'sheets.cursor_reset', ?, ?)`,
+      )
+        .bind(
+          crypto.randomUUID(),
+          normalizedValue,
+          JSON.stringify({ oldSheetId: currentSheetId, newSheetId: normalizedValue }),
+          new Date().toISOString(),
+        )
+        .run();
+    }
+  }
+
+  // Side Effect: Google client credentials changed -> invalidate auth health
+  if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET') {
+    await setGoogleAuthHealth({
+      config: c.env.CONFIG,
+      status: 'invalid',
+      reason: 'Google client credentials changed. Reconnection required.',
+    });
+  }
+
+  await setAppSetting(c.env.DB, masterKey, key, normalizedValue, 'owner');
+  invalidateConfigCache();
+
+  const nowIso = new Date().toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'settings', ?, 'settings.changed', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      key,
+      JSON.stringify({
+        key,
+        action: 'set',
+        result: 'ok',
+        actor: 'owner',
+        sourceBefore,
+        sourceAfter: 'ui',
+      }),
+      nowIso,
+    )
+    .run();
+
+  return c.json({ ok: true, key });
+});
+
+// DELETE /api/settings/:key: Clear an app setting
+app.delete('/api/settings/:key', async (c) => {
+  const key = c.req.param('key') as MigratedSettingKey;
+  if (!MIGRATED_SETTING_KEYS.includes(key)) {
+    return c.json({ error: 'Unknown setting key' }, 400);
+  }
+
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const sourceBefore = appConfig.getField(key).source;
+
+  await deleteAppSetting(c.env.DB, key);
+
+  if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET') {
+    await setGoogleAuthHealth({
+      config: c.env.CONFIG,
+      status: 'invalid',
+      reason: 'Google client credentials cleared. Reconnection required.',
+    });
+  }
+
+  invalidateConfigCache();
+
+  const nowIso = new Date().toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'settings', ?, 'settings.changed', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      key,
+      JSON.stringify({
+        key,
+        action: 'clear',
+        result: 'ok',
+        actor: 'owner',
+        sourceBefore,
+        sourceAfter: 'unset',
+      }),
+      nowIso,
+    )
+    .run();
+
+  return c.json({ ok: true, cleared: key });
+});
+
+// POST /api/settings/test/:target: Test an integration target
+app.post('/api/settings/test/:target', async (c) => {
+  const target = c.req.param('target');
+  const validTargets = ['google-oauth-config', 'sheets', 'llm', 'telegram'];
+  if (!validTargets.includes(target)) {
+    return c.json({ ok: false, code: 'invalid_target', message: 'Unknown test target' }, 400);
+  }
+
+  // Rate-limit to 10 per minute per target using KV
+  const minuteKey = Math.floor(Date.now() / 60000);
+  const kvKey = `ratelimit:test:${target}:${minuteKey}`;
+  const rawCount = await c.env.CONFIG.get(kvKey);
+  const count = rawCount ? Number.parseInt(rawCount, 10) : 0;
+  if (count >= 10) {
+    return c.json(
+      {
+        ok: false,
+        code: 'rate_limited',
+        message: 'Rate limit exceeded: maximum 10 tests per minute',
+      },
+      429,
+    );
+  }
+  await c.env.CONFIG.put(kvKey, String(count + 1), { expirationTtl: 120 });
+
+  const appConfig = await getConfig(c.env, c.env.DB);
+  let result: { ok: boolean; code: string; message: string; title?: string; tabExists?: boolean };
+
+  if (target === 'google-oauth-config') {
+    if (!appConfig.hasGoogleOAuth()) {
+      result = {
+        ok: false,
+        code: 'unconfigured',
+        message: 'Google OAuth client ID and secret must be configured',
+      };
+    } else {
+      let tokenKeyFound = false;
+      try {
+        getTokenKey(c.env);
+        tokenKeyFound = true;
+      } catch {
+        tokenKeyFound = false;
+      }
+      if (!tokenKeyFound) {
+        result = {
+          ok: false,
+          code: 'token_key_missing',
+          message: 'Master token encryption key is not configured',
+        };
+      } else {
+        const health = await getGoogleAuthHealth(c.env.CONFIG);
+        result = {
+          ok: true,
+          code: 'ok',
+          message:
+            health.status === 'ok'
+              ? 'Google OAuth credentials and account connection are healthy'
+              : 'Google OAuth credentials configured; connect account to complete authorization',
+        };
+      }
+    }
+  } else if (target === 'sheets') {
+    if (!appConfig.hasGoogleOAuth()) {
+      result = {
+        ok: false,
+        code: 'oauth_missing',
+        message: 'Google OAuth must be configured before testing Google Sheets',
+      };
+    } else {
+      const sheetsConfig = appConfig.getSheetsConfig();
+      if (!sheetsConfig.spreadsheetId) {
+        result = {
+          ok: false,
+          code: 'sheet_missing',
+          message: 'Google Spreadsheet ID or URL must be configured',
+        };
+      } else {
+        const health = await getGoogleAuthHealth(c.env.CONFIG);
+        if (health.status !== 'ok') {
+          result = {
+            ok: false,
+            code: 'auth_invalid',
+            message: 'Google account is not connected or authorization is invalid',
+          };
+        } else {
+          try {
+            const tokenEncryptionKey = getTokenKey(c.env);
+            const googleOAuth = appConfig.getGoogleOAuth();
+            const secrets: GoogleOAuthSecrets = {
+              clientId: googleOAuth.clientId,
+              clientSecret: googleOAuth.clientSecret,
+              tokenEncryptionKey,
+            };
+            const notifier = await createWorkerNotifier(c.env, appConfig);
+            const sheetsClient = new RestSheetsClient(() =>
+              getValidAccessToken({ config: c.env.CONFIG, secrets, notifier }),
+            );
+            const meta = await sheetsClient.getSpreadsheet(sheetsConfig.spreadsheetId);
+            const tabExists = meta.sheets.some(
+              (s) => s.properties.title === sheetsConfig.tabApplications,
+            );
+            result = {
+              ok: true,
+              code: 'ok',
+              message: tabExists
+                ? `Connected to spreadsheet "${meta.properties.title}" (tab "${sheetsConfig.tabApplications}" found)`
+                : `Connected to spreadsheet "${meta.properties.title}", but tab "${sheetsConfig.tabApplications}" was not found`,
+              title: meta.properties.title,
+              tabExists,
+            };
+          } catch {
+            result = {
+              ok: false,
+              code: 'sheets_error',
+              message: 'Failed to access Google Spreadsheet metadata',
+            };
+          }
+        }
+      }
+    }
+  } else if (target === 'llm') {
+    const llmConfig = appConfig.getLlmConfig();
+    try {
+      const llmClient = createLLMClient({
+        provider: llmConfig.provider,
+        ai: c.env.AI as CloudflareAiBinding | undefined,
+        geminiApiKey: llmConfig.geminiApiKey,
+        model: llmConfig.model,
+      });
+      await llmClient.generateText('Respond with {"ok":true}');
+      result = {
+        ok: true,
+        code: 'ok',
+        message: `LLM test completion succeeded with ${llmConfig.provider} (${llmConfig.model})`,
+      };
+    } catch {
+      result = {
+        ok: false,
+        code: 'llm_error',
+        message: 'LLM test completion failed',
+      };
+    }
+  } else if (target === 'telegram') {
+    const tg = appConfig.getTelegramConfig();
+    if (!tg.botToken || !tg.chatId) {
+      result = {
+        ok: false,
+        code: 'unconfigured',
+        message: 'Telegram bot token and chat ID must be configured',
+      };
+    } else {
+      try {
+        const notifier = new TelegramNotifier({
+          botToken: tg.botToken,
+          chatId: tg.chatId,
+          kv: c.env.CONFIG,
+        });
+        await notifier.notify('Pigeon notification test: Telegram connection is working.');
+        result = {
+          ok: true,
+          code: 'ok',
+          message: 'Telegram test message sent successfully',
+        };
+      } catch {
+        result = {
+          ok: false,
+          code: 'telegram_error',
+          message: 'Failed to send Telegram test message',
+        };
+      }
+    }
+  } else {
+    result = { ok: false, code: 'invalid_target', message: 'Unknown test target' };
+  }
+
+  // Audit event in events table
+  const nowIso = new Date().toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'settings', ?, 'settings.changed', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      target,
+      JSON.stringify({
+        key: target,
+        action: 'test',
+        result: result.ok ? 'ok' : 'failed',
+        actor: 'owner',
+      }),
+      nowIso,
+    )
+    .run();
+
+  return c.json(result, result.ok ? 200 : 400);
+});
+
+// GET /api/setup/status: First-run readiness and integration checklist
+app.get('/api/setup/status', async (c) => {
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
+    .bind('default')
+    .first<{ data: string }>();
+
+  let profileConfigured = false;
+  if (profileRow?.data) {
+    try {
+      const p = JSON.parse(profileRow.data) as { name?: string; email?: string };
+      profileConfigured = !!(p.name && p.email);
+    } catch {
+      profileConfigured = false;
+    }
+  }
+
+  const masterKeyOk = appConfig.masterKeyConfigured;
+  const googleOAuthOk = appConfig.hasGoogleOAuth();
+
+  const authHealth = await getGoogleAuthHealth(c.env.CONFIG);
+  const googleAccountOk = authHealth.status === 'ok';
+
+  const sheetsConfig = appConfig.getSheetsConfig();
+  const sheetsOk = !!sheetsConfig.spreadsheetId;
+
+  const llmConfig = appConfig.getLlmConfig();
+  const llmOk =
+    llmConfig.provider === 'workers-ai'
+      ? !!c.env.AI
+      : !!(llmConfig.provider === 'gemini' && llmConfig.geminiApiKey);
+
+  const telegramConfig = appConfig.getTelegramConfig();
+  const telegramOk = telegramConfig.isConfigured;
+
+  const readyForDryRun = masterKeyOk && profileConfigured && llmOk;
+  const readyToGoLive = readyForDryRun && googleOAuthOk && googleAccountOk && sheetsOk;
+
+  const items = [
+    {
+      id: 'master_key',
+      name: 'Master Encryption Key',
+      status: masterKeyOk ? 'ok' : 'invalid',
+      message: masterKeyOk
+        ? 'Master encryption key is configured and valid'
+        : appConfig.masterKeyError || 'SETTINGS_ENCRYPTION_KEY is missing or invalid',
+    },
+    {
+      id: 'profile',
+      name: 'Profile & Resume',
+      status: profileConfigured ? 'ok' : 'missing',
+      message: profileConfigured
+        ? 'User profile is configured'
+        : 'Profile name and email must be configured in Settings > Profile',
+    },
+    {
+      id: 'llm',
+      name: 'LLM Provider',
+      status: llmOk ? 'ok' : 'missing',
+      message: llmOk
+        ? `LLM configured (${llmConfig.provider}: ${llmConfig.model})`
+        : llmConfig.provider === 'gemini'
+          ? 'Gemini API key is required when provider is gemini'
+          : 'Workers AI binding is missing',
+    },
+    {
+      id: 'google_oauth',
+      name: 'Google OAuth Credentials',
+      status: googleOAuthOk ? 'ok' : 'missing',
+      message: googleOAuthOk
+        ? 'Google Cloud OAuth client ID and client secret are set'
+        : 'Configure Google Client ID and Secret in Settings > Integrations',
+    },
+    {
+      id: 'google_account',
+      name: 'Connected Google Account',
+      status: googleAccountOk ? 'ok' : googleOAuthOk ? 'needs_action' : 'missing',
+      message: googleAccountOk
+        ? `Connected to Google (${(c.env.OWNER_GMAIL as string) || 'Active'})`
+        : 'Connect your Google account in Settings > Integrations',
+    },
+    {
+      id: 'sheets',
+      name: 'Google Sheets Tracker',
+      status: sheetsOk ? 'ok' : 'missing',
+      message: sheetsOk
+        ? `Spreadsheet ID configured: ${sheetsConfig.spreadsheetId}`
+        : 'Configure Spreadsheet ID or URL in Settings > Integrations',
+    },
+    {
+      id: 'telegram',
+      name: 'Telegram Notifications',
+      status: telegramOk ? 'ok' : 'missing',
+      message: telegramOk
+        ? 'Telegram bot token and chat ID configured'
+        : 'Optional: configure Telegram in Settings > Integrations for alerts',
+    },
+  ];
+
+  return c.json({
+    items,
+    readyForDryRun,
+    readyToGoLive,
+  });
+});
+
+// GET /api/settings/export: Export non-secret settings
+app.get('/api/settings/export', async (c) => {
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const exportable: Record<string, string> = {};
+  for (const field of appConfig.getAllFields()) {
+    if (field.class === 'SETTING' && field.value !== undefined) {
+      exportable[field.key] = field.value;
+    }
+  }
+  return c.json({ ok: true, settings: exportable });
+});
+
+// POST /api/settings/import: Validated import of non-secret settings
+app.post('/api/settings/import', async (c) => {
+  const body = await c.req
+    .json<{ settings?: Record<string, unknown>; apply?: boolean }>()
+    .catch(() => null);
+
+  if (!body || !body.settings || typeof body.settings !== 'object') {
+    return c.json({ error: 'Missing settings object in body' }, 400);
+  }
+
+  const appConfig = await getConfig(c.env, c.env.DB);
+  const validatedEntries: Array<{ key: MigratedSettingKey; value: string }> = [];
+
+  for (const [keyStr, val] of Object.entries(body.settings)) {
+    const key = keyStr as MigratedSettingKey;
+    const def = SETTING_DEFINITIONS[key];
+    if (!def) {
+      return c.json({ error: `Cannot import unknown setting '${keyStr}'` }, 400);
+    }
+    if (def.class === 'SECRET') {
+      return c.json(
+        { error: 'Import cannot accept secret keys. Secrets must be configured in Settings UI.' },
+        400,
+      );
+    }
+    const validation = validateSettingValue(key, val);
+    if (!validation.success) {
+      return c.json({ error: `Validation failed for ${key}: ${validation.error}` }, 400);
+    }
+    validatedEntries.push({ key, value: validation.data });
+  }
+
+  // Preview mode (apply !== true)
+  if (body.apply !== true) {
+    const changes = validatedEntries.map((entry) => {
+      const current = appConfig.getField(entry.key);
+      return {
+        key: entry.key,
+        oldValue: current.value ?? '',
+        newValue: entry.value,
+      };
+    });
+    return c.json({ ok: true, preview: true, changes });
+  }
+
+  // Apply mode
+  const masterKey = getMasterKey(c.env as Record<string, unknown>);
+  let importedCount = 0;
+  for (const entry of validatedEntries) {
+    await setAppSetting(c.env.DB, masterKey, entry.key, entry.value, 'owner');
+    importedCount++;
+  }
+
+  invalidateConfigCache();
+
+  const nowIso = new Date().toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'settings', 'import', 'settings.changed', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      JSON.stringify({ action: 'import', count: importedCount, actor: 'owner' }),
+      nowIso,
+    )
+    .run();
+
+  return c.json({ ok: true, imported: importedCount });
 });
 
 // 12. POST /api/retention/purge: Manually triggers 90-day job retention purge

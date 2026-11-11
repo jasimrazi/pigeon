@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { ConfigError } from './env.js';
 import { decryptSetting, encryptSetting, validateMasterKey } from './settings-crypto.js';
 import type { D1LikeDatabase } from './state-machine.js';
@@ -170,6 +171,123 @@ export function normalizeSpreadsheetId(input: string): string {
     return match[1];
   }
   return trimmed;
+}
+
+export const SETTING_SCHEMAS: Record<MigratedSettingKey, z.ZodType<string>> = {
+  GOOGLE_CLIENT_ID: z
+    .string()
+    .trim()
+    .min(1, 'GOOGLE_CLIENT_ID cannot be empty')
+    .max(256, 'GOOGLE_CLIENT_ID exceeds 256 characters'),
+  GOOGLE_CLIENT_SECRET: z
+    .string()
+    .trim()
+    .min(1, 'GOOGLE_CLIENT_SECRET cannot be empty')
+    .max(256, 'GOOGLE_CLIENT_SECRET exceeds 256 characters'),
+  GOOGLE_REDIRECT_URI: z
+    .string()
+    .trim()
+    .max(512, 'GOOGLE_REDIRECT_URI exceeds 512 characters')
+    .refine((val) => {
+      if (!val) return true;
+      try {
+        new URL(val);
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'GOOGLE_REDIRECT_URI must be a valid URL'),
+  GOOGLE_SHEET_ID: z
+    .string()
+    .trim()
+    .min(1, 'GOOGLE_SHEET_ID cannot be empty')
+    .max(256, 'GOOGLE_SHEET_ID exceeds 256 characters')
+    .transform(normalizeSpreadsheetId),
+  SHEET_TAB_APPLICATIONS: z
+    .string()
+    .trim()
+    .min(1, 'SHEET_TAB_APPLICATIONS cannot be empty')
+    .max(100, 'SHEET_TAB_APPLICATIONS exceeds 100 characters'),
+  SHEET_TAB_METRICS: z
+    .string()
+    .trim()
+    .min(1, 'SHEET_TAB_METRICS cannot be empty')
+    .max(100, 'SHEET_TAB_METRICS exceeds 100 characters'),
+  LLM_PROVIDER: z.enum(['workers-ai', 'gemini'], {
+    errorMap: () => ({ message: 'LLM_PROVIDER must be workers-ai or gemini' }),
+  }),
+  LLM_MODEL: z
+    .string()
+    .trim()
+    .min(1, 'LLM_MODEL cannot be empty')
+    .max(128, 'LLM_MODEL exceeds 128 characters'),
+  GEMINI_API_KEY: z
+    .string()
+    .trim()
+    .min(1, 'GEMINI_API_KEY cannot be empty')
+    .max(256, 'GEMINI_API_KEY exceeds 256 characters'),
+  TELEGRAM_BOT_TOKEN: z
+    .string()
+    .trim()
+    .min(1, 'TELEGRAM_BOT_TOKEN cannot be empty')
+    .max(256, 'TELEGRAM_BOT_TOKEN exceeds 256 characters'),
+  TELEGRAM_CHAT_ID: z
+    .string()
+    .trim()
+    .min(1, 'TELEGRAM_CHAT_ID cannot be empty')
+    .max(64, 'TELEGRAM_CHAT_ID exceeds 64 characters'),
+  USER_AGENT_CONTACT_EMAIL: z
+    .string()
+    .trim()
+    .email('USER_AGENT_CONTACT_EMAIL must be a valid email address')
+    .max(256, 'USER_AGENT_CONTACT_EMAIL exceeds 256 characters'),
+  TIMEZONE: z
+    .string()
+    .trim()
+    .max(64, 'TIMEZONE exceeds 64 characters')
+    .refine((tz) => {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'TIMEZONE must be a valid IANA timezone (e.g. UTC, America/New_York)'),
+  ALERT_FORWARDING_ADDRESS: z
+    .string()
+    .trim()
+    .email('ALERT_FORWARDING_ADDRESS must be a valid email address')
+    .max(256, 'ALERT_FORWARDING_ADDRESS exceeds 256 characters'),
+  ADZUNA_APP_ID: z.string().trim().max(128, 'ADZUNA_APP_ID exceeds 128 characters'),
+  ADZUNA_APP_KEY: z.string().trim().max(128, 'ADZUNA_APP_KEY exceeds 128 characters'),
+};
+
+export function validateSettingValue(
+  key: MigratedSettingKey,
+  rawValue: unknown,
+): { success: true; data: string } | { success: false; error: string } {
+  const schema = SETTING_SCHEMAS[key];
+  if (!schema) {
+    return { success: false, error: 'Unknown setting key' };
+  }
+  const result = schema.safeParse(rawValue);
+  if (!result.success) {
+    const msg = result.error.errors[0]?.message || 'Invalid setting format';
+    return { success: false, error: msg };
+  }
+  return { success: true, data: result.data };
+}
+
+export function getMasterKey(env: Record<string, unknown>): string | undefined {
+  const sk = env.SETTINGS_ENCRYPTION_KEY;
+  if (typeof sk === 'string' && sk.trim()) {
+    return sk.trim();
+  }
+  const gk = env.GOOGLE_TOKEN_ENCRYPTION_KEY;
+  if (typeof gk === 'string' && gk.trim()) {
+    return gk.trim();
+  }
+  return undefined;
 }
 
 export interface SettingFieldSummary {
