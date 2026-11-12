@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ManualQueueResponse, ManualKit } from '@pigeon/shared';
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
   Copy,
   ExternalLink,
@@ -23,6 +24,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [kit, setKit] = useState<ManualKit | null>(null);
   const [kitLoading, setKitLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'focus' | 'needs_attention' | 'all'>('focus');
@@ -118,6 +120,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       if (res.ok) {
         setActionFeedback('Application marked as applied!');
         setTimeout(() => setActionFeedback(null), 3000);
+        setMobileDetailOpen(false);
         void loadQueue();
       }
     } catch {
@@ -137,6 +140,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       if (res.ok) {
         setActionFeedback('Application skipped.');
         setTimeout(() => setActionFeedback(null), 3000);
+        setMobileDetailOpen(false);
         void loadQueue();
       }
     } catch {
@@ -156,6 +160,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         if (res.ok) {
           setActionFeedback(`Application snoozed for ${days} days.`);
           setTimeout(() => setActionFeedback(null), 3000);
+          setMobileDetailOpen(false);
           void loadQueue();
         }
       } catch {
@@ -330,10 +335,10 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-border">
+      <div className="flex gap-2 border-b border-border overflow-x-auto scrollbar-none">
         <button
           onClick={() => setActiveTab('focus')}
-          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors ${
+          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
             activeTab === 'focus'
               ? 'border-accent text-fg font-semibold'
               : 'border-transparent text-fg-muted hover:text-fg'
@@ -343,7 +348,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         </button>
         <button
           onClick={() => setActiveTab('needs_attention')}
-          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors ${
+          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
             activeTab === 'needs_attention'
               ? 'border-accent text-fg font-semibold'
               : 'border-transparent text-fg-muted hover:text-fg'
@@ -353,7 +358,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         </button>
         <button
           onClick={() => setActiveTab('all')}
-          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors ${
+          className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
             activeTab === 'all'
               ? 'border-accent text-fg font-semibold'
               : 'border-transparent text-fg-muted hover:text-fg'
@@ -366,7 +371,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       {/* Main Split: Queue List on Left, Kit Panel on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-[600px]">
         {/* Left: Queue List */}
-        <div className="lg:col-span-5 flex flex-col space-y-2 overflow-y-auto max-h-[800px] pr-2">
+        <div className={`lg:col-span-5 flex flex-col space-y-2 overflow-y-auto max-h-[800px] pr-0 sm:pr-2 ${mobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
           {loading ? (
             <div className="text-fg-muted text-center py-12 text-[14px]">
               Loading manual queue...
@@ -381,7 +386,10 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
               return (
                 <div
                   key={item.application_id}
-                  onClick={() => setSelectedId(item.application_id)}
+                  onClick={() => {
+                    setSelectedId(item.application_id);
+                    setMobileDetailOpen(true);
+                  }}
                   className={`p-4 rounded-[6px] border text-left cursor-pointer transition-colors ${
                     isSelected
                       ? 'border-accent bg-surface-subtle shadow-xs'
@@ -437,7 +445,16 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         </div>
 
         {/* Right: Kit Side Panel */}
-        <div className="lg:col-span-7 bg-surface border border-border rounded-[6px] p-6 flex flex-col space-y-6 overflow-y-auto max-h-[800px]">
+        <div className={`lg:col-span-7 bg-surface border border-border rounded-[6px] p-4 sm:p-6 flex flex-col space-y-5 sm:space-y-6 overflow-y-auto max-h-[800px] ${mobileDetailOpen ? 'flex' : 'hidden lg:flex'}`}>
+          {/* Mobile Back Button */}
+          <button
+            type="button"
+            onClick={() => setMobileDetailOpen(false)}
+            className="lg:hidden inline-flex items-center gap-1.5 text-[13px] font-medium text-accent hover:underline cursor-pointer self-start mb-1"
+          >
+            <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+            <span>Back to manual queue</span>
+          </button>
           {kitLoading ? (
             <div className="text-fg-muted text-center py-24 text-[14px] flex items-center justify-center gap-2">
               <Loader2 className="animate-spin shrink-0" size={16} aria-hidden="true" />
@@ -522,13 +539,13 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                   )}
 
                   <Button variant="primary" size="sm" onClick={() => void handleMarkApplied()}>
-                    Mark Applied [a]
+                    Mark Applied <span className="hidden sm:inline">[a]</span>
                   </Button>
                   <Button variant="secondary" size="sm" onClick={() => void handleSkip()}>
-                    Skip [s]
+                    Skip <span className="hidden sm:inline">[s]</span>
                   </Button>
                   <Button variant="secondary" size="sm" onClick={() => void handleSnooze(3)}>
-                    Snooze (3d) [z]
+                    Snooze (3d) <span className="hidden sm:inline">[z]</span>
                   </Button>
                 </div>
               </div>

@@ -69,7 +69,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-surface p-5 rounded-[6px] border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-surface p-4 sm:p-5 rounded-[6px] border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <div className="flex items-center gap-2">
             <Radio
@@ -86,7 +86,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
           </p>
         </div>
 
-        <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void loadSources()}>
+        <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void loadSources()} className="self-start sm:self-auto shrink-0">
           Refresh Status
         </Button>
       </div>
@@ -117,7 +117,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+      <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto scrollbar-none">
         {(
           [
             { id: 'all', label: 'All Sources', count: counts.all },
@@ -130,7 +130,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
             key={tab.id}
             type="button"
             onClick={() => setSelectedFilter(tab.id)}
-            className={`px-3 py-1.5 text-[12px] font-medium rounded-[4px] transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-[12px] font-medium rounded-[4px] transition-colors cursor-pointer inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               selectedFilter === tab.id
                 ? 'bg-accent/10 text-accent border border-accent/30'
                 : 'text-fg-muted hover:text-fg hover:bg-surface-subtle border border-transparent'
@@ -152,7 +152,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
           {error}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {filteredSources.map((src) => {
             const isSuspect = Boolean(src.is_suspect || (src.parser_empty_streak ?? 0) >= 3);
 

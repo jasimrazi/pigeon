@@ -43,23 +43,23 @@ export function AlertBanner({
   return (
     <div
       role="alert"
-      className={`bg-surface border border-border border-l-4 ${borderLeftMap[variant]} rounded-[6px] p-3.5 flex items-start justify-between gap-3 shadow-xs ${className}`}
+      className={`bg-surface border border-border border-l-4 ${borderLeftMap[variant]} rounded-[6px] p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3 shadow-xs ${className}`}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 min-w-0">
         <Icon
           size={20}
           strokeWidth={1.5}
           className={`shrink-0 mt-0.5 ${iconColorMap[variant]}`}
           aria-hidden="true"
         />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-[14px] font-semibold text-fg leading-tight">{title}</div>
           {description && (
             <div className="mt-1 text-[13px] text-fg-muted leading-normal">{description}</div>
           )}
         </div>
       </div>
-      {action && <div className="shrink-0">{action}</div>}
+      {action && <div className="shrink-0 self-start sm:self-auto">{action}</div>}
     </div>
   );
 }

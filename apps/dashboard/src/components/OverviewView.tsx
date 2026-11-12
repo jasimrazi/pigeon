@@ -210,7 +210,7 @@ export function OverviewView({
       />
 
       {/* Key Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Sends Today vs Cap */}
         <MetricCard
           label="Today's Sends"
@@ -275,13 +275,13 @@ export function OverviewView({
       </div>
 
       {/* Operations Controls */}
-      <div className="bg-surface p-5 rounded-[6px] border border-border">
+      <div className="bg-surface p-4 sm:p-5 rounded-[6px] border border-border">
         <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-4">
           Operations Controls
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           {/* DRY_RUN toggle row */}
-          <div className="flex items-center justify-between p-3.5 bg-surface-subtle rounded-[6px] border border-border-subtle">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-surface-subtle rounded-[6px] border border-border-subtle">
             <div>
               <span className="font-semibold text-[14px] text-fg block">DRY_RUN Mode</span>
               <p className="text-[12px] text-fg-muted mt-0.5">
@@ -294,6 +294,7 @@ export function OverviewView({
               variant={data.dryRun ? 'secondary' : 'primary'}
               size="sm"
               loading={actionLoading}
+              className="self-start sm:self-auto shrink-0"
               onClick={() => {
                 if (data.dryRun) {
                   setShowDryRunModal(true);
@@ -307,7 +308,7 @@ export function OverviewView({
           </div>
 
           {/* Kill Switch Toggle row */}
-          <div className="flex items-center justify-between p-3.5 bg-surface-subtle rounded-[6px] border border-border-subtle">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-surface-subtle rounded-[6px] border border-border-subtle">
             <div>
               <span className="font-semibold text-[14px] text-fg block">Kill Switch</span>
               <p className="text-[12px] text-fg-muted mt-0.5">
@@ -320,6 +321,7 @@ export function OverviewView({
               variant={data.killSwitch ? 'destructive' : 'secondary'}
               size="sm"
               loading={actionLoading}
+              className="self-start sm:self-auto shrink-0"
               onClick={() => {
                 setTargetKsState(!data.killSwitch);
                 setShowKsModal(true);
@@ -332,7 +334,7 @@ export function OverviewView({
       </div>
 
       {/* Jobs by Status & Jobs by Route */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         {/* Jobs by Status */}
         <div className="bg-surface p-5 rounded-[6px] border border-border">
           <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-3">

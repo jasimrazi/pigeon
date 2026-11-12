@@ -328,11 +328,11 @@ export function SettingsView({
         </p>
 
         {/* Sub-Navigation Tabs */}
-        <div className="flex items-center gap-2 border-b border-border mt-5 pt-1">
+        <div className="flex items-center gap-1 sm:gap-2 border-b border-border mt-5 pt-1 overflow-x-auto scrollbar-none">
           <button
             type="button"
             onClick={() => handleSubTabClick('profile')}
-            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               subTab === 'profile'
                 ? 'border-accent text-fg font-semibold'
                 : 'border-transparent text-fg-muted hover:text-fg hover:border-border'
@@ -344,7 +344,7 @@ export function SettingsView({
           <button
             type="button"
             onClick={() => handleSubTabClick('resumes')}
-            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               subTab === 'resumes'
                 ? 'border-accent text-fg font-semibold'
                 : 'border-transparent text-fg-muted hover:text-fg hover:border-border'
@@ -356,7 +356,7 @@ export function SettingsView({
           <button
             type="button"
             onClick={() => handleSubTabClick('integrations')}
-            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               subTab === 'integrations'
                 ? 'border-accent text-fg font-semibold'
                 : 'border-transparent text-fg-muted hover:text-fg hover:border-border'
@@ -368,7 +368,7 @@ export function SettingsView({
           <button
             type="button"
             onClick={() => handleSubTabClick('safety')}
-            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
               subTab === 'safety'
                 ? 'border-accent text-fg font-semibold'
                 : 'border-transparent text-fg-muted hover:text-fg hover:border-border'
@@ -559,7 +559,7 @@ export function SettingsView({
           </div>
 
           <div className="pt-4 border-t border-border flex items-center justify-end">
-            <Button variant="primary" size="md" loading={saving} type="submit">
+            <Button variant="primary" size="md" loading={saving} type="submit" className="w-full sm:w-auto">
               {saving ? 'Saving Profile...' : 'Save Profile'}
             </Button>
           </div>
@@ -840,7 +840,7 @@ export function SettingsView({
             </div>
 
             <div className="pt-4 border-t border-border flex items-center justify-end">
-              <Button variant="primary" size="md" loading={saving} type="submit">
+              <Button variant="primary" size="md" loading={saving} type="submit" className="w-full sm:w-auto">
                 {saving ? 'Saving Safety Settings...' : 'Save Safety Settings'}
               </Button>
             </div>

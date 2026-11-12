@@ -243,69 +243,119 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
             <p className="text-[12px] text-fg-muted mt-1">Try clearing filters or search terms.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto max-h-[640px]">
-            <table className="w-full text-left border-collapse text-[13px]">
-              <thead className="sticky top-0 bg-surface-subtle border-b border-border z-10">
-                <tr className="text-fg-muted uppercase text-[11px] font-medium tracking-wider">
-                  <th className="py-2.5 px-4">Company & Role</th>
-                  <th className="py-2.5 px-4">Channel</th>
-                  <th className="py-2.5 px-4">Source</th>
-                  <th className="py-2.5 px-4">Score</th>
-                  <th className="py-2.5 px-4">Status</th>
-                  <th className="py-2.5 px-4">Date</th>
-                  <th className="py-2.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
-                {apps.map((app) => (
-                  <tr key={app.id} className="hover:bg-surface-subtle/50 transition-colors">
-                    <td className="py-2.5 px-4">
-                      <div className="font-semibold text-fg">{app.company}</div>
-                      <div className="text-fg-muted truncate max-w-xs">{app.title}</div>
+          <>
+            {/* Mobile Cards List (< md) */}
+            <div className="md:hidden divide-y divide-border">
+              {apps.map((app) => (
+                <div key={app.id} className="p-4 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-fg text-[14px] truncate">{app.company}</div>
+                      <div className="text-[13px] text-fg-muted truncate">{app.title}</div>
                       {app.location && (
-                        <div className="text-[11px] text-fg-muted font-mono">{app.location}</div>
+                        <div className="text-[11px] text-fg-muted font-mono mt-0.5">{app.location}</div>
                       )}
-                    </td>
+                    </div>
+                    <StatusChip status={app.status} size="sm" />
+                  </div>
 
-                    <td className="py-2.5 px-4">
-                      <span className="font-mono text-[12px] uppercase text-fg-muted">
-                        {app.channel}
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-4 text-fg-muted text-[12px]">
-                      <div className="inline-flex items-center gap-1.5">
-                        <SourceLogo source={app.source} size="xs" />
-                        <span>{getSourceDisplayName(app.source)}</span>
-                      </div>
-                    </td>
-
-                    <td className="py-2.5 px-4">
-                      <span className="font-mono tabular-nums font-semibold text-fg">
-                        {app.match_score !== null ? `${app.match_score}%` : '—'}
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-4">
-                      <StatusChip status={app.status} size="sm" />
-                    </td>
-
-                    <td className="py-2.5 px-4 text-fg-muted font-mono tabular-nums text-[12px]">
+                  <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
+                    <div className="inline-flex items-center gap-1.5">
+                      <SourceLogo source={app.source} size="xs" />
+                      <span>{getSourceDisplayName(app.source)}</span>
+                    </div>
+                    <span>•</span>
+                    <span className="font-mono uppercase">{app.channel}</span>
+                    {app.match_score !== null && (
+                      <>
+                        <span>•</span>
+                        <span className="font-mono tabular-nums font-semibold text-fg">
+                          {app.match_score}%
+                        </span>
+                      </>
+                    )}
+                    <span>•</span>
+                    <span className="font-mono tabular-nums">
                       {app.sent_at || app.applied_at
                         ? new Date(app.sent_at || app.applied_at || '').toLocaleDateString()
                         : new Date(app.updated_at).toLocaleDateString()}
-                    </td>
+                    </span>
+                  </div>
 
-                    <td className="py-2.5 px-4 text-right">
-                      <Button variant="ghost" size="xs" onClick={() => setSelectedApp(app)}>
-                        Record Outcome
-                      </Button>
-                    </td>
+                  <div className="pt-1 flex justify-end">
+                    <Button variant="ghost" size="xs" onClick={() => setSelectedApp(app)}>
+                      Record Outcome
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table (md+) */}
+            <div className="hidden md:block overflow-x-auto max-h-[640px]">
+              <table className="w-full text-left border-collapse text-[13px]">
+                <thead className="sticky top-0 bg-surface-subtle border-b border-border z-10">
+                  <tr className="text-fg-muted uppercase text-[11px] font-medium tracking-wider">
+                    <th className="py-2.5 px-4">Company & Role</th>
+                    <th className="py-2.5 px-4">Channel</th>
+                    <th className="py-2.5 px-4">Source</th>
+                    <th className="py-2.5 px-4">Score</th>
+                    <th className="py-2.5 px-4">Status</th>
+                    <th className="py-2.5 px-4">Date</th>
+                    <th className="py-2.5 px-4 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-border-subtle">
+                  {apps.map((app) => (
+                    <tr key={app.id} className="hover:bg-surface-subtle/50 transition-colors">
+                      <td className="py-2.5 px-4">
+                        <div className="font-semibold text-fg">{app.company}</div>
+                        <div className="text-fg-muted truncate max-w-xs">{app.title}</div>
+                        {app.location && (
+                          <div className="text-[11px] text-fg-muted font-mono">{app.location}</div>
+                        )}
+                      </td>
+
+                      <td className="py-2.5 px-4">
+                        <span className="font-mono text-[12px] uppercase text-fg-muted">
+                          {app.channel}
+                        </span>
+                      </td>
+
+                      <td className="py-2.5 px-4 text-fg-muted text-[12px]">
+                        <div className="inline-flex items-center gap-1.5">
+                          <SourceLogo source={app.source} size="xs" />
+                          <span>{getSourceDisplayName(app.source)}</span>
+                        </div>
+                      </td>
+
+                      <td className="py-2.5 px-4">
+                        <span className="font-mono tabular-nums font-semibold text-fg">
+                          {app.match_score !== null ? `${app.match_score}%` : '—'}
+                        </span>
+                      </td>
+
+                      <td className="py-2.5 px-4">
+                        <StatusChip status={app.status} size="sm" />
+                      </td>
+
+                      <td className="py-2.5 px-4 text-fg-muted font-mono tabular-nums text-[12px]">
+                        {app.sent_at || app.applied_at
+                          ? new Date(app.sent_at || app.applied_at || '').toLocaleDateString()
+                          : new Date(app.updated_at).toLocaleDateString()}
+                      </td>
+
+                      <td className="py-2.5 px-4 text-right">
+                        <Button variant="ghost" size="xs" onClick={() => setSelectedApp(app)}>
+                          Record Outcome
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -369,8 +419,8 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
               </div>
             </div>
 
-            <div className="mt-6 flex items-center justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setSelectedApp(null)}>
+            <div className="mt-6 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setSelectedApp(null)} className="w-full sm:w-auto">
                 Cancel
               </Button>
               <Button
@@ -378,6 +428,7 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
                 size="sm"
                 loading={savingOutcome}
                 onClick={() => void handleRecordOutcome()}
+                className="w-full sm:w-auto"
               >
                 Save Outcome
               </Button>

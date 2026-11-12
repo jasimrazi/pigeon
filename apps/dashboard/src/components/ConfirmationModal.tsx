@@ -50,11 +50,11 @@ export function ConfirmationModal({
           </div>
         </div>
 
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <Button variant="secondary" size="md" onClick={onCancel}>
+        <div className="mt-6 flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-2.5 sm:gap-3">
+          <Button variant="secondary" size="md" onClick={onCancel} className="w-full sm:w-auto">
             {cancelLabel}
           </Button>
-          <Button variant={isDanger ? 'destructive' : 'primary'} size="md" onClick={onConfirm}>
+          <Button variant={isDanger ? 'destructive' : 'primary'} size="md" onClick={onConfirm} className="w-full sm:w-auto">
             {confirmLabel}
           </Button>
         </div>

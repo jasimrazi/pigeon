@@ -75,12 +75,12 @@ export function EventsView({ apiBase = '' }: Props): React.JSX.Element {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3">
           <select
             aria-label="Filter by audit entity"
             value={entityFilter}
             onChange={(e) => setEntityFilter(e.target.value)}
-            className="text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full sm:w-auto text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">All Entities</option>
             <option value="settings">settings</option>
@@ -96,10 +96,10 @@ export function EventsView({ apiBase = '' }: Props): React.JSX.Element {
             placeholder="Filter by event type (e.g. approved, kill_switch)..."
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg min-w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full sm:w-auto sm:min-w-[280px] text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           />
 
-          <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void loadEvents()}>
+          <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void loadEvents()} className="self-start sm:self-auto shrink-0">
             Refresh
           </Button>
         </div>

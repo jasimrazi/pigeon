@@ -100,7 +100,7 @@ export function App(): React.JSX.Element {
     <div className="min-h-screen flex flex-col bg-canvas text-fg">
       {/* Top Header */}
       <header className="border-b border-border bg-surface sticky top-0 z-40">
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
+        <div className="max-w-[1200px] mx-auto px-3 sm:px-6 flex items-center justify-between h-14">
           <div className="flex items-center gap-6">
             <button
               onClick={() => setActiveTab('overview')}
@@ -132,7 +132,7 @@ export function App(): React.JSX.Element {
           </div>
 
           {/* Right Header Status Indicators (Compact Dot + Label Chips) */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {headerState === 'loading' ? (
               <>
                 <span
@@ -148,7 +148,7 @@ export function App(): React.JSX.Element {
                 </span>
                 <span
                   data-testid="badge-dryrun-loading"
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted"
+                  className="inline-flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted shrink-0"
                   title="Checking DRY_RUN mode..."
                 >
                   <span
@@ -161,7 +161,7 @@ export function App(): React.JSX.Element {
                   type="button"
                   disabled
                   data-testid="badge-killswitch-loading"
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted cursor-not-allowed"
+                  className="inline-flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted cursor-not-allowed shrink-0"
                   title="Checking Kill Switch status from KV..."
                 >
                   <span
@@ -186,7 +186,7 @@ export function App(): React.JSX.Element {
                 </span>
                 <span
                   data-testid="badge-dryrun-error"
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg"
+                  className="inline-flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg shrink-0"
                   title="Backend API is unreachable"
                 >
                   <span
@@ -199,7 +199,7 @@ export function App(): React.JSX.Element {
                   type="button"
                   disabled
                   data-testid="badge-killswitch-error"
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg cursor-not-allowed"
+                  className="inline-flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg cursor-not-allowed shrink-0"
                   title="Backend API is unreachable"
                 >
                   <span
@@ -228,7 +228,7 @@ export function App(): React.JSX.Element {
                   <a
                     href="/auth/google/start"
                     data-testid="badge-google-invalid"
-                    className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg hover:opacity-90 transition-opacity"
+                    className="inline-flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border border-state-danger-border bg-state-danger-bg text-state-danger-fg hover:opacity-90 transition-opacity shrink-0"
                     title="Google OAuth expired or revoked. Click to reconnect."
                   >
                     <span
@@ -254,7 +254,7 @@ export function App(): React.JSX.Element {
 
                 {/* DRY RUN Status Chip */}
                 <span
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border ${
+                  className={`inline-flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border shrink-0 ${
                     dryRun
                       ? 'border-state-warn-border bg-state-warn-bg text-state-warn-fg'
                       : 'border-state-ok-border bg-state-ok-bg text-state-ok-fg'
@@ -274,7 +274,7 @@ export function App(): React.JSX.Element {
                   type="button"
                   onClick={() => setShowKsModal(true)}
                   data-testid={killSwitch ? 'badge-killswitch-active' : 'badge-killswitch-off'}
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[12px] font-medium rounded-[4px] border cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  className={`inline-flex items-center gap-1.5 px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border cursor-pointer transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     killSwitch
                       ? 'border-state-danger-border bg-state-danger-bg text-state-danger-fg font-semibold'
                       : 'border-border bg-surface-subtle text-fg-muted hover:text-fg hover:bg-surface'
@@ -296,7 +296,7 @@ export function App(): React.JSX.Element {
               type="button"
               onClick={() => setMobileMenuOpen((prev) => !prev)}
               aria-label="Toggle navigation menu"
-              className="md:hidden p-1.5 rounded-[4px] text-fg-muted hover:text-fg hover:bg-surface-subtle"
+              className="md:hidden p-1.5 rounded-[4px] text-fg-muted hover:text-fg hover:bg-surface-subtle shrink-0"
             >
               {mobileMenuOpen ? (
                 <X size={18} strokeWidth={1.5} aria-hidden="true" />
@@ -334,7 +334,7 @@ export function App(): React.JSX.Element {
       </header>
 
       {/* Main Operations Content Area */}
-      <main className="flex-1 max-w-[1200px] mx-auto w-full px-4 sm:px-6 py-6">
+      <main className="flex-1 max-w-[1200px] mx-auto w-full px-3 sm:px-6 py-4 sm:py-6">
         {activeTab === 'overview' && (
           <OverviewView
             onNavigateTab={(tab) => setActiveTab(tab as TabKey)}

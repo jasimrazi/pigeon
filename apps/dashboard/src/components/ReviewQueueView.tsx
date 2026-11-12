@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   Check,
   CheckCheck,
   Copy,
@@ -56,6 +57,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [editedLetter, setEditedLetter] = useState<string>('');
   const [savingLetter, setSavingLetter] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -209,6 +211,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       }
       setItems((prev) => prev.filter((it) => it.id !== selectedItem.id));
       setSelectedId(null);
+      setMobileDetailOpen(false);
       setActionFeedback(`Approved application for ${selectedItem.company}.`);
       setTimeout(() => setActionFeedback(null), 3500);
       onActionComplete?.();
@@ -230,6 +233,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       }
       setItems((prev) => prev.filter((it) => it.id !== selectedItem.id));
       setSelectedId(null);
+      setMobileDetailOpen(false);
       setActionFeedback(`Rejected application for ${selectedItem.company}.`);
       setTimeout(() => setActionFeedback(null), 3500);
       onActionComplete?.();
@@ -310,7 +314,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
   return (
     <div className="space-y-6">
       {/* Header & Bulk Approve Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-surface p-5 rounded-[6px] border border-border">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 bg-surface p-4 sm:p-5 rounded-[6px] border border-border">
         <div>
           <div className="flex items-center gap-2">
             <Mail
@@ -329,13 +333,14 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 w-full sm:w-auto">
           <Button
             variant="primary"
             size="md"
             icon={CheckCheck}
             onClick={() => void handleBulkApprove()}
             disabled={safeItems.length === 0}
+            className="w-full sm:w-auto"
           >
             Bulk Approve Safe ({safeItems.length})
           </Button>
@@ -362,7 +367,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Column: Item List */}
-          <div className="lg:col-span-4 space-y-2">
+          <div className={`lg:col-span-4 space-y-2 ${mobileDetailOpen ? 'hidden lg:block' : 'block'}`}>
             <h3 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted px-1">
               Applications ({items.length})
             </h3>
@@ -373,7 +378,10 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
                 return (
                   <button
                     key={it.id}
-                    onClick={() => setSelectedId(it.id)}
+                    onClick={() => {
+                      setSelectedId(it.id);
+                      setMobileDetailOpen(true);
+                    }}
                     className={`w-full text-left p-3.5 rounded-[6px] border transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-surface-subtle border-accent ring-1 ring-accent'
@@ -408,7 +416,17 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
 
           {/* Right Column: Detail & Letter Editor */}
           {selectedItem && (
-            <div className="lg:col-span-8 bg-surface rounded-[6px] border border-border p-6 space-y-6">
+            <div className={`lg:col-span-8 bg-surface rounded-[6px] border border-border p-4 sm:p-6 space-y-5 sm:space-y-6 ${mobileDetailOpen ? 'block' : 'hidden lg:block'}`}>
+              {/* Mobile Back Button */}
+              <button
+                type="button"
+                onClick={() => setMobileDetailOpen(false)}
+                className="lg:hidden inline-flex items-center gap-1.5 text-[13px] font-medium text-accent hover:underline cursor-pointer self-start mb-1"
+              >
+                <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+                <span>Back to review list</span>
+              </button>
+
               {/* Warnings */}
               {Boolean(selectedItem.untrusted) && (
                 <div className="p-3 bg-state-warn-bg border border-state-warn-border text-state-warn-fg rounded-[6px] text-[13px] font-medium flex items-center gap-2">
@@ -553,8 +571,8 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
               </div>
 
               {/* Action Buttons: Approve / Reject */}
-              <div className="pt-4 border-t border-border flex items-center justify-end gap-3">
-                <Button variant="destructive" size="md" onClick={() => void handleReject()}>
+              <div className="pt-4 border-t border-border flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 sm:gap-3">
+                <Button variant="destructive" size="md" onClick={() => void handleReject()} className="w-full sm:w-auto">
                   Reject Application
                 </Button>
                 <Button
@@ -562,6 +580,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
                   size="md"
                   icon={Check}
                   onClick={() => void handleApprove()}
+                  className="w-full sm:w-auto"
                 >
                   Approve Application
                 </Button>
