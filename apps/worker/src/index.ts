@@ -2017,16 +2017,31 @@ app.get('/api/sources', async (c) => {
     { name: 'linkedin', kind: 'alert_email' },
     { name: 'indeed', kind: 'alert_email' },
     { name: 'naukri', kind: 'alert_email' },
+    { name: 'wellfound', kind: 'alert_email' },
+    { name: 'otta', kind: 'alert_email' },
+    { name: 'ziprecruiter', kind: 'alert_email' },
+    { name: 'dice', kind: 'alert_email' },
+    { name: 'glassdoor', kind: 'alert_email' },
+    { name: 'instahyre', kind: 'alert_email' },
+    { name: 'foundit', kind: 'alert_email' },
     // Public ATS JSON endpoints
     { name: 'greenhouse', kind: 'ats' },
     { name: 'lever', kind: 'ats' },
     { name: 'ashby', kind: 'ats' },
+    { name: 'smartrecruiters', kind: 'ats' },
+    { name: 'workable', kind: 'ats' },
+    { name: 'breezy', kind: 'ats' },
+    { name: 'bamboohr', kind: 'ats' },
+    { name: 'recruitee', kind: 'ats' },
     // Public job APIs and RSS feeds
     { name: 'adzuna', kind: 'api' },
     { name: 'remoteok', kind: 'api' },
     { name: 'remotive', kind: 'api' },
     { name: 'weworkremotely', kind: 'api' },
     { name: 'hiring_hn', kind: 'api' },
+    { name: 'himalayas', kind: 'api' },
+    { name: 'jobicy', kind: 'api' },
+    { name: 'workingnomads', kind: 'api' },
   ];
 
   const sourceItems: Array<Record<string, unknown>> = [];

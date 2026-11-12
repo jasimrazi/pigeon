@@ -1,4 +1,23 @@
-const ALLOWED_SENDER_DOMAINS = ['linkedin.com', 'naukri.com', 'indeed.com'];
+const ALLOWED_SENDER_DOMAINS = [
+  'linkedin.com',
+  'naukri.com',
+  'indeed.com',
+  'wellfound.com',
+  'angel.co',
+  'otta.com',
+  'welcometothejungle.com',
+  'ziprecruiter.com',
+  'dice.com',
+  'glassdoor.com',
+  'instahyre.com',
+  'foundit.in',
+  'foundit.my',
+  'foundit.sg',
+  'foundit.ph',
+  'foundit.hk',
+  'foundit.com',
+  'monsterindia.com',
+];
 
 /**
  * Extracts the domain from an email address (e.g. 'foo@em.linkedin.com' -> 'em.linkedin.com').

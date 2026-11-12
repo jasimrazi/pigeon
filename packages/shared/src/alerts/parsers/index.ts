@@ -2,9 +2,41 @@ import type { PortalParser, PortalType, ParsedAlertJob } from '../types.js';
 import { linkedInParser } from './linkedin.js';
 import { naukriParser } from './naukri.js';
 import { indeedParser } from './indeed.js';
+import { wellfoundParser } from './wellfound.js';
+import { ottaParser } from './otta.js';
+import { zipRecruiterParser } from './ziprecruiter.js';
+import { diceParser } from './dice.js';
+import { glassdoorParser } from './glassdoor.js';
+import { instahyreParser } from './instahyre.js';
+import { founditParser } from './foundit.js';
 import { fallbackParser } from './fallback.js';
 
-export const PORTAL_PARSERS: PortalParser[] = [linkedInParser, naukriParser, indeedParser];
+export {
+  linkedInParser,
+  naukriParser,
+  indeedParser,
+  wellfoundParser,
+  ottaParser,
+  zipRecruiterParser,
+  diceParser,
+  glassdoorParser,
+  instahyreParser,
+  founditParser,
+  fallbackParser,
+};
+
+export const PORTAL_PARSERS: PortalParser[] = [
+  linkedInParser,
+  naukriParser,
+  indeedParser,
+  wellfoundParser,
+  ottaParser,
+  zipRecruiterParser,
+  diceParser,
+  glassdoorParser,
+  instahyreParser,
+  founditParser,
+];
 
 export function detectPortal(fromAddress: string): PortalType {
   const addr = (fromAddress || '').toLowerCase().trim();
@@ -24,6 +56,20 @@ export function getParser(portal: PortalType): PortalParser {
       return naukriParser;
     case 'indeed':
       return indeedParser;
+    case 'wellfound':
+      return wellfoundParser;
+    case 'otta':
+      return ottaParser;
+    case 'ziprecruiter':
+      return zipRecruiterParser;
+    case 'dice':
+      return diceParser;
+    case 'glassdoor':
+      return glassdoorParser;
+    case 'instahyre':
+      return instahyreParser;
+    case 'foundit':
+      return founditParser;
     case 'fallback':
     default:
       return fallbackParser;

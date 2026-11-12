@@ -8,6 +8,14 @@ import {
   greenhouseAdapter,
   leverAdapter,
   ashbyAdapter,
+  smartRecruitersAdapter,
+  workableAdapter,
+  breezyAdapter,
+  bambooHrAdapter,
+  recruiteeAdapter,
+  himalayasAdapter,
+  jobicyAdapter,
+  workingNomadsAdapter,
   parseRssXml,
 } from './index.js';
 import { ingestSource } from './ingest.js';
@@ -1029,5 +1037,320 @@ describe('Job Source Adapters - Fixture Normalization', () => {
 
     expect(results).toHaveLength(2);
     warnSpy.mockRestore();
+  });
+
+  it('SmartRecruiters normalizes fixture and handles fetch', async () => {
+    const mockData = {
+      content: [
+        {
+          id: 'sr-101',
+          name: 'Staff Backend Engineer',
+          company: { name: 'Visa' },
+          location: { city: 'Foster City', region: 'CA', country: 'us', remote: true },
+          releasedDate: '2026-03-01T00:00:00.000Z',
+        },
+      ],
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await smartRecruitersAdapter.fetch({
+      slugs: ['visa'],
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = smartRecruitersAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('smartrecruiters');
+    expect(normalized.source_kind).toBe('ats');
+    expect(normalized.title).toBe('Staff Backend Engineer');
+    expect(normalized.company).toBe('Visa');
+    expect(normalized.remote).toBe(true);
+    expect(normalized.apply_url).toBe('https://jobs.smartrecruiters.com/visa/sr-101');
+  });
+
+  it('Workable normalizes fixture and handles fetch', async () => {
+    const mockData = {
+      results: [
+        {
+          id: 'workable-1',
+          shortcode: 'WK123',
+          title: 'Senior Frontend Developer',
+          url: 'https://apply.workable.com/acme/j/WK123/',
+          location: {
+            city: 'London',
+            region: 'Greater London',
+            country: 'United Kingdom',
+            telecommuting: true,
+          },
+          published: '2026-03-01',
+        },
+      ],
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await workableAdapter.fetch({
+      slugs: ['acme'],
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = workableAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('workable');
+    expect(normalized.source_kind).toBe('ats');
+    expect(normalized.title).toBe('Senior Frontend Developer');
+    expect(normalized.remote).toBe(true);
+    expect(normalized.apply_url).toBe('https://apply.workable.com/acme/j/WK123/');
+  });
+
+  it('Breezy normalizes fixture and handles fetch', async () => {
+    const mockData = [
+      {
+        id: 'bz-55',
+        name: 'DevOps Engineer',
+        url: 'https://acme.breezy.hr/p/bz-55',
+        company: { name: 'Acme Cloud' },
+        location: { name: 'Remote, US', is_remote: true },
+        updated_at: '2026-03-01T12:00:00.000Z',
+      },
+    ];
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await breezyAdapter.fetch({
+      slugs: ['acme'],
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = breezyAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('breezy');
+    expect(normalized.source_kind).toBe('ats');
+    expect(normalized.title).toBe('DevOps Engineer');
+    expect(normalized.company).toBe('Acme Cloud');
+    expect(normalized.remote).toBe(true);
+    expect(normalized.apply_url).toBe('https://acme.breezy.hr/p/bz-55');
+  });
+
+  it('BambooHR normalizes fixture and handles fetch', async () => {
+    const mockData = {
+      result: [
+        {
+          id: 42,
+          jobOpeningName: 'Security Architect',
+          location: { city: 'Salt Lake City', state: 'UT' },
+          isRemote: true,
+        },
+      ],
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await bambooHrAdapter.fetch({
+      slugs: ['acme'],
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = bambooHrAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('bamboohr');
+    expect(normalized.source_kind).toBe('ats');
+    expect(normalized.title).toBe('Security Architect');
+    expect(normalized.company).toBe('Acme');
+    expect(normalized.remote).toBe(true);
+    expect(normalized.apply_url).toBe('https://acme.bamboohr.com/careers/42');
+  });
+
+  it('Recruitee normalizes fixture and handles fetch', async () => {
+    const mockData = {
+      offers: [
+        {
+          id: 99,
+          title: 'Product Designer',
+          careers_url: 'https://designco.recruitee.com/o/product-designer',
+          company_name: 'DesignCo',
+          location: 'Amsterdam, Netherlands',
+          remote: true,
+          published_at: '2026-03-01T10:00:00.000Z',
+        },
+      ],
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await recruiteeAdapter.fetch({
+      slugs: ['designco'],
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = recruiteeAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('recruitee');
+    expect(normalized.source_kind).toBe('ats');
+    expect(normalized.title).toBe('Product Designer');
+    expect(normalized.company).toBe('DesignCo');
+    expect(normalized.remote).toBe(true);
+    expect(normalized.apply_url).toBe('https://designco.recruitee.com/o/product-designer');
+  });
+
+  it('Himalayas normalizes fixture and handles fetch', async () => {
+    const mockData = {
+      data: [
+        {
+          id: 'him-1',
+          title: 'Senior Systems Engineer',
+          company_name: 'RemoteFirst Ltd',
+          location: 'Worldwide',
+          min_salary: 130000,
+          max_salary: 160000,
+          currency: 'USD',
+          application_url: 'https://himalayas.app/jobs/him-1',
+          description: 'Hiring a systems engineer. Contact us at jobs@remotefirst.com',
+          pub_date: '2026-03-01T15:00:00.000Z',
+        },
+      ],
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await himalayasAdapter.fetch({
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = himalayasAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('himalayas');
+    expect(normalized.source_kind).toBe('api');
+    expect(normalized.title).toBe('Senior Systems Engineer');
+    expect(normalized.company).toBe('RemoteFirst Ltd');
+    expect(normalized.salary_min).toBe(130000);
+    expect(normalized.salary_max).toBe(160000);
+    expect(normalized.currency).toBe('USD');
+    expect(normalized.contact_email).toBe('jobs@remotefirst.com');
+    expect(normalized.apply_url).toBe('https://himalayas.app/jobs/him-1');
+  });
+
+  it('Jobicy normalizes fixture and handles fetch', async () => {
+    const mockData = {
+      jobs: [
+        {
+          id: 'jobicy-404',
+          jobTitle: 'Full Stack Engineer',
+          companyName: 'Global AI Tech',
+          jobGeo: 'Anywhere',
+          annualSalaryMin: 120000,
+          annualSalaryMax: 150000,
+          salaryCurrency: 'USD',
+          url: 'https://jobicy.com/jobs/404',
+          jobDescription: 'Build next-gen AI tools. Contact hr@globalaitech.com',
+          pubDate: '2026-03-01T08:00:00.000Z',
+        },
+      ],
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await jobicyAdapter.fetch({
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = jobicyAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('jobicy');
+    expect(normalized.source_kind).toBe('api');
+    expect(normalized.title).toBe('Full Stack Engineer');
+    expect(normalized.company).toBe('Global AI Tech');
+    expect(normalized.salary_min).toBe(120000);
+    expect(normalized.salary_max).toBe(150000);
+    expect(normalized.currency).toBe('USD');
+    expect(normalized.contact_email).toBe('hr@globalaitech.com');
+    expect(normalized.apply_url).toBe('https://jobicy.com/jobs/404');
+  });
+
+  it('Working Nomads normalizes fixture and handles fetch', async () => {
+    const mockData = [
+      {
+        id: 777,
+        title: 'Lead Cloud Architect',
+        company_name: 'Nomad Global',
+        location: 'Global Remote',
+        url: 'https://www.workingnomads.com/jobs/777',
+        description:
+          'Lead our cloud platform. Send CV to jobs@nomadglobal.com. Compensation: $140k - $180k USD.',
+        pub_date: '2026-03-01T12:00:00.000Z',
+      },
+    ];
+
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(mockData), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const fetched = await workingNomadsAdapter.fetch({
+      fetchFn: mockFetch,
+    });
+
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0]).toBeDefined();
+    if (!fetched[0]) return;
+    const normalized = workingNomadsAdapter.normalize(fetched[0]);
+    expect(normalized.source).toBe('workingnomads');
+    expect(normalized.source_kind).toBe('api');
+    expect(normalized.title).toBe('Lead Cloud Architect');
+    expect(normalized.company).toBe('Nomad Global');
+    expect(normalized.contact_email).toBe('jobs@nomadglobal.com');
+    expect(normalized.apply_url).toBe('https://www.workingnomads.com/jobs/777');
   });
 });

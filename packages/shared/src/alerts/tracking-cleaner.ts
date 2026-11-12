@@ -1,9 +1,27 @@
-export type PortalUrlType = 'linkedin' | 'naukri' | 'indeed' | 'unknown';
+export type PortalUrlType =
+  | 'linkedin'
+  | 'naukri'
+  | 'indeed'
+  | 'wellfound'
+  | 'otta'
+  | 'ziprecruiter'
+  | 'dice'
+  | 'glassdoor'
+  | 'instahyre'
+  | 'foundit'
+  | 'unknown';
 
-const PORTAL_PARAM_ALLOWLIST: Record<'linkedin' | 'naukri' | 'indeed', Set<string>> = {
+const PORTAL_PARAM_ALLOWLIST: Record<Exclude<PortalUrlType, 'unknown'>, Set<string>> = {
   indeed: new Set(['jk']),
   linkedin: new Set(['currentjobid']),
   naukri: new Set(),
+  wellfound: new Set(),
+  otta: new Set(),
+  ziprecruiter: new Set(['jid']),
+  dice: new Set(['jobid']),
+  glassdoor: new Set(['joblistingid', 'jl']),
+  instahyre: new Set(),
+  foundit: new Set(),
 };
 
 export function detectPortalFromUrl(url: URL): PortalUrlType {
@@ -11,6 +29,13 @@ export function detectPortalFromUrl(url: URL): PortalUrlType {
   if (host.includes('indeed.')) return 'indeed';
   if (host.includes('linkedin.')) return 'linkedin';
   if (host.includes('naukri.')) return 'naukri';
+  if (host.includes('wellfound.com') || host.includes('angel.co')) return 'wellfound';
+  if (host.includes('otta.com') || host.includes('welcometothejungle.com')) return 'otta';
+  if (host.includes('ziprecruiter.')) return 'ziprecruiter';
+  if (host.includes('dice.com')) return 'dice';
+  if (host.includes('glassdoor.')) return 'glassdoor';
+  if (host.includes('instahyre.com')) return 'instahyre';
+  if (host.includes('foundit.') || host.includes('monsterindia.com')) return 'foundit';
   return 'unknown';
 }
 
@@ -36,8 +61,8 @@ export function cleanTrackingUrl(rawUrl: string, portalHint?: string): string {
 
     // Determine portal type from hint or URL hostname
     let portal: PortalUrlType = 'unknown';
-    if (portalHint === 'indeed' || portalHint === 'linkedin' || portalHint === 'naukri') {
-      portal = portalHint;
+    if (portalHint && portalHint in PORTAL_PARAM_ALLOWLIST) {
+      portal = portalHint as Exclude<PortalUrlType, 'unknown'>;
     } else {
       portal = detectPortalFromUrl(url);
     }

@@ -14,6 +14,14 @@ export const DEFAULT_ENABLED_SOURCES = [
   'greenhouse',
   'lever',
   'ashby',
+  'smartrecruiters',
+  'workable',
+  'breezy',
+  'bamboohr',
+  'recruitee',
+  'himalayas',
+  'jobicy',
+  'workingnomads',
 ];
 
 export async function getEnabledSources(kv?: KVNamespaceLike): Promise<string[]> {

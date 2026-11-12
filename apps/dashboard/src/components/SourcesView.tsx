@@ -101,7 +101,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
         <div className="space-y-1 text-fg-muted leading-relaxed">
           <p>
             <strong className="text-fg font-medium">
-              How Portals (LinkedIn, Indeed, Naukri) Work:
+              How Job Portals (LinkedIn, Indeed, Naukri, Wellfound, Otta, ZipRecruiter, etc.) Work:
             </strong>{' '}
             Pigeon never scrapes login-walled job portals or simulates user sessions. Instead,
             Pigeon ingests portal jobs by parsing inbound job alert emails forwarded to your Pigeon

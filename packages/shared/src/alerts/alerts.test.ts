@@ -22,6 +22,13 @@ import {
   NAUKRI_EML_FIXTURE,
   INDEED_EML_FIXTURE,
   UNAUTHORIZED_SENDER_EML_FIXTURE,
+  WELLFOUND_EML_FIXTURE,
+  OTTA_EML_FIXTURE,
+  ZIPRECRUITER_EML_FIXTURE,
+  DICE_EML_FIXTURE,
+  GLASSDOOR_EML_FIXTURE,
+  INSTAHYRE_EML_FIXTURE,
+  FOUNDIT_EML_FIXTURE,
 } from './fixtures.js';
 
 // In-memory mock SQLite/D1 database for shared unit tests
@@ -352,6 +359,130 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       expect(jobs[1]?.company).toBe('Cyberdyne Systems');
       expect(jobs[1]?.location).toBe('Austin, TX');
       expect(jobs[1]?.apply_url).toBe('https://www.indeed.com/viewjob?jk=5c6d7e8f9a0b1c2d');
+    });
+
+    it('Wellfound parser extracts startup jobs and cleans tracking parameters', async () => {
+      const email = await new PostalMime().parse(WELLFOUND_EML_FIXTURE);
+      const portal = detectPortal(email.from?.address ?? '');
+      expect(portal).toBe('wellfound');
+
+      const parser = getParser(portal);
+      const jobs = parser.parse(email.html ?? '');
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.title).toBe('Senior Backend Engineer');
+      expect(jobs[0]?.company).toBe('Supabase Scale Labs');
+      expect(jobs[0]?.location).toBe('San Francisco, CA (Remote)');
+      expect(jobs[0]?.salary_raw).toBe('$160k – $190k • 0.2% equity');
+      expect(jobs[0]?.apply_url).toBe('https://wellfound.com/jobs/3019284-senior-backend-engineer');
+    });
+
+    it('Otta parser extracts curated tech job alerts with salary and remote status', async () => {
+      const email = await new PostalMime().parse(OTTA_EML_FIXTURE);
+      const portal = detectPortal(email.from?.address ?? '');
+      expect(portal).toBe('otta');
+
+      const parser = getParser(portal);
+      const jobs = parser.parse(email.html ?? '');
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.title).toBe('Staff Infrastructure Engineer');
+      expect(jobs[0]?.company).toBe('Linear Orbit Inc');
+      expect(jobs[0]?.location).toBe('Remote');
+      expect(jobs[0]?.salary_raw).toBe('$180,000 - $220,000 / year');
+      expect(jobs[0]?.apply_url).toBe(
+        'https://otta.com/jobs/staff-infrastructure-engineer-cloud-scale',
+      );
+    });
+
+    it('ZipRecruiter parser extracts jobs and preserves jid parameter', async () => {
+      const email = await new PostalMime().parse(ZIPRECRUITER_EML_FIXTURE);
+      const portal = detectPortal(email.from?.address ?? '');
+      expect(portal).toBe('ziprecruiter');
+
+      const parser = getParser(portal);
+      const jobs = parser.parse(email.html ?? '');
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.title).toBe('Cloud Systems Engineer');
+      expect(jobs[0]?.company).toBe('Apex Defense Tech');
+      expect(jobs[0]?.location).toBe('Austin, TX');
+      expect(jobs[0]?.salary_raw).toBe('$140,000 - $165,000 / year');
+      expect(jobs[0]?.apply_url).toBe(
+        'https://www.ziprecruiter.com/jobs/cloud-systems-engineer-9988?jid=zr-1234',
+      );
+    });
+
+    it('Dice parser extracts tech jobs and preserves jobId parameter', async () => {
+      const email = await new PostalMime().parse(DICE_EML_FIXTURE);
+      const portal = detectPortal(email.from?.address ?? '');
+      expect(portal).toBe('dice');
+
+      const parser = getParser(portal);
+      const jobs = parser.parse(email.html ?? '');
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.title).toBe('DevOps Architect');
+      expect(jobs[0]?.company).toBe('Redwood Systems');
+      expect(jobs[0]?.location).toBe('Remote');
+      expect(jobs[0]?.salary_raw).toBe('$150,000 - $175,000 / year');
+      expect(jobs[0]?.apply_url).toBe(
+        'https://www.dice.com/job-detail/55443322-devops-architect?jobId=dice-99',
+      );
+    });
+
+    it('Glassdoor parser extracts jobs and preserves jl parameter', async () => {
+      const email = await new PostalMime().parse(GLASSDOOR_EML_FIXTURE);
+      const portal = detectPortal(email.from?.address ?? '');
+      expect(portal).toBe('glassdoor');
+
+      const parser = getParser(portal);
+      const jobs = parser.parse(email.html ?? '');
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.title).toBe('Site Reliability Engineer');
+      expect(jobs[0]?.company).toBe('Stripe Global');
+      expect(jobs[0]?.location).toBe('Seattle, WA (Hybrid)');
+      expect(jobs[0]?.salary_raw).toBe('$165,000 - $195,000 / year');
+      expect(jobs[0]?.apply_url).toBe(
+        'https://www.glassdoor.com/job-listing/site-reliability-engineer-cloud-JL_1009988.htm?jl=1009988',
+      );
+    });
+
+    it('Instahyre parser extracts opportunities and locations', async () => {
+      const email = await new PostalMime().parse(INSTAHYRE_EML_FIXTURE);
+      const portal = detectPortal(email.from?.address ?? '');
+      expect(portal).toBe('instahyre');
+
+      const parser = getParser(portal);
+      const jobs = parser.parse(email.html ?? '');
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.title).toBe('Backend Lead Engineer');
+      expect(jobs[0]?.company).toBe('Razorpay Software');
+      expect(jobs[0]?.location).toBe('Bengaluru');
+      expect(jobs[0]?.salary_raw).toBe('35 - 50 LPA');
+      expect(jobs[0]?.apply_url).toBe(
+        'https://www.instahyre.com/job-182940-backend-lead-at-razorpay',
+      );
+    });
+
+    it('Foundit parser extracts jobs and strips tracking parameters', async () => {
+      const email = await new PostalMime().parse(FOUNDIT_EML_FIXTURE);
+      const portal = detectPortal(email.from?.address ?? '');
+      expect(portal).toBe('foundit');
+
+      const parser = getParser(portal);
+      const jobs = parser.parse(email.html ?? '');
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.title).toBe('Principal Software Engineer');
+      expect(jobs[0]?.company).toBe('Infosys Digital');
+      expect(jobs[0]?.location).toBe('Hyderabad');
+      expect(jobs[0]?.salary_raw).toBe('30 - 45 LPA');
+      expect(jobs[0]?.apply_url).toBe(
+        'https://www.foundit.in/job/principal-software-engineer-cloud-12345',
+      );
     });
 
     it('Fallback parser extracts job links from generic HTML', () => {

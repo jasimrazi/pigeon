@@ -29,7 +29,7 @@ Human-in-the-loop approval for jobs with contact emails (`auto_email` route):
 
 Your workspace for jobs that must be submitted through websites and portals (`manual_portal` route):
 
-- Handles jobs found on LinkedIn, Indeed, Naukri, or company careers pages.
+- Handles jobs found on **LinkedIn**, **Indeed**, **Naukri**, **Wellfound**, **Otta**, **ZipRecruiter**, **Dice**, **Glassdoor**, **Instahyre**, **Foundit**, or company careers pages.
 - Provides a **1-Click Apply Kit**: opens the job posting in a new tab, copies your tailored cover letter, downloads the best-matching resume, and tracks your submission date.
 - Keeps you focused on applying without context switching.
 
@@ -43,11 +43,11 @@ The complete record and status ledger for every application:
 
 ### 5. Sources
 
-Live health monitor for all 11 supported job data pipelines:
+Live health monitor for all 26 supported job data pipelines:
 
-- **Alert Email Parsers**: Inbound email alerts from **LinkedIn**, **Indeed**, and **Naukri** (parsed safely from forwarded alert emails; Pigeon never automates or scrapes login-walled portals).
-- **ATS Endpoints**: Direct public board feeds from **Greenhouse**, **Lever**, and **Ashby**.
-- **Public Job APIs & RSS**: Feeds from **Adzuna**, **RemoteOK**, **Remotive**, **WeWorkRemotely**, and **Hacker News (Hiring)**.
+- **Alert Email Parsers (10 Portals)**: Inbound search alert emails from **LinkedIn**, **Indeed**, **Naukri**, **Wellfound**, **Otta**, **ZipRecruiter**, **Dice**, **Glassdoor**, **Instahyre**, and **Foundit** (parsed safely from forwarded alert emails; Pigeon strictly complies with Rule 6 and never scrapes or automates login-walled portals).
+- **ATS Endpoints (8 Platforms)**: Direct public board feeds from **Greenhouse**, **Lever**, **Ashby**, **SmartRecruiters**, **Workable**, **Breezy HR**, **BambooHR**, and **Recruitee**.
+- **Public Job APIs & RSS (8 Feeds)**: Public feeds and APIs from **Adzuna**, **RemoteOK**, **Remotive**, **WeWorkRemotely**, **Hacker News (Who is Hiring?)**, **Himalayas**, **Jobicy**, and **Working Nomads**.
 - Displays circuit breaker states (`closed`, `open`), failure counts, empty streak warnings, and last run timestamps.
 
 ### 6. Settings
@@ -76,7 +76,7 @@ A searchable, chronological audit log recording every system action:
 Pigeon is designed with strict safety invariants:
 
 1. **DRY_RUN by Default**: Outbound emails are disabled by default. Nothing is sent unless `DRY_RUN=false`, the Kill Switch is disarmed, and Google authentication is healthy.
-2. **Never Scrapes Portals**: Under Rule 6, Pigeon never automates logins or scrapes LinkedIn, Indeed, or Naukri. Jobs from portals arrive strictly via forwarded alert emails.
+2. **Never Scrapes Portals**: Under Rule 6, Pigeon never automates logins or scrapes portals (LinkedIn, Indeed, Naukri, Wellfound, Otta, ZipRecruiter, Dice, Glassdoor, Instahyre, Foundit). Jobs from portals arrive strictly via forwarded alert emails.
 3. **Owner-Only Access**: All API endpoints and dashboard views are secured behind Cloudflare Access (Zero Trust) JWT verification and strict CORS checks.
 4. **Encrypted Secrets**: Sensitive credentials (Google OAuth secrets, Gemini API key, Telegram tokens) are encrypted at rest with AES-256-GCM.
 

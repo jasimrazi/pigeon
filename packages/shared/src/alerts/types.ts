@@ -1,6 +1,17 @@
 import { z } from 'zod';
 
-export type PortalType = 'linkedin' | 'naukri' | 'indeed' | 'fallback';
+export type PortalType =
+  | 'linkedin'
+  | 'naukri'
+  | 'indeed'
+  | 'wellfound'
+  | 'otta'
+  | 'ziprecruiter'
+  | 'dice'
+  | 'glassdoor'
+  | 'instahyre'
+  | 'foundit'
+  | 'fallback';
 
 export const ParsedAlertJobSchema = z.object({
   title: z.string().max(500),
