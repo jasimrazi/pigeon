@@ -155,7 +155,7 @@ export function OverviewView({
         <AlertBanner
           variant="warn"
           title="Initial Setup Incomplete"
-          description="Pigeon requires basic configuration (master encryption key, candidate profile, and LLM provider) before running simulations or processing applications."
+          description="Pigeon requires basic configuration (master encryption key, candidate profile, default resume, and LLM provider) before running simulations or processing applications."
           action={
             <Button variant="primary" size="sm" onClick={() => onNavigateTab?.('setup')}>
               Open Setup Checklist

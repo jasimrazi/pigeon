@@ -12,13 +12,15 @@ import {
   SunMoon,
   User,
   Plug,
+  FileText,
 } from 'lucide-react';
 import { ConfirmationModal } from './ConfirmationModal.js';
 import { Button } from './ui/Button.js';
 import { IntegrationsSettings } from './IntegrationsSettings.js';
+import { ResumesSettings } from './ResumesSettings.js';
 import { getStoredTheme, setStoredTheme, type ThemePreference } from '../theme.js';
 
-export type SettingsSubTab = 'profile' | 'integrations' | 'safety';
+export type SettingsSubTab = 'profile' | 'resumes' | 'integrations' | 'safety';
 
 interface SettingsData {
   ok?: boolean;
@@ -341,6 +343,18 @@ export function SettingsView({
           </button>
           <button
             type="button"
+            onClick={() => handleSubTabClick('resumes')}
+            className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
+              subTab === 'resumes'
+                ? 'border-accent text-fg font-semibold'
+                : 'border-transparent text-fg-muted hover:text-fg hover:border-border'
+            }`}
+          >
+            <FileText size={14} />
+            <span>Resumes</span>
+          </button>
+          <button
+            type="button"
             onClick={() => handleSubTabClick('integrations')}
             className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
               subTab === 'integrations'
@@ -552,7 +566,10 @@ export function SettingsView({
         </form>
       )}
 
-      {/* SUB-TAB 2: Integrations */}
+      {/* SUB-TAB 2: Resumes */}
+      {subTab === 'resumes' && <ResumesSettings apiBase={apiBase} />}
+
+      {/* SUB-TAB 3: Integrations */}
       {subTab === 'integrations' && (
         <IntegrationsSettings
           apiBase={apiBase}

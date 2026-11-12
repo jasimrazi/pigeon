@@ -69,6 +69,16 @@ export function SetupView({ apiBase = '', onNavigateTab }: Props): React.JSX.Ele
             Configure Profile
           </Button>
         );
+      case 'resume':
+        return (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onNavigateTab?.('settings', 'resumes')}
+          >
+            Upload Resume
+          </Button>
+        );
       case 'llm':
       case 'google_oauth':
       case 'sheets':

@@ -77,8 +77,10 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       setItems(queueData.items || []);
 
       if (resumesRes && resumesRes.ok) {
-        const resData = (await resumesRes.json()) as { resumes: ResumeOption[] };
-        setResumes(resData.resumes || []);
+        const resData = (await resumesRes.json()) as {
+          resumes: (ResumeOption & { archived?: boolean })[];
+        };
+        setResumes((resData.resumes || []).filter((r) => !r.archived));
       }
 
       // Default select first item
