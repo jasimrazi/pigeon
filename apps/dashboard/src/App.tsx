@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Layers, Menu, X } from 'lucide-react';
+import { Bird, Menu, X } from 'lucide-react';
 import { OverviewView } from './components/OverviewView.js';
 import { ReviewQueueView } from './components/ReviewQueueView.js';
 import { ManualQueueView } from './components/ManualQueueView.js';
@@ -106,7 +106,7 @@ export function App(): React.JSX.Element {
               onClick={() => setActiveTab('overview')}
               className="flex items-center gap-2 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[4px]"
             >
-              <Layers size={18} strokeWidth={1.5} className="text-fg shrink-0" aria-hidden="true" />
+              <Bird size={18} strokeWidth={1.5} className="text-fg shrink-0" aria-hidden="true" />
               <span className="text-[16px] font-semibold tracking-tight text-fg">Pigeon</span>
             </button>
 

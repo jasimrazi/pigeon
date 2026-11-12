@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none">
+  <defs>
+    <linearGradient id="pigeon-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+  </defs>
+  <!-- Background Badge -->
+  <rect width="32" height="32" rx="7" fill="url(#pigeon-grad)" />
+  <!-- Carrier Pigeon Icon -->
+  <g transform="translate(4, 4)" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 7h.01" />
+    <path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 18" />
+    <path d="m20 7 2 .5-2 .5" />
+    <path d="M10 18v3" />
+    <path d="M14 17.75V21" />
+    <path d="M7 18a6 6 0 0 0 3.84-10.61" />
+  </g>
+</svg>
