@@ -69,7 +69,7 @@ max_batch_timeout = 5
 
 [env.staging]
 name = "pigeon-worker-staging"
-vars = { ENV = "staging", DRY_RUN = "true" }
+vars = { ENV = "staging", DRY_RUN = "true", DEV_RECIPIENT_ALLOWLIST = "" }
 
 [env.staging.ai]
 binding = "AI"
@@ -98,7 +98,7 @@ max_batch_timeout = 5
 
 [env.prod]
 name = "pigeon-worker-prod"
-vars = { ENV = "prod", DRY_RUN = "true" }
+vars = { ENV = "prod", DRY_RUN = "true", DEV_RECIPIENT_ALLOWLIST = "" }
 
 [env.prod.ai]
 binding = "AI"

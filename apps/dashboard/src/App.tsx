@@ -48,6 +48,8 @@ export function App(): React.JSX.Element {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const apiBase = (import.meta.env?.VITE_API_BASE as string | undefined) || '';
+
   const isMoreActive =
     mobileMenuOpen ||
     activeTab === 'sources' ||
@@ -57,7 +59,7 @@ export function App(): React.JSX.Element {
 
   const loadHeaderStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/overview');
+      const res = await fetch(`${apiBase}/api/overview`);
       if (res.ok) {
         const data = (await res.json()) as {
           killSwitch?: boolean;
@@ -88,7 +90,7 @@ export function App(): React.JSX.Element {
 
   const handleToggleKillSwitch = async (activate: boolean) => {
     try {
-      const res = await fetch('/api/settings/kill-switch', {
+      const res = await fetch(`${apiBase}/api/settings/kill-switch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kill_switch: activate, confirmed: true }),
@@ -317,26 +319,32 @@ export function App(): React.JSX.Element {
       <main className="flex-1 max-w-[1200px] mx-auto w-full px-3 sm:px-6 pt-4 sm:pt-6 pb-24 md:pb-6">
         {activeTab === 'overview' && (
           <OverviewView
+            apiBase={apiBase}
             onNavigateTab={(tab) => setActiveTab(tab as TabKey)}
             onDataRefresh={() => setRefreshTrigger((prev) => prev + 1)}
           />
         )}
         {activeTab === 'review-queue' && (
-          <ReviewQueueView onActionComplete={() => setRefreshTrigger((prev) => prev + 1)} />
+          <ReviewQueueView
+            apiBase={apiBase}
+            onActionComplete={() => setRefreshTrigger((prev) => prev + 1)}
+          />
         )}
-        {activeTab === 'manual-apply' && <ManualQueueView />}
-        {activeTab === 'applications' && <ApplicationsView />}
-        {activeTab === 'sources' && <SourcesView />}
+        {activeTab === 'manual-apply' && <ManualQueueView apiBase={apiBase} />}
+        {activeTab === 'applications' && <ApplicationsView apiBase={apiBase} />}
+        {activeTab === 'sources' && <SourcesView apiBase={apiBase} />}
         {activeTab === 'settings' && (
           <SettingsView
+            apiBase={apiBase}
             initialSubTab={settingsSubTab}
             onSubTabChange={setSettingsSubTab}
             onRefresh={() => setRefreshTrigger((prev) => prev + 1)}
           />
         )}
-        {activeTab === 'events' && <EventsView />}
+        {activeTab === 'events' && <EventsView apiBase={apiBase} />}
         {activeTab === 'setup' && (
           <SetupView
+            apiBase={apiBase}
             onNavigateTab={(tab, subTab) => {
               setActiveTab(tab as TabKey);
               if (subTab) {
