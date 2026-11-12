@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
+import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
 
 interface Props {
   apiBase?: string;
@@ -401,8 +402,9 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
 
                   {/* Badges / Warnings */}
                   <div className="mt-2 flex flex-wrap gap-1.5 text-[12px]">
-                    <span className="bg-surface-subtle text-fg-muted border border-border px-1.5 py-0.5 rounded-[4px]">
-                      {item.source}
+                    <span className="bg-surface-subtle text-fg-muted border border-border px-1.5 py-0.5 rounded-[4px] inline-flex items-center gap-1.5">
+                      <SourceLogo source={item.source} size="xs" />
+                      <span>{getSourceDisplayName(item.source)}</span>
                     </span>
                     {item.location && (
                       <span className="bg-surface-subtle text-fg-muted border border-border px-1.5 py-0.5 rounded-[4px]">
@@ -453,10 +455,14 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                   <div>
                     <h3 className="text-[18px] font-semibold text-fg">{kit.title}</h3>
                     <p className="text-[14px] text-fg-muted font-medium">{kit.company}</p>
-                    <p className="text-[12px] text-fg-muted mt-1">
-                      Source: {kit.source} • Location: {kit.location || 'Not specified'} • Salary:{' '}
-                      {kit.salary || 'Not specified'}
-                    </p>
+                    <div className="flex items-center gap-1.5 text-[12px] text-fg-muted mt-1">
+                      <SourceLogo source={kit.source} size="xs" />
+                      <span>{getSourceDisplayName(kit.source)}</span>
+                      <span>
+                        • Location: {kit.location || 'Not specified'} • Salary:{' '}
+                        {kit.salary || 'Not specified'}
+                      </span>
+                    </div>
                   </div>
                   {kit.match_score !== null && (
                     <div className="text-center bg-surface-subtle border border-border px-3 py-1.5 rounded-[6px]">

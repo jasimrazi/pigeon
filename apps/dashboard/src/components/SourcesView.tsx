@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AlertTriangle, Info, Loader2, Radio, RefreshCw } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
+import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
 
 export interface SourceStatusItem {
   name: string;
@@ -167,12 +168,24 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
                 }`}
               >
                 {/* Header line */}
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold text-[14px] text-fg capitalize">{src.name}</h3>
-                    <span className="text-[11px] font-mono text-fg-muted uppercase">
-                      {src.kind}
-                    </span>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <SourceLogo source={src.name} size="md" />
+                    <div>
+                      <h3 className="font-semibold text-[14px] text-fg leading-tight">
+                        {getSourceDisplayName(src.name)}
+                      </h3>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[11px] font-mono text-fg-muted uppercase">
+                          {src.kind === 'alert_email'
+                            ? 'Alert Email'
+                            : src.kind === 'ats'
+                              ? 'ATS Endpoint'
+                              : 'Job API / Feed'}
+                        </span>
+                        <span className="text-[11px] font-mono text-fg-muted/60">({src.name})</span>
+                      </div>
+                    </div>
                   </div>
                   <StatusChip
                     status={src.circuit_state}

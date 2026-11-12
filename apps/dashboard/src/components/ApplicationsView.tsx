@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FolderX, Layers, Loader2, Search } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
+import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
 
 export interface ApplicationItem {
   id: string;
@@ -183,14 +184,38 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
             className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">All Sources</option>
-            <option value="greenhouse">Greenhouse</option>
-            <option value="lever">Lever</option>
-            <option value="ashby">Ashby</option>
-            <option value="adzuna">Adzuna</option>
-            <option value="remoteok">RemoteOK</option>
-            <option value="remotive">Remotive</option>
-            <option value="weworkremotely">WeWorkRemotely</option>
-            <option value="alert_email">Alert Email</option>
+            <optgroup label="Alert Emails">
+              <option value="linkedin">LinkedIn</option>
+              <option value="indeed">Indeed</option>
+              <option value="naukri">Naukri</option>
+              <option value="wellfound">Wellfound</option>
+              <option value="otta">Otta</option>
+              <option value="ziprecruiter">ZipRecruiter</option>
+              <option value="dice">Dice</option>
+              <option value="glassdoor">Glassdoor</option>
+              <option value="instahyre">Instahyre</option>
+              <option value="foundit">Foundit</option>
+            </optgroup>
+            <optgroup label="ATS Endpoints">
+              <option value="greenhouse">Greenhouse</option>
+              <option value="lever">Lever</option>
+              <option value="ashby">Ashby</option>
+              <option value="smartrecruiters">SmartRecruiters</option>
+              <option value="workable">Workable</option>
+              <option value="breezy">Breezy HR</option>
+              <option value="bamboohr">BambooHR</option>
+              <option value="recruitee">Recruitee</option>
+            </optgroup>
+            <optgroup label="Job APIs & Feeds">
+              <option value="adzuna">Adzuna</option>
+              <option value="remoteok">RemoteOK</option>
+              <option value="remotive">Remotive</option>
+              <option value="weworkremotely">We Work Remotely</option>
+              <option value="hiring_hn">Hacker News</option>
+              <option value="himalayas">Himalayas</option>
+              <option value="jobicy">Jobicy</option>
+              <option value="workingnomads">Working Nomads</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -248,8 +273,11 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
                       </span>
                     </td>
 
-                    <td className="py-2.5 px-4 text-fg-muted font-mono text-[12px]">
-                      {app.source}
+                    <td className="py-2.5 px-4 text-fg-muted text-[12px]">
+                      <div className="inline-flex items-center gap-1.5">
+                        <SourceLogo source={app.source} size="xs" />
+                        <span>{getSourceDisplayName(app.source)}</span>
+                      </div>
                     </td>
 
                     <td className="py-2.5 px-4">
