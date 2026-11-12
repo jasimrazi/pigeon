@@ -217,7 +217,6 @@ Alex Mercer`;
     const res = await sendApplicationEmail({
       db: workerEnv.DB,
       config: throwingConfig as unknown as Parameters<typeof sendApplicationEmail>[0]['config'],
-      resumesBucket: workerEnv.RESUMES,
       gmailSender: {
         async send() {
           throw new Error('Gmail send should not be reached when KV read throws');

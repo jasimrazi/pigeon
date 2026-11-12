@@ -6,7 +6,6 @@ import {
 
 export interface Bindings {
   DB: D1Database;
-  RESUMES: R2Bucket;
   CONFIG: KVNamespace;
   JOBS_QUEUE: Queue;
   AI?: Ai | undefined;
@@ -37,7 +36,6 @@ export interface Bindings {
 
 export interface ValidatedEnv extends WorkerEnvVars {
   DB: D1Database;
-  RESUMES: R2Bucket;
   CONFIG: KVNamespace;
   JOBS_QUEUE: Queue;
   AI?: Ai | undefined;
@@ -63,9 +61,6 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
   if (!rawEnv.DB) {
     throw new Error('Missing D1 database binding: DB');
   }
-  if (!rawEnv.RESUMES) {
-    throw new Error('Missing R2 bucket binding: RESUMES');
-  }
   if (!rawEnv.CONFIG) {
     throw new Error('Missing KV namespace binding: CONFIG');
   }
@@ -75,7 +70,6 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
 
   const result: ValidatedEnv = {
     DB: rawEnv.DB,
-    RESUMES: rawEnv.RESUMES,
     CONFIG: rawEnv.CONFIG,
     JOBS_QUEUE: rawEnv.JOBS_QUEUE,
     DRY_RUN: parsed.DRY_RUN,

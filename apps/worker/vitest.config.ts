@@ -15,6 +15,7 @@ export default defineConfig(async () => {
           bindings: {
             IS_TEST: true,
             ALLOW_INSECURE_DEV_AUTH: true,
+            SETTINGS_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
             TEST_MIGRATIONS: migrations,
             DEV_RECIPIENT_ALLOWLIST:
               'jobs@stripe.com, recruiter@acmeops.com, @stripe.com, @acmeops.com, @example.test',

@@ -21,10 +21,6 @@ binding = "DB"
 database_name = "pigeon-db"
 database_id = "00000000-0000-0000-0000-000000000000"
 
-[[r2_buckets]]
-binding = "RESUMES"
-bucket_name = "pigeon-resumes"
-
 [[kv_namespaces]]
 binding = "CONFIG"
 id = "pigeon-config"
@@ -49,10 +45,6 @@ binding = "AI"
 binding = "DB"
 database_name = "pigeon-db"
 database_id = "00000000-0000-0000-0000-000000000000"
-
-[[env.dev.r2_buckets]]
-binding = "RESUMES"
-bucket_name = "pigeon-resumes"
 
 [[env.dev.kv_namespaces]]
 binding = "CONFIG"
@@ -79,10 +71,6 @@ binding = "DB"
 database_name = "pigeon-db-staging"
 database_id = "staging-d1-id"
 
-[[env.staging.r2_buckets]]
-binding = "RESUMES"
-bucket_name = "pigeon-resumes-staging"
-
 [[env.staging.kv_namespaces]]
 binding = "CONFIG"
 id = "staging-kv-id"
@@ -107,10 +95,6 @@ binding = "AI"
 binding = "DB"
 database_name = "pigeon-db-prod"
 database_id = "prod-d1-id"
-
-[[env.prod.r2_buckets]]
-binding = "RESUMES"
-bucket_name = "pigeon-resumes-prod"
 
 [[env.prod.kv_namespaces]]
 binding = "CONFIG"

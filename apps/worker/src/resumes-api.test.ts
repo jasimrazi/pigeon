@@ -74,9 +74,15 @@ describe('Resumes API & Hardening Test Suite', () => {
     expect(body.resume.archived).toBe(false);
     expect(body.resume.size_bytes).toBe(pdfBytes.byteLength);
 
-    // Verify R2 object exists
-    const r2Obj = await workerEnv.RESUMES.get(`resumes/${body.resume.id}.pdf`);
-    expect(r2Obj).not.toBeNull();
+    // Verify D1 resume_files record exists
+    const fileRow = await workerEnv.DB.prepare(
+      'SELECT mime_type, file_bytes, size_bytes FROM resume_files WHERE resume_id = ?',
+    )
+      .bind(body.resume.id)
+      .first<{ mime_type: string; file_bytes: ArrayBuffer | Uint8Array; size_bytes: number }>();
+    expect(fileRow).not.toBeNull();
+    expect(fileRow?.mime_type).toBe('application/pdf');
+    expect(fileRow?.size_bytes).toBe(pdfBytes.byteLength);
 
     // Verify events written without file content
     const events = await workerEnv.DB.prepare(
@@ -131,9 +137,9 @@ describe('Resumes API & Hardening Test Suite', () => {
     expect(body.code).toBe('EMPTY_FILE');
   });
 
-  it('4. 5 MB + 1 byte is rejected with 413 and code PAYLOAD_TOO_LARGE', async () => {
+  it('4. File exceeding 2 MB is rejected with 400 and code PAYLOAD_TOO_LARGE', async () => {
     const largeHeader = '%PDF-1.4\n';
-    const filler = new Uint8Array(5 * 1024 * 1024 + 10);
+    const filler = new Uint8Array(2 * 1024 * 1024 + 10);
     const headerBytes = new TextEncoder().encode(largeHeader);
     filler.set(headerBytes, 0);
 
@@ -149,7 +155,7 @@ describe('Resumes API & Hardening Test Suite', () => {
       workerEnv,
     );
 
-    expect(res.status).toBe(413);
+    expect(res.status).toBe(400);
     const body = (await res.json()) as { ok: boolean; code: string; error: string };
     expect(body.code).toBe('PAYLOAD_TOO_LARGE');
   });
@@ -457,12 +463,16 @@ describe('Resumes API & Hardening Test Suite', () => {
       .first();
     expect(row).toBeNull();
 
-    // R2 object is gone
-    const r2Obj = await workerEnv.RESUMES.get(`resumes/${unusedResume.id}.pdf`);
-    expect(r2Obj).toBeNull();
+    // D1 resume_files record is gone
+    const fileRow = await workerEnv.DB.prepare(
+      'SELECT resume_id FROM resume_files WHERE resume_id = ?',
+    )
+      .bind(unusedResume.id)
+      .first();
+    expect(fileRow).toBeNull();
   });
 
-  it('10. Path traversal canary: uploaded filename is never used in R2 key or path', async () => {
+  it('10. Path traversal canary: uploaded filename is never used in storage key or path', async () => {
     const pdf = createPdfBuffer('Canary');
     const form = new FormData();
     form.append('file', new Blob([pdf], { type: 'application/pdf' }), '../../../../etc/passwd');
@@ -483,8 +493,12 @@ describe('Resumes API & Hardening Test Suite', () => {
     expect(body.resume.r2_key).not.toContain('..');
     expect(body.resume.r2_key).not.toContain('passwd');
 
-    const r2Obj = await workerEnv.RESUMES.get(body.resume.r2_key);
-    expect(r2Obj).not.toBeNull();
+    const fileRow = await workerEnv.DB.prepare(
+      'SELECT resume_id FROM resume_files WHERE resume_id = ?',
+    )
+      .bind(body.resume.id)
+      .first();
+    expect(fileRow).not.toBeNull();
   });
 
   it('11. Header injection canary: CR, LF, and quotes in label are stripped from Content-Disposition', async () => {

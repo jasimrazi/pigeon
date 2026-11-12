@@ -13,7 +13,7 @@ export interface R2BucketLike {
 
 export interface SeedOptions {
   db: D1LikeDatabase;
-  resumesBucket: R2BucketLike;
+  resumesBucket?: R2BucketLike | undefined;
   config: KVLike;
   env: string;
   nowIso?: string;
@@ -130,16 +130,18 @@ export async function seedLocalData(options: SeedOptions): Promise<{
     .bind(JSON.stringify(SEED_PROFILE), nowIso)
     .run();
 
-  // 2. Put 2 minimal PDF resumes into R2 and insert rows into resumes table
+  // 2. Put 2 minimal PDF resumes into R2/D1 and insert rows into resumes table
   const systemsPdf = createMinimalPdfBuffer('Alex Mercer - Senior Systems Engineer');
   const fullstackPdf = createMinimalPdfBuffer('Alex Mercer - Fullstack Edge Engineer');
 
-  await resumesBucket.put('resumes/alex-mercer-systems.pdf', systemsPdf, {
-    httpMetadata: { contentType: 'application/pdf' },
-  });
-  await resumesBucket.put('resumes/alex-mercer-fullstack.pdf', fullstackPdf, {
-    httpMetadata: { contentType: 'application/pdf' },
-  });
+  if (resumesBucket) {
+    await resumesBucket.put('resumes/alex-mercer-systems.pdf', systemsPdf, {
+      httpMetadata: { contentType: 'application/pdf' },
+    });
+    await resumesBucket.put('resumes/alex-mercer-fullstack.pdf', fullstackPdf, {
+      httpMetadata: { contentType: 'application/pdf' },
+    });
+  }
 
   await db
     .prepare(
@@ -158,6 +160,14 @@ export async function seedLocalData(options: SeedOptions): Promise<{
 
   await db
     .prepare(
+      `INSERT OR REPLACE INTO resume_files (resume_id, mime_type, file_bytes, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind('res-systems', 'application/pdf', systemsPdf, systemsPdf.byteLength, nowIso)
+    .run();
+
+  await db
+    .prepare(
       `INSERT OR REPLACE INTO resumes (id, label, r2_key, tags, is_default, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
@@ -169,6 +179,14 @@ export async function seedLocalData(options: SeedOptions): Promise<{
       0,
       nowIso,
     )
+    .run();
+
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO resume_files (resume_id, mime_type, file_bytes, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .bind('res-fullstack', 'application/pdf', fullstackPdf, fullstackPdf.byteLength, nowIso)
     .run();
 
   // 3. Seed ATS Sources in KV

@@ -71,6 +71,7 @@ import {
   RESUME_TAG_REGEX,
   normalizeResumeTags,
   formatContentDisposition,
+  toUint8Array,
   UpdateResumeSchema,
   ReassignResumeSchema,
   type ResumeSummary,
@@ -311,12 +312,16 @@ app.post('/api/resumes', async (c) => {
     return c.json({ error: 'Missing or invalid file' }, 400);
   }
 
-  // Enforce 5 MB limit on streamed bytes
+  // Enforce D1 2 MB raw limit on streamed bytes
   const arrayBuffer = await file.arrayBuffer();
-  if (arrayBuffer.byteLength > 5 * 1024 * 1024) {
+  if (arrayBuffer.byteLength > 2 * 1024 * 1024) {
     return c.json(
-      { ok: false, code: 'PAYLOAD_TOO_LARGE', error: 'File size exceeds 5 MB limit' },
-      413,
+      {
+        ok: false,
+        code: 'PAYLOAD_TOO_LARGE',
+        error: 'File size exceeds 2 MB limit for database storage',
+      },
+      400,
     );
   }
 
@@ -406,12 +411,7 @@ app.post('/api/resumes', async (c) => {
   const r2Key = `resumes/${id}.pdf`;
   const now = new Date().toISOString();
 
-  // Store in R2
-  await c.env.RESUMES.put(r2Key, arrayBuffer, {
-    httpMetadata: { contentType: 'application/pdf' },
-  });
-
-  // Single D1 batch for default switch + insert + events
+  // Single D1 batch for default switch + insert + events + resume_files
   const batchStatements = [];
   if (isDefault) {
     batchStatements.push(
@@ -423,6 +423,12 @@ app.post('/api/resumes', async (c) => {
       `INSERT INTO resumes (id, label, r2_key, tags, is_default, size_bytes, archived, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
     ).bind(id, label, r2Key, JSON.stringify(tags), isDefault ? 1 : 0, arrayBuffer.byteLength, now),
+  );
+  batchStatements.push(
+    c.env.DB.prepare(
+      `INSERT INTO resume_files (resume_id, mime_type, file_bytes, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).bind(id, 'application/pdf', new Uint8Array(arrayBuffer), arrayBuffer.byteLength, now),
   );
   batchStatements.push(
     c.env.DB.prepare(
@@ -725,9 +731,9 @@ app.delete('/api/resumes/:id', async (c) => {
     return c.json({ ok: true, action: 'archived', id, label: existing.label, sentCount });
   }
 
-  // Rule 3: If nothing references it -> hard delete
-  await c.env.RESUMES.delete(existing.r2_key);
+  // Rule 3: If nothing references it -> hard delete from D1
   await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM resume_files WHERE resume_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM resumes WHERE id = ?').bind(id),
     c.env.DB.prepare(
       'INSERT INTO events (id, entity, entity_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -1228,28 +1234,41 @@ app.post('/api/applications/:id/outcome', async (c) => {
   return c.json({ ok: true, ...result });
 });
 
-// GET /api/resumes/:id/download: Streams the resume PDF from R2
+// GET /api/resumes/:id/download: Streams the resume PDF from D1 storage
 app.get('/api/resumes/:id/download', async (c) => {
   const id = c.req.param('id');
-  const resume = await c.env.DB.prepare('SELECT r2_key, label FROM resumes WHERE id = ?')
+  const resume = await c.env.DB.prepare('SELECT id, label FROM resumes WHERE id = ?')
     .bind(id)
-    .first<{ r2_key: string; label: string }>();
+    .first<{ id: string; label: string }>();
 
   if (!resume) {
     return c.json({ ok: false, error: 'Resume not found' }, 404);
   }
 
-  const object = await c.env.RESUMES.get(resume.r2_key);
-  if (!object) {
+  const fileRow = await c.env.DB.prepare(
+    'SELECT file_bytes, mime_type, size_bytes FROM resume_files WHERE resume_id = ?',
+  )
+    .bind(id)
+    .first<{
+      file_bytes: ArrayBuffer | Uint8Array | number[] | string;
+      mime_type: string;
+      size_bytes: number;
+    }>();
+
+  if (!fileRow || !fileRow.file_bytes) {
     return c.json({ ok: false, error: 'Resume file not found in storage' }, 404);
   }
 
   const dispositionType = c.req.query('disposition') === 'inline' ? 'inline' : 'attachment';
-  c.header('Content-Type', 'application/pdf');
+  const mimeType = fileRow.mime_type || 'application/pdf';
+  c.header('Content-Type', mimeType);
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('Cache-Control', 'private, no-store');
   c.header('Content-Disposition', formatContentDisposition(resume.label, dispositionType));
-  return c.body(object.body);
+  const bytes = toUint8Array(fileRow.file_bytes);
+  return c.body(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+  );
 });
 
 // -------------------------------------------------------------
@@ -1542,7 +1561,6 @@ app.post('/api/applications/:id/send', async (c) => {
   const result = await sendApplicationEmail({
     db: c.env.DB,
     config: c.env.CONFIG,
-    resumesBucket: c.env.RESUMES,
     gmailSender,
     profile,
     notifier,
@@ -2799,7 +2817,6 @@ app.post('/api/dev/seed', async (c) => {
 
   const result = await seedLocalData({
     db: c.env.DB,
-    resumesBucket: c.env.RESUMES,
     config: c.env.CONFIG,
     env: envMode,
   });
@@ -2976,7 +2993,6 @@ app.post('/api/dev/trigger/:action', async (c) => {
       const res = await sendApplicationEmail({
         db: c.env.DB,
         config: c.env.CONFIG,
-        resumesBucket: c.env.RESUMES,
         gmailSender,
         profile,
         notifier,
@@ -3279,7 +3295,6 @@ export default {
                 await sendApplicationEmail({
                   db: env.DB,
                   config: env.CONFIG,
-                  resumesBucket: env.RESUMES,
                   gmailSender,
                   profile,
                   notifier,

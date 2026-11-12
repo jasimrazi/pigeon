@@ -3,6 +3,7 @@ import {
   text,
   integer,
   real,
+  blob,
   uniqueIndex,
   index,
   check,
@@ -132,6 +133,17 @@ export const resumes = sqliteTable(
       .where(sql`is_default = 1 AND archived = 0`),
   ],
 );
+
+// 3b. Resume files table (D1 binary storage)
+export const resumeFiles = sqliteTable('resume_files', {
+  resume_id: text('resume_id')
+    .primaryKey()
+    .references(() => resumes.id, { onDelete: 'cascade' }),
+  mime_type: text('mime_type').notNull().default('application/pdf'),
+  file_bytes: blob('file_bytes', { mode: 'buffer' }).notNull(),
+  size_bytes: integer('size_bytes').notNull(),
+  created_at: text('created_at').notNull(),
+});
 
 // 4. Companies contacted table
 export const companiesContacted = sqliteTable('companies_contacted', {

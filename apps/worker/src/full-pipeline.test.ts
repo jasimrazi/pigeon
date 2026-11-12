@@ -149,8 +149,7 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
       .bind('default', JSON.stringify(mockProfile), nowIso)
       .run();
 
-    // Seed default resume in R2 and DB
-    await workerEnv.RESUMES.put('resumes/default.pdf', new Uint8Array([37, 80, 68, 70])); // %PDF
+    // Seed default resume in DB
     await workerEnv.DB.prepare(
       `INSERT OR REPLACE INTO resumes (id, label, r2_key, tags, is_default, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -163,6 +162,13 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
         1,
         nowIso,
       )
+      .run();
+
+    await workerEnv.DB.prepare(
+      `INSERT OR REPLACE INTO resume_files (resume_id, mime_type, file_bytes, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind('resume-default', 'application/pdf', new Uint8Array([37, 80, 68, 70]), 4, nowIso)
       .run();
 
     // Configure Google OAuth token and valid health in KV
@@ -305,7 +311,6 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     await sendApplicationEmail({
       db: workerEnv.DB,
       config: workerEnv.CONFIG,
-      resumesBucket: workerEnv.RESUMES,
       gmailSender,
       profile: mockProfile,
       dryRun: false,
@@ -701,7 +706,6 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     const result = await sendApplicationEmail({
       db: workerEnv.DB,
       config: workerEnv.CONFIG,
-      resumesBucket: workerEnv.RESUMES,
       gmailSender,
       profile: mockProfile,
       dryRun: false,

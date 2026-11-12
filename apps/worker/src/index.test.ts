@@ -43,21 +43,30 @@ describe('Pigeon Worker', () => {
     });
   });
 
-  describe('Cloudflare Bindings (D1, KV, R2, Queue, AI)', () => {
-    it('D1, KV, R2 and Queue bindings are usable inside the test pool (write then read)', async () => {
+  describe('Cloudflare Bindings (D1, KV, Queue, AI)', () => {
+    it('D1, KV and Queue bindings are usable inside the test pool (write then read)', async () => {
       // 1. KV write then read
       await workerEnv.CONFIG.put('pigeon:test_key', 'kv_test_val');
       const kvVal = await workerEnv.CONFIG.get('pigeon:test_key');
       expect(kvVal).toBe('kv_test_val');
 
-      // 2. R2 write then read
-      await workerEnv.RESUMES.put('resumes/test_resume.pdf', 'dummy pdf content', {
-        httpMetadata: { contentType: 'application/pdf' },
-      });
-      const r2Obj = await workerEnv.RESUMES.get('resumes/test_resume.pdf');
-      expect(r2Obj).not.toBeNull();
-      const r2Content = await r2Obj?.text();
-      expect(r2Content).toBe('dummy pdf content');
+      // 2. D1 resume binary storage write then read
+      await workerEnv.DB.exec(
+        'CREATE TABLE IF NOT EXISTS test_resume_files (resume_id TEXT PRIMARY KEY, file_bytes BLOB, size_bytes INTEGER)',
+      );
+      const testBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+      await workerEnv.DB.prepare(
+        'INSERT INTO test_resume_files (resume_id, file_bytes, size_bytes) VALUES (?, ?, ?)',
+      )
+        .bind('res-test-1', testBytes, testBytes.byteLength)
+        .run();
+      const fileRow = await workerEnv.DB.prepare(
+        'SELECT file_bytes, size_bytes FROM test_resume_files WHERE resume_id = ?',
+      )
+        .bind('res-test-1')
+        .first<{ file_bytes: ArrayBuffer | Uint8Array; size_bytes: number }>();
+      expect(fileRow).not.toBeNull();
+      expect(fileRow?.size_bytes).toBe(4);
 
       // 3. D1 write then read
       await workerEnv.DB.exec(

@@ -500,11 +500,14 @@ describe('Pigeon Data Layer & Schema Tests', () => {
       expect(json.resume.tags).toEqual(['backend', 'systems']);
       expect(json.resume.is_default).toBe(true);
 
-      // Verify file is stored in R2
-      const r2Object = await workerEnv.RESUMES.get(json.resume.r2_key);
-      expect(r2Object).not.toBeNull();
-      const r2Content = await r2Object?.arrayBuffer();
-      expect(r2Content?.byteLength).toBe(pdfBytes.byteLength);
+      // Verify file is stored in D1 resume_files table
+      const fileRow = await workerEnv.DB.prepare(
+        `SELECT file_bytes, size_bytes FROM resume_files WHERE resume_id = ?`,
+      )
+        .bind(json.resume.id)
+        .first<{ file_bytes: ArrayBuffer | Uint8Array; size_bytes: number }>();
+      expect(fileRow).not.toBeNull();
+      expect(fileRow?.size_bytes).toBe(pdfBytes.byteLength);
 
       // Verify stored in D1 resumes table
       const dbResume = await workerEnv.DB.prepare(

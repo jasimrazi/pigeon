@@ -93,7 +93,12 @@ describe('Worker Google OAuth & Gmail Sending API', () => {
       .bind('res-gw-1', 'Systems Resume', 'resumes/standard.pdf', '["ts"]', 1, nowIso)
       .run();
 
-    await workerEnv.RESUMES.put('resumes/standard.pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46]));
+    await workerEnv.DB.prepare(
+      `INSERT OR REPLACE INTO resume_files (resume_id, mime_type, file_bytes, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind('res-gw-1', 'application/pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46]), 4, nowIso)
+      .run();
   });
 
   beforeEach(() => {

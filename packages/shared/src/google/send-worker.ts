@@ -13,6 +13,30 @@ export interface R2LikeBucket {
   get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; size?: number } | null>;
 }
 
+export function toUint8Array(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+  if (Array.isArray(data)) {
+    return new Uint8Array(data);
+  }
+  if (typeof data === 'string') {
+    const binary = atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+  throw new Error('Unsupported binary data type from database');
+}
+
 export const POLICY_BLOCK_CODES = {
   DO_NOT_CONTACT: 'POLICY_DO_NOT_CONTACT',
   RECENT_CONTACT_COOLDOWN: 'POLICY_RECENT_CONTACT_COOLDOWN',
@@ -25,7 +49,7 @@ export type PreSendValidationResult =
 export interface SendWorkerOptions {
   db: D1LikeDatabase;
   config: KVLike;
-  resumesBucket: R2LikeBucket;
+  resumesBucket?: R2LikeBucket | undefined;
   gmailSender: GmailSender;
   profile: Profile;
   notifier?: Notifier | undefined;
@@ -238,7 +262,7 @@ export async function acquireSendSlot(
  */
 export async function validatePreSend(options: {
   db: D1LikeDatabase;
-  resumesBucket: R2LikeBucket;
+  resumesBucket?: R2LikeBucket | undefined;
   profile: Profile;
   app: ApplicationToSend;
   env?: string | undefined;
@@ -325,7 +349,7 @@ export async function validatePreSend(options: {
     }
   }
 
-  // 5. Resume exists in R2
+  // 5. Resume exists in database (or R2)
   if (app.resume_id) {
     const resumeRow = await db
       .prepare(`SELECT r2_key FROM resumes WHERE id = ?`)
@@ -336,9 +360,27 @@ export async function validatePreSend(options: {
       return { valid: false, error: `Resume with id '${app.resume_id}' not found in database` };
     }
 
-    const r2Obj = await resumesBucket.get(resumeRow.r2_key);
-    if (!r2Obj) {
-      return { valid: false, error: `Resume file '${resumeRow.r2_key}' not found in R2 storage` };
+    // Check resume_files in D1 first
+    const fileRow = await db
+      .prepare(`SELECT size_bytes FROM resume_files WHERE resume_id = ?`)
+      .bind(app.resume_id)
+      .first<{ size_bytes: number }>();
+
+    if (!fileRow) {
+      if (resumesBucket) {
+        const r2Obj = await resumesBucket.get(resumeRow.r2_key);
+        if (!r2Obj) {
+          return {
+            valid: false,
+            error: `Resume file '${resumeRow.r2_key}' not found in R2 storage`,
+          };
+        }
+      } else {
+        return {
+          valid: false,
+          error: `Resume file for '${app.resume_id}' not found in database storage`,
+        };
+      }
     }
   }
 
@@ -512,10 +554,20 @@ export async function sendApplicationEmail(
       .first<{ r2_key: string; label: string }>();
 
     if (rRow) {
-      const file = await resumesBucket.get(rRow.r2_key);
-      if (file) {
-        resumePdfBytes = new Uint8Array(await file.arrayBuffer());
-        resumeLabel = `${rRow.label}.pdf`;
+      resumeLabel = `${rRow.label}.pdf`;
+      // Check resume_files table in D1 first
+      const fileRow = await db
+        .prepare(`SELECT file_bytes FROM resume_files WHERE resume_id = ?`)
+        .bind(app.resume_id)
+        .first<{ file_bytes: ArrayBuffer | Uint8Array | number[] | string }>();
+
+      if (fileRow?.file_bytes) {
+        resumePdfBytes = toUint8Array(fileRow.file_bytes);
+      } else if (resumesBucket) {
+        const file = await resumesBucket.get(rRow.r2_key);
+        if (file) {
+          resumePdfBytes = new Uint8Array(await file.arrayBuffer());
+        }
       }
     }
   }

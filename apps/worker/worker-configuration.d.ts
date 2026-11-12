@@ -3,7 +3,6 @@
 // Runtime types generated with workerd@1.20261103.1 2024-09-23
 interface __BaseEnv_Env {
   CONFIG: KVNamespace;
-  RESUMES: R2Bucket;
   DB: D1Database;
   JOBS_QUEUE: Queue;
   AI: Ai;
@@ -17,7 +16,6 @@ declare namespace Cloudflare {
   }
   interface DevEnv {
     CONFIG: KVNamespace;
-    RESUMES: R2Bucket;
     DB: D1Database;
     JOBS_QUEUE: Queue;
     AI: Ai;
@@ -27,7 +25,6 @@ declare namespace Cloudflare {
   }
   interface StagingEnv {
     CONFIG: KVNamespace;
-    RESUMES: R2Bucket;
     DB: D1Database;
     JOBS_QUEUE: Queue;
     AI: Ai;
@@ -37,7 +34,6 @@ declare namespace Cloudflare {
   }
   interface ProdEnv {
     CONFIG: KVNamespace;
-    RESUMES: R2Bucket;
     DB: D1Database;
     JOBS_QUEUE: Queue;
     AI: Ai;

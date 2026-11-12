@@ -63,7 +63,7 @@ describe('Worker Manual Apply Workflow API', () => {
       .bind('default', JSON.stringify(mockProfile), nowIso)
       .run();
 
-    // 2. Insert Resume into D1 and R2
+    // 2. Insert Resume into D1
     await workerEnv.DB.prepare(
       `INSERT OR REPLACE INTO resumes (id, label, r2_key, tags, is_default, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -71,7 +71,12 @@ describe('Worker Manual Apply Workflow API', () => {
       .bind('res-pdf-1', 'Standard PDF Resume', 'resumes/standard.pdf', '["ts"]', 1, nowIso)
       .run();
 
-    await workerEnv.RESUMES.put('resumes/standard.pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46])); // %PDF
+    await workerEnv.DB.prepare(
+      `INSERT OR REPLACE INTO resume_files (resume_id, mime_type, file_bytes, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind('res-pdf-1', 'application/pdf', new Uint8Array([0x25, 0x50, 0x44, 0x46]), 4, nowIso)
+      .run();
 
     // 3. Insert Jobs
     await workerEnv.DB.prepare(
