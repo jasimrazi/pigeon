@@ -397,7 +397,7 @@ export function IntegrationsSettings({
   return (
     <div className="space-y-6">
       {/* CARD 1: Google Cloud */}
-      <div className="bg-surface p-6 rounded-[6px] border border-border space-y-5">
+      <div className="bg-surface p-4 sm:p-6 rounded-[6px] border border-border space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2.5">
             <Cloud size={18} strokeWidth={1.5} className="text-fg-muted shrink-0" />
@@ -484,6 +484,7 @@ export function IntegrationsSettings({
               size="sm"
               onClick={() => void handleCopyRedirectUri()}
               disabled={disabled}
+              className="shrink-0"
             >
               {copiedRedirect ? (
                 <>
@@ -582,7 +583,7 @@ export function IntegrationsSettings({
             )}
           </div>
 
-          <div className="flex items-center gap-2 self-end sm:self-auto">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
             <Button
               type="button"
               variant="secondary"
@@ -591,6 +592,7 @@ export function IntegrationsSettings({
                 window.location.href = `${apiBase}/auth/google/start`;
               }}
               disabled={disabled}
+              className="w-full sm:w-auto"
             >
               <RotateCw size={13} className="mr-1.5" />
               {authHealth?.status === 'ok' ? 'Reconnect Google Account' : 'Connect Google Account'}
@@ -606,6 +608,7 @@ export function IntegrationsSettings({
                 setPendingGoogleAction('save');
                 setShowGoogleConfirm(true);
               }}
+              className="w-full sm:w-auto"
             >
               Save Google Credentials
             </Button>
@@ -614,7 +617,7 @@ export function IntegrationsSettings({
       </div>
 
       {/* CARD 2: Google Sheets */}
-      <div className="bg-surface p-6 rounded-[6px] border border-border space-y-5">
+      <div className="bg-surface p-4 sm:p-6 rounded-[6px] border border-border space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2.5">
             <FileSpreadsheet size={18} strokeWidth={1.5} className="text-fg-muted shrink-0" />
@@ -754,7 +757,7 @@ export function IntegrationsSettings({
           </ol>
         </details>
 
-        <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+        <div className="pt-3 border-t border-border flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
           <Button
             type="button"
             variant="secondary"
@@ -762,6 +765,7 @@ export function IntegrationsSettings({
             loading={testingSheets}
             disabled={disabled || !spreadsheetId}
             onClick={() => void handleTestSheets()}
+            className="w-full sm:w-auto"
           >
             <Play size={13} className="mr-1.5" />
             Test Sheets Connection
@@ -780,6 +784,7 @@ export function IntegrationsSettings({
                 void handleSaveSheets();
               }
             }}
+            className="w-full sm:w-auto"
           >
             Save Sheets Settings
           </Button>
@@ -787,7 +792,7 @@ export function IntegrationsSettings({
       </div>
 
       {/* CARD 3: LLM Configuration */}
-      <div className="bg-surface p-6 rounded-[6px] border border-border space-y-5">
+      <div className="bg-surface p-4 sm:p-6 rounded-[6px] border border-border space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2.5">
             <Cpu size={18} strokeWidth={1.5} className="text-fg-muted shrink-0" />
@@ -942,12 +947,12 @@ export function IntegrationsSettings({
           </div>
         </details>
 
-        <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
+        <div className="pt-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <span className="text-[11px] text-fg-muted">
             Changes apply to newly routed jobs. Existing drafts keep their recorded model.
           </span>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
             <Button
               type="button"
               variant="secondary"
@@ -955,6 +960,7 @@ export function IntegrationsSettings({
               loading={testingLlm}
               disabled={disabled}
               onClick={() => void handleTestLlm()}
+              className="w-full sm:w-auto"
             >
               <Play size={13} className="mr-1.5" />
               Test LLM Completion
@@ -967,6 +973,7 @@ export function IntegrationsSettings({
               loading={savingLlm}
               disabled={disabled || !hasUnsavedLlm}
               onClick={() => void handleSaveLlm()}
+              className="w-full sm:w-auto"
             >
               Save LLM Settings
             </Button>
@@ -975,7 +982,7 @@ export function IntegrationsSettings({
       </div>
 
       {/* CARD 4: Notifications (Telegram) */}
-      <div className="bg-surface p-6 rounded-[6px] border border-border space-y-5">
+      <div className="bg-surface p-4 sm:p-6 rounded-[6px] border border-border space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2.5">
             <Bell size={18} strokeWidth={1.5} className="text-fg-muted shrink-0" />
@@ -1098,7 +1105,7 @@ export function IntegrationsSettings({
           </ol>
         </details>
 
-        <div className="pt-3 border-t border-border flex items-center justify-end gap-2">
+        <div className="pt-3 border-t border-border flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
           <Button
             type="button"
             variant="secondary"
@@ -1106,6 +1113,7 @@ export function IntegrationsSettings({
             loading={testingTelegram}
             disabled={disabled || !getSummary('TELEGRAM_BOT_TOKEN')?.isSet}
             onClick={() => void handleTestTelegram()}
+            className="w-full sm:w-auto"
           >
             <Play size={13} className="mr-1.5" />
             Test Telegram Notification
@@ -1118,6 +1126,7 @@ export function IntegrationsSettings({
             loading={savingTelegram}
             disabled={disabled || !hasUnsavedTelegram}
             onClick={() => void handleSaveTelegram()}
+            className="w-full sm:w-auto"
           >
             Save Notifications
           </Button>
@@ -1125,7 +1134,7 @@ export function IntegrationsSettings({
       </div>
 
       {/* CARD 5: Sending Identity */}
-      <div className="bg-surface p-6 rounded-[6px] border border-border space-y-5">
+      <div className="bg-surface p-4 sm:p-6 rounded-[6px] border border-border space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2.5">
             <Mail size={18} strokeWidth={1.5} className="text-fg-muted shrink-0" />
@@ -1230,7 +1239,7 @@ export function IntegrationsSettings({
           </div>
         </details>
 
-        <div className="pt-3 border-t border-border flex items-center justify-end">
+        <div className="pt-3 border-t border-border flex flex-col sm:flex-row items-stretch sm:items-center justify-end">
           <Button
             type="button"
             variant="primary"
@@ -1238,6 +1247,7 @@ export function IntegrationsSettings({
             loading={savingIdentity}
             disabled={disabled || !hasUnsavedIdentity}
             onClick={() => void handleSaveIdentity()}
+            className="w-full sm:w-auto"
           >
             Save Sending Identity
           </Button>

@@ -962,13 +962,14 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2 border-t border-border">
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
                   onClick={() => setEditingResume(null)}
                   disabled={savingEdit}
+                  className="w-full sm:w-auto"
                 >
                   Cancel
                 </Button>
@@ -978,6 +979,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
                   size="sm"
                   loading={savingEdit}
                   disabled={savingEdit}
+                  className="w-full sm:w-auto"
                 >
                   Save Changes
                 </Button>
@@ -1100,13 +1102,14 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-border">
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-3 border-t border-border">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 onClick={() => setDeleteModalResume(null)}
                 disabled={deleting || reassigning}
+                className="w-full sm:w-auto"
               >
                 Cancel
               </Button>
@@ -1119,6 +1122,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
                   loading={deleting}
                   disabled={deleting}
                   onClick={() => void handleDelete()}
+                  className="w-full sm:w-auto"
                 >
                   {deleteModalResume.usage.sent > 0 ? 'Archive Resume' : 'Permanently Delete'}
                 </Button>

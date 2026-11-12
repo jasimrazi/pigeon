@@ -28,12 +28,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref,
   ) => {
     const baseStyles =
-      'inline-flex items-center justify-center font-medium rounded-[6px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed select-none';
+      'inline-flex items-center justify-center font-medium rounded-[6px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap';
 
     const sizeStyles: Record<ButtonSize, string> = {
       xs: 'h-6 px-2 text-[12px] gap-1.5',
-      sm: 'h-7 px-2.5 text-[13px] gap-1.5',
-      md: 'h-8 px-3.5 text-[14px] gap-2',
+      sm: 'h-8 sm:h-7 px-3 sm:px-2.5 text-[13px] gap-1.5',
+      md: 'h-9 sm:h-8 px-4 sm:px-3.5 text-[14px] gap-2',
     };
 
     const variantStyles: Record<ButtonVariant, string> = {
