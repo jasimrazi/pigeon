@@ -425,7 +425,7 @@ export function App(): React.JSX.Element {
           <button
             type="button"
             onClick={() => setMobileMenuOpen((prev) => !prev)}
-            aria-label="Toggle navigation menu"
+            aria-label="More - Toggle navigation menu"
             className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
               isMoreActive
                 ? 'text-accent font-semibold'

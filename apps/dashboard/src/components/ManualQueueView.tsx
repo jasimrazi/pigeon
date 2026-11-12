@@ -333,14 +333,12 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
               setActiveTab('all');
             }
           }}
-          aria-label={`Waiting: ${data?.counts.total ?? 0}`}
           className={`p-2.5 sm:p-3 rounded-[6px] border text-left transition-all cursor-pointer select-none ${
             activeTab === 'all'
               ? 'bg-surface-subtle border-accent ring-1 ring-accent'
               : 'bg-surface border-border hover:bg-surface-subtle/60'
           }`}
         >
-          <span className="sr-only">Waiting: {data?.counts.total ?? 0}</span>
           <div className="flex items-center justify-between gap-1">
             <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
               Waiting
@@ -366,7 +364,6 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
               setActiveTab('needs_attention');
             }
           }}
-          aria-label={`Needs Review: ${data?.counts.needs_review ?? 0}`}
           className={`p-2.5 sm:p-3 rounded-[6px] border text-left transition-all cursor-pointer select-none ${
             activeTab === 'needs_attention'
               ? 'bg-surface-subtle border-accent ring-1 ring-accent'
@@ -375,7 +372,6 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                 : 'bg-surface border-border hover:bg-surface-subtle/60'
           }`}
         >
-          <span className="sr-only">Needs Review: {data?.counts.needs_review ?? 0}</span>
           <div className="flex items-center justify-between gap-1">
             <span
               className={`text-[10px] sm:text-[11px] font-medium uppercase tracking-wider truncate ${
@@ -413,10 +409,8 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
 
         {/* Snoozed Card */}
         <div
-          aria-label={`Snoozed: ${data?.counts.snoozed ?? 0}`}
           className="p-2.5 sm:p-3 rounded-[6px] border bg-surface border-border text-left select-none"
         >
-          <span className="sr-only">Snoozed: {data?.counts.snoozed ?? 0}</span>
           <div className="flex items-center justify-between gap-1">
             <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
               Snoozed

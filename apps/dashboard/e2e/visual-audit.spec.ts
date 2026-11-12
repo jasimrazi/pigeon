@@ -417,13 +417,22 @@ test.describe('Visual Design Audit, Axe Accessibility, & Screenshot Suite', () =
           // Switch tab if not overview
           if (v.tabKey !== 'overview') {
             if (viewport.width < 768) {
-              // Open mobile drawer
-              const menuBtn = page.getByRole('button', { name: /Toggle navigation menu/i });
-              if (await menuBtn.isVisible()) {
-                await menuBtn.click();
+              const isMoreSection = ['sources', 'settings', 'events', 'setup'].includes(v.tabKey);
+              if (isMoreSection) {
+                const menuBtn = page.getByRole('button', { name: /Toggle navigation menu/i });
+                if (await menuBtn.isVisible()) {
+                  await menuBtn.click();
+                  await page.getByRole('dialog').getByRole('button', { name: v.navName }).click();
+                }
+              } else {
+                await page
+                  .getByRole('navigation', { name: 'Mobile navigation' })
+                  .getByRole('button', { name: v.navName })
+                  .click();
               }
+            } else {
+              await page.getByRole('banner').getByRole('button', { name: v.navName }).click();
             }
-            await page.getByRole('button', { name: v.navName }).first().click();
           }
 
           // Capture both light and dark modes

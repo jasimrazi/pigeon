@@ -137,7 +137,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
             }`}
           >
             <span>{tab.label}</span>
-            <span className="font-mono text-[11px] opacity-75">({tab.count})</span>
+            <span className="font-mono text-[11px]">({tab.count})</span>
           </button>
         ))}
       </div>
@@ -183,7 +183,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
                               ? 'ATS Endpoint'
                               : 'Job API / Feed'}
                         </span>
-                        <span className="text-[11px] font-mono text-fg-muted/60">({src.name})</span>
+                        <span className="text-[11px] font-mono text-fg-muted">({src.name})</span>
                       </div>
                     </div>
                   </div>
