@@ -603,4 +603,29 @@ Alex Mercer`;
     );
     expect(resConfirmed.status).toBe(200);
   });
+
+  it('GET /api/sources returns 200 with source_state rows and parser_suspect calculations', async () => {
+    await workerEnv.DB.prepare(
+      `INSERT OR REPLACE INTO source_state (source, consecutive_failures, circuit_state, opened_at, last_run_at, last_error, parser_empty_streak, untrusted)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind('test_greenhouse', 1, 'closed', null, '2026-11-12T00:00:00Z', 'Test error', 0, 0)
+      .run();
+
+    const res = await app.fetch(
+      new Request('http://localhost/api/sources', {
+        headers: { Origin: 'http://localhost:5173' },
+      }),
+      workerEnv,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      sources: Array<{ source: string; last_error: string | null; parser_suspect: boolean }>;
+    };
+    expect(json.sources).toBeDefined();
+    const gh = json.sources.find((s) => s.source === 'test_greenhouse');
+    expect(gh).toBeDefined();
+    expect(gh?.last_error).toBe('Test error');
+    expect(gh?.parser_suspect).toBe(false);
+  });
 });

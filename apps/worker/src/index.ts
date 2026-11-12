@@ -1971,13 +1971,13 @@ app.get('/api/sources', async (c) => {
     circuit_state: string;
     opened_at: string | null;
     last_run_at: string | null;
-    error: string | null;
+    last_error: string | null;
     parser_empty_streak: number | null;
     untrusted: number | boolean | null;
   }
 
   const { results: rawRows } = await c.env.DB.prepare(
-    `SELECT source, consecutive_failures, circuit_state, opened_at, last_run_at, error, parser_empty_streak, untrusted
+    `SELECT source, consecutive_failures, circuit_state, opened_at, last_run_at, last_error, parser_empty_streak, untrusted
      FROM source_state
      ORDER BY source ASC`,
   ).all();
