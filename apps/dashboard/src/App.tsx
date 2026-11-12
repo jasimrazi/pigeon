@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Bird,
+  ChevronRight,
   Mail,
   Send,
   Layers,
@@ -359,14 +360,14 @@ export function App(): React.JSX.Element {
               setActiveTab('overview');
               setMobileMenuOpen(false);
             }}
-            className={`flex flex-col items-center justify-center gap-0.5 py-1 transition-colors cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
               activeTab === 'overview'
                 ? 'text-accent font-semibold'
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
-            <Bird size={18} strokeWidth={activeTab === 'overview' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
-            <span className="text-[10px] leading-tight font-medium">Overview</span>
+            <Bird size={17} strokeWidth={activeTab === 'overview' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate">Overview</span>
           </button>
 
           {/* 2. Review Queue */}
@@ -376,14 +377,14 @@ export function App(): React.JSX.Element {
               setActiveTab('review-queue');
               setMobileMenuOpen(false);
             }}
-            className={`flex flex-col items-center justify-center gap-0.5 py-1 transition-colors cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
               activeTab === 'review-queue'
                 ? 'text-accent font-semibold'
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
-            <Mail size={18} strokeWidth={activeTab === 'review-queue' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
-            <span className="text-[10px] leading-tight font-medium truncate max-w-full px-0.5">Review Queue</span>
+            <Mail size={17} strokeWidth={activeTab === 'review-queue' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Review Queue</span>
           </button>
 
           {/* 3. Manual Apply */}
@@ -393,14 +394,14 @@ export function App(): React.JSX.Element {
               setActiveTab('manual-apply');
               setMobileMenuOpen(false);
             }}
-            className={`flex flex-col items-center justify-center gap-0.5 py-1 transition-colors cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
               activeTab === 'manual-apply'
                 ? 'text-accent font-semibold'
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
-            <Send size={18} strokeWidth={activeTab === 'manual-apply' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
-            <span className="text-[10px] leading-tight font-medium truncate max-w-full px-0.5">Manual Apply</span>
+            <Send size={17} strokeWidth={activeTab === 'manual-apply' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Manual Apply</span>
           </button>
 
           {/* 4. Applications */}
@@ -410,14 +411,14 @@ export function App(): React.JSX.Element {
               setActiveTab('applications');
               setMobileMenuOpen(false);
             }}
-            className={`flex flex-col items-center justify-center gap-0.5 py-1 transition-colors cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
               activeTab === 'applications'
                 ? 'text-accent font-semibold'
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
-            <Layers size={18} strokeWidth={activeTab === 'applications' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
-            <span className="text-[10px] leading-tight font-medium truncate max-w-full px-0.5">Applications</span>
+            <Layers size={17} strokeWidth={activeTab === 'applications' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Applications</span>
           </button>
 
           {/* 5. More */}
@@ -425,14 +426,14 @@ export function App(): React.JSX.Element {
             type="button"
             onClick={() => setMobileMenuOpen((prev) => !prev)}
             aria-label="Toggle navigation menu"
-            className={`flex flex-col items-center justify-center gap-0.5 py-1 transition-colors cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
               isMoreActive
                 ? 'text-accent font-semibold'
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
-            <MoreHorizontal size={18} strokeWidth={isMoreActive ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
-            <span className="text-[10px] leading-tight font-medium">More</span>
+            <MoreHorizontal size={17} strokeWidth={isMoreActive ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate">More</span>
           </button>
         </div>
       </nav>
@@ -442,88 +443,144 @@ export function App(): React.JSX.Element {
         <div
           role="dialog"
           aria-modal="true"
-          className="md:hidden fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-xs"
+          className="md:hidden fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-xs transition-opacity"
           onClick={() => setMobileMenuOpen(false)}
         >
           <div
-            className="bg-surface border-t border-border rounded-t-[16px] p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto"
+            className="bg-surface border-t border-border rounded-t-[20px] p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Bird size={18} strokeWidth={1.5} className="text-fg shrink-0" aria-hidden="true" />
-                <span className="text-[15px] font-semibold text-fg">Pigeon Navigation</span>
+            {/* Grab handle indicator */}
+            <div className="w-10 h-1 rounded-full bg-border mx-auto mb-1" aria-hidden="true" />
+
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <div>
+                <h3 className="text-[15px] font-semibold text-fg">More Options</h3>
+                <p className="text-[12px] text-fg-muted mt-0.5">Configuration & system monitoring</p>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-1 rounded-[4px] text-fg-muted hover:text-fg hover:bg-surface-subtle cursor-pointer"
+                className="p-1.5 rounded-[6px] text-fg-muted hover:text-fg hover:bg-surface-subtle cursor-pointer transition-colors"
                 aria-label="Close navigation menu"
               >
-                <X size={18} strokeWidth={1.5} aria-hidden="true" />
+                <X size={16} strokeWidth={1.5} aria-hidden="true" />
               </button>
             </div>
 
-            {/* Grid of All Destination Tabs */}
-            <div className="grid grid-cols-2 gap-2.5">
-              {navItems.map((item) => {
-                const isActive = activeTab === item.key;
-                const Icon =
-                  item.key === 'overview'
-                    ? Bird
-                    : item.key === 'review-queue'
-                      ? Mail
-                      : item.key === 'manual-apply'
-                        ? Send
-                        : item.key === 'applications'
-                          ? Layers
-                          : item.key === 'sources'
-                            ? Radio
-                            : item.key === 'settings'
-                              ? Sliders
-                              : History;
-
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => {
-                      setActiveTab(item.key);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`flex flex-col items-start p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
-                      isActive
-                        ? 'bg-surface-subtle border-accent ring-1 ring-accent text-fg font-semibold'
-                        : 'bg-surface border-border hover:bg-surface-subtle text-fg-muted hover:text-fg'
-                    }`}
-                  >
-                    <Icon size={18} className={`mb-1.5 ${isActive ? 'text-accent' : 'text-fg-muted'}`} strokeWidth={1.5} />
-                    <span className="text-[13px] font-medium text-fg">{item.label}</span>
-                  </button>
-                );
-              })}
-
-              {/* Setup Milestone Tab */}
+            {/* List of Remaining Sections Only */}
+            <div className="space-y-2">
+              {/* 1. Sources */}
               <button
                 type="button"
+                aria-label="Sources"
+                onClick={() => {
+                  setActiveTab('sources');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
+                  activeTab === 'sources'
+                    ? 'bg-surface-subtle border-accent ring-1 ring-accent text-fg font-semibold'
+                    : 'bg-surface border-border hover:bg-surface-subtle text-fg-muted hover:text-fg'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-[6px] bg-surface-subtle border border-border flex items-center justify-center shrink-0">
+                    <Radio size={16} strokeWidth={1.5} className={activeTab === 'sources' ? 'text-accent' : 'text-fg-muted'} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <span className="text-[13px] font-medium text-fg block">Sources</span>
+                    <span className="text-[11px] text-fg-muted block mt-0.5">Job sources, ATS scrapers & circuit health</span>
+                  </div>
+                </div>
+                <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
+              </button>
+
+              {/* 2. Settings */}
+              <button
+                type="button"
+                aria-label="Settings"
+                onClick={() => {
+                  setActiveTab('settings');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
+                  activeTab === 'settings'
+                    ? 'bg-surface-subtle border-accent ring-1 ring-accent text-fg font-semibold'
+                    : 'bg-surface border-border hover:bg-surface-subtle text-fg-muted hover:text-fg'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-[6px] bg-surface-subtle border border-border flex items-center justify-center shrink-0">
+                    <Sliders size={16} strokeWidth={1.5} className={activeTab === 'settings' ? 'text-accent' : 'text-fg-muted'} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <span className="text-[13px] font-medium text-fg block">Settings</span>
+                    <span className="text-[11px] text-fg-muted block mt-0.5">Profile facts, resumes, daily caps & integrations</span>
+                  </div>
+                </div>
+                <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
+              </button>
+
+              {/* 3. Events */}
+              <button
+                type="button"
+                aria-label="Events"
+                onClick={() => {
+                  setActiveTab('events');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
+                  activeTab === 'events'
+                    ? 'bg-surface-subtle border-accent ring-1 ring-accent text-fg font-semibold'
+                    : 'bg-surface border-border hover:bg-surface-subtle text-fg-muted hover:text-fg'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-[6px] bg-surface-subtle border border-border flex items-center justify-center shrink-0">
+                    <History size={16} strokeWidth={1.5} className={activeTab === 'events' ? 'text-accent' : 'text-fg-muted'} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <span className="text-[13px] font-medium text-fg block">Events</span>
+                    <span className="text-[11px] text-fg-muted block mt-0.5">Audit log, system events & status changes</span>
+                  </div>
+                </div>
+                <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
+              </button>
+
+              {/* 4. Setup */}
+              <button
+                type="button"
+                aria-label="Setup"
                 onClick={() => {
                   setActiveTab('setup');
                   setMobileMenuOpen(false);
                 }}
-                className={`flex flex-col items-start p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
+                className={`w-full flex items-center justify-between p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
                   activeTab === 'setup'
                     ? 'bg-surface-subtle border-accent ring-1 ring-accent text-fg font-semibold'
                     : 'bg-surface border-border hover:bg-surface-subtle text-fg-muted hover:text-fg'
                 }`}
               >
-                <ShieldCheck size={18} className={`mb-1.5 ${activeTab === 'setup' ? 'text-accent' : 'text-fg-muted'}`} strokeWidth={1.5} />
-                <span className="text-[13px] font-medium text-fg">Setup</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-[6px] bg-surface-subtle border border-border flex items-center justify-center shrink-0">
+                    <ShieldCheck size={16} strokeWidth={1.5} className={activeTab === 'setup' ? 'text-accent' : 'text-fg-muted'} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <span className="text-[13px] font-medium text-fg block">Setup</span>
+                    <span className="text-[11px] text-fg-muted block mt-0.5">First-run configuration & milestone checklist</span>
+                  </div>
+                </div>
+                <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
               </button>
             </div>
 
-            <div className="pt-2 border-t border-border flex items-center justify-between text-[12px] text-fg-muted">
-              <span>Single-user Job Automation</span>
-              <span className="font-mono">{dryRun ? 'DRY_RUN' : 'LIVE'}</span>
+            {/* Footer Status Pill */}
+            <div className="pt-3 border-t border-border flex items-center justify-between text-[11px] text-fg-muted">
+              <span>Pigeon Career Dispatch</span>
+              <span className="font-mono tabular-nums px-1.5 py-0.5 bg-surface-subtle border border-border rounded-[4px]">
+                {dryRun ? 'Simulation Mode' : 'Live Sending Mode'}
+              </span>
             </div>
           </div>
         </div>
