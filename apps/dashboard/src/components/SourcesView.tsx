@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Loader2, Radio, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { AlertTriangle, Info, Loader2, Radio, RefreshCw } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
 
@@ -21,10 +21,13 @@ interface Props {
   apiBase?: string;
 }
 
+type FilterKind = 'all' | 'alert_email' | 'ats' | 'api';
+
 export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
   const [sources, setSources] = useState<SourceStatusItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState<FilterKind>('all');
 
   const loadSources = useCallback(async () => {
     try {
@@ -47,6 +50,21 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
     void loadSources();
   }, [loadSources]);
 
+  const filteredSources = useMemo(() => {
+    if (selectedFilter === 'all') return sources;
+    return sources.filter((s) => s.kind === selectedFilter);
+  }, [sources, selectedFilter]);
+
+  const counts = useMemo(
+    () => ({
+      all: sources.length,
+      alert_email: sources.filter((s) => s.kind === 'alert_email').length,
+      ats: sources.filter((s) => s.kind === 'ats').length,
+      api: sources.filter((s) => s.kind === 'api').length,
+    }),
+    [sources],
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -62,14 +80,65 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
             <h2 className="text-[16px] font-semibold text-fg">Job Sources & Ingestion Health</h2>
           </div>
           <p className="text-[13px] text-fg-muted mt-1">
-            Monitor API connectors, ATS scrapers, circuit breaker states, and email parser health
-            streaks.
+            Monitor API connectors, ATS scrapers, circuit breaker states, and email alert parser
+            health streaks.
           </p>
         </div>
 
         <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void loadSources()}>
           Refresh Status
         </Button>
+      </div>
+
+      {/* Safety & Portal Policy Notice */}
+      <div className="bg-surface-subtle border border-border rounded-[6px] p-4 flex items-start gap-3 text-[13px]">
+        <Info
+          size={16}
+          className="text-accent shrink-0 mt-0.5"
+          strokeWidth={1.5}
+          aria-hidden="true"
+        />
+        <div className="space-y-1 text-fg-muted leading-relaxed">
+          <p>
+            <strong className="text-fg font-medium">
+              How Portals (LinkedIn, Indeed, Naukri) Work:
+            </strong>{' '}
+            Pigeon never scrapes login-walled job portals or simulates user sessions. Instead,
+            Pigeon ingests portal jobs by parsing inbound job alert emails forwarded to your Pigeon
+            alert address.
+          </p>
+          <p>
+            Portal jobs are always routed to{' '}
+            <strong className="text-fg font-medium">Manual Apply</strong> for secure, one-click
+            manual submission.
+          </p>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+        {(
+          [
+            { id: 'all', label: 'All Sources', count: counts.all },
+            { id: 'alert_email', label: 'Alert Emails', count: counts.alert_email },
+            { id: 'ats', label: 'ATS Endpoints', count: counts.ats },
+            { id: 'api', label: 'Job APIs & Feeds', count: counts.api },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setSelectedFilter(tab.id)}
+            className={`px-3 py-1.5 text-[12px] font-medium rounded-[4px] transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+              selectedFilter === tab.id
+                ? 'bg-accent/10 text-accent border border-accent/30'
+                : 'text-fg-muted hover:text-fg hover:bg-surface-subtle border border-transparent'
+            }`}
+          >
+            <span>{tab.label}</span>
+            <span className="font-mono text-[11px] opacity-75">({tab.count})</span>
+          </button>
+        ))}
       </div>
 
       {loading && sources.length === 0 ? (
@@ -83,8 +152,9 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {sources.map((src) => {
+          {filteredSources.map((src) => {
             const isSuspect = Boolean(src.is_suspect || (src.parser_empty_streak ?? 0) >= 3);
+
             return (
               <div
                 key={src.name}

@@ -2006,17 +2006,87 @@ app.get('/api/sources', async (c) => {
     }
   }
 
-  const sources = ((rawRows || []) as unknown as SourceStateDbRow[]).map((row) => {
-    const slugStats = latestStatsBySource.get(row.source);
-    return {
-      ...row,
-      parser_suspect: (row.parser_empty_streak ?? 0) >= 3 || Boolean(row.untrusted),
-      boards_total: slugStats?.boards_total,
-      boards_failed: slugStats?.boards_failed,
-    };
-  });
+  const dbRowsBySource = new Map<string, SourceStateDbRow>();
+  for (const row of (rawRows || []) as unknown as SourceStateDbRow[]) {
+    dbRowsBySource.set(row.source, row);
+  }
 
-  return c.json({ sources });
+  // Predefined catalog of all known sources supported in Pigeon
+  const KNOWN_SOURCES: Array<{ name: string; kind: 'api' | 'ats' | 'alert_email' }> = [
+    // Alert email parsers (parsed from forwarded alert emails - Rule 6 compliant, never scraped)
+    { name: 'linkedin', kind: 'alert_email' },
+    { name: 'indeed', kind: 'alert_email' },
+    { name: 'naukri', kind: 'alert_email' },
+    // Public ATS JSON endpoints
+    { name: 'greenhouse', kind: 'ats' },
+    { name: 'lever', kind: 'ats' },
+    { name: 'ashby', kind: 'ats' },
+    // Public job APIs and RSS feeds
+    { name: 'adzuna', kind: 'api' },
+    { name: 'remoteok', kind: 'api' },
+    { name: 'remotive', kind: 'api' },
+    { name: 'weworkremotely', kind: 'api' },
+    { name: 'hiring_hn', kind: 'api' },
+  ];
+
+  const sourceItems: Array<Record<string, unknown>> = [];
+  const handledSources = new Set<string>();
+
+  for (const known of KNOWN_SOURCES) {
+    handledSources.add(known.name);
+    const dbRow = dbRowsBySource.get(known.name);
+    const slugStats = latestStatsBySource.get(known.name);
+    const parserEmptyStreak = dbRow?.parser_empty_streak ?? 0;
+    const isSuspect = parserEmptyStreak >= 3 || Boolean(dbRow?.untrusted);
+
+    sourceItems.push({
+      name: known.name,
+      source: known.name,
+      kind: known.kind,
+      circuit_state: (dbRow?.circuit_state as 'closed' | 'half-open' | 'open') || 'closed',
+      failure_count: dbRow?.consecutive_failures ?? 0,
+      consecutive_failures: dbRow?.consecutive_failures ?? 0,
+      last_run: dbRow?.last_run_at ?? null,
+      last_run_at: dbRow?.last_run_at ?? null,
+      opened_at: dbRow?.opened_at ?? null,
+      last_error: dbRow?.last_error ?? null,
+      parser_empty_streak: parserEmptyStreak,
+      is_suspect: isSuspect,
+      parser_suspect: isSuspect,
+      untrusted: Boolean(dbRow?.untrusted),
+      boards_total: slugStats?.boards_total ?? null,
+      boards_failed: slugStats?.boards_failed ?? null,
+    });
+  }
+
+  // Include any extra source present in database but not in predefined catalog
+  for (const [sourceName, dbRow] of dbRowsBySource.entries()) {
+    if (!handledSources.has(sourceName)) {
+      const slugStats = latestStatsBySource.get(sourceName);
+      const parserEmptyStreak = dbRow.parser_empty_streak ?? 0;
+      const isSuspect = parserEmptyStreak >= 3 || Boolean(dbRow.untrusted);
+      sourceItems.push({
+        name: sourceName,
+        source: sourceName,
+        kind: 'api',
+        circuit_state: (dbRow.circuit_state as 'closed' | 'half-open' | 'open') || 'closed',
+        failure_count: dbRow.consecutive_failures ?? 0,
+        consecutive_failures: dbRow.consecutive_failures ?? 0,
+        last_run: dbRow.last_run_at ?? null,
+        last_run_at: dbRow.last_run_at ?? null,
+        opened_at: dbRow.opened_at ?? null,
+        last_error: dbRow.last_error ?? null,
+        parser_empty_streak: parserEmptyStreak,
+        is_suspect: isSuspect,
+        parser_suspect: isSuspect,
+        untrusted: Boolean(dbRow.untrusted),
+        boards_total: slugStats?.boards_total ?? null,
+        boards_failed: slugStats?.boards_failed ?? null,
+      });
+    }
+  }
+
+  return c.json({ sources: sourceItems });
 });
 
 // 8. GET /api/settings: Profile, Dry Run, Kill Switch, Resumes
