@@ -4,11 +4,13 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  Clock,
   Copy,
   ExternalLink,
   Flag,
   Info,
   Loader2,
+  Pause,
   RefreshCw,
 } from 'lucide-react';
 import { Button } from './ui/Button.js';
@@ -263,11 +265,13 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
 
   return (
     <div className="flex flex-col h-full space-y-4">
-      {/* Top Banner & Stats */}
-      <div className="flex flex-wrap items-center justify-between border-b border-border pb-4 gap-4">
-        <div>
-          <h2 className="text-[20px] font-semibold tracking-tight text-fg">Manual Apply Queue</h2>
-          <p className="text-[13px] text-fg-muted mt-0.5">
+      {/* Top Banner & Refresh */}
+      <div className="flex items-start sm:items-center justify-between pb-3 sm:pb-4 border-b border-border gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[18px] sm:text-[20px] font-semibold tracking-tight text-fg truncate">
+            Manual Apply Queue
+          </h2>
+          <p className="hidden sm:block text-[13px] text-fg-muted mt-0.5">
             Keyboard shortcuts:{' '}
             <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
               j
@@ -298,22 +302,133 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             </kbd>{' '}
             snooze
           </p>
+          <p className="sm:hidden text-[12px] text-fg-muted mt-0.5 truncate">
+            Portal applications & manual reviews
+          </p>
         </div>
 
-        {/* Counts & Refresh */}
-        <div className="flex items-center gap-2 text-[12px]">
-          <span className="bg-surface-subtle text-fg border border-border px-2 py-0.5 rounded-[4px] font-medium font-mono tabular-nums">
-            Waiting: {data?.counts.total ?? 0}
-          </span>
-          <span className="bg-state-warn-bg text-state-warn-fg border border-state-warn-border px-2 py-0.5 rounded-[4px] font-medium font-mono tabular-nums">
-            Needs Review: {data?.counts.needs_review ?? 0}
-          </span>
-          <span className="bg-surface-subtle text-fg-muted border border-border px-2 py-0.5 rounded-[4px] font-medium font-mono tabular-nums">
-            Snoozed: {data?.counts.snoozed ?? 0}
-          </span>
-          <Button variant="secondary" size="xs" icon={RefreshCw} onClick={() => void loadQueue()}>
-            Refresh
-          </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={RefreshCw}
+          loading={loading}
+          onClick={() => void loadQueue()}
+          aria-label="Refresh manual queue"
+          className="shrink-0"
+        >
+          Refresh
+        </Button>
+      </div>
+
+      {/* Queue Status Metrics: Waiting, Needs Review, Snoozed */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        {/* Waiting Card */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('all')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('all');
+            }
+          }}
+          aria-label={`Waiting: ${data?.counts.total ?? 0}`}
+          className={`p-2.5 sm:p-3 rounded-[6px] border text-left transition-all cursor-pointer select-none ${
+            activeTab === 'all'
+              ? 'bg-surface-subtle border-accent ring-1 ring-accent'
+              : 'bg-surface border-border hover:bg-surface-subtle/60'
+          }`}
+        >
+          <span className="sr-only">Waiting: {data?.counts.total ?? 0}</span>
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
+              Waiting
+            </span>
+            <Clock size={12} strokeWidth={1.5} className="text-fg-muted shrink-0 hidden sm:block" aria-hidden="true" />
+          </div>
+          <div className="mt-1 sm:mt-1.5 flex items-baseline gap-1">
+            <span className="text-[18px] sm:text-[22px] font-semibold font-mono tabular-nums text-fg leading-none">
+              {data?.counts.total ?? 0}
+            </span>
+            <span className="text-[11px] text-fg-muted hidden sm:inline">total</span>
+          </div>
+        </div>
+
+        {/* Needs Review Card */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('needs_attention')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('needs_attention');
+            }
+          }}
+          aria-label={`Needs Review: ${data?.counts.needs_review ?? 0}`}
+          className={`p-2.5 sm:p-3 rounded-[6px] border text-left transition-all cursor-pointer select-none ${
+            activeTab === 'needs_attention'
+              ? 'bg-surface-subtle border-accent ring-1 ring-accent'
+              : (data?.counts.needs_review ?? 0) > 0
+                ? 'bg-state-warn-bg/25 border-state-warn-border hover:bg-state-warn-bg/35'
+                : 'bg-surface border-border hover:bg-surface-subtle/60'
+          }`}
+        >
+          <span className="sr-only">Needs Review: {data?.counts.needs_review ?? 0}</span>
+          <div className="flex items-center justify-between gap-1">
+            <span
+              className={`text-[10px] sm:text-[11px] font-medium uppercase tracking-wider truncate ${
+                (data?.counts.needs_review ?? 0) > 0 ? 'text-state-warn-fg' : 'text-fg-muted'
+              }`}
+            >
+              Needs Review
+            </span>
+            <AlertTriangle
+              size={12}
+              strokeWidth={1.5}
+              className={`shrink-0 hidden sm:block ${
+                (data?.counts.needs_review ?? 0) > 0 ? 'text-state-warn-fg' : 'text-fg-muted'
+              }`}
+              aria-hidden="true"
+            />
+          </div>
+          <div className="mt-1 sm:mt-1.5 flex items-baseline gap-1">
+            <span
+              className={`text-[18px] sm:text-[22px] font-semibold font-mono tabular-nums leading-none ${
+                (data?.counts.needs_review ?? 0) > 0 ? 'text-state-warn-fg' : 'text-fg'
+              }`}
+            >
+              {data?.counts.needs_review ?? 0}
+            </span>
+            <span
+              className={`text-[11px] hidden sm:inline ${
+                (data?.counts.needs_review ?? 0) > 0 ? 'text-state-warn-fg' : 'text-fg-muted'
+              }`}
+            >
+              flagged
+            </span>
+          </div>
+        </div>
+
+        {/* Snoozed Card */}
+        <div
+          aria-label={`Snoozed: ${data?.counts.snoozed ?? 0}`}
+          className="p-2.5 sm:p-3 rounded-[6px] border bg-surface border-border text-left select-none"
+        >
+          <span className="sr-only">Snoozed: {data?.counts.snoozed ?? 0}</span>
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
+              Snoozed
+            </span>
+            <Pause size={12} strokeWidth={1.5} className="text-fg-muted shrink-0 hidden sm:block" aria-hidden="true" />
+          </div>
+          <div className="mt-1 sm:mt-1.5 flex items-baseline gap-1">
+            <span className="text-[18px] sm:text-[22px] font-semibold font-mono tabular-nums text-fg-muted leading-none">
+              {data?.counts.snoozed ?? 0}
+            </span>
+            <span className="text-[11px] text-fg-muted hidden sm:inline">held</span>
+          </div>
         </div>
       </div>
 
