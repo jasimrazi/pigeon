@@ -101,7 +101,7 @@ export function IntegrationsSettings({
 
     const providerVal = getSummary('LLM_PROVIDER')?.value;
     setLlmProvider(providerVal === 'gemini' ? 'gemini' : 'workers-ai');
-    setLlmModel(getSummary('LLM_MODEL')?.value || '@cf/meta/llama-3.3-70b-instruct');
+    setLlmModel(getSummary('LLM_MODEL')?.value || (providerVal === 'gemini' ? 'gemini-3.5-flash-lite' : '@cf/meta/llama-3.2-3b-instruct'));
 
     setTelegramChatId(getSummary('TELEGRAM_CHAT_ID')?.value || '');
 
@@ -424,7 +424,9 @@ export function IntegrationsSettings({
     sheetTabMetrics !== currentSheetMetrics;
 
   const currentProvider = getSummary('LLM_PROVIDER')?.value || 'workers-ai';
-  const currentModel = getSummary('LLM_MODEL')?.value || '@cf/meta/llama-3.3-70b-instruct';
+  const currentModel =
+    getSummary('LLM_MODEL')?.value ||
+    (currentProvider === 'gemini' ? 'gemini-3.5-flash-lite' : '@cf/meta/llama-3.2-3b-instruct');
   const hasUnsavedLlm =
     llmProvider !== currentProvider ||
     llmModel !== currentModel ||
@@ -880,8 +882,23 @@ export function IntegrationsSettings({
                 : 'bg-state-danger-bg border-state-danger-border text-state-danger-fg'
             }`}
           >
-            <strong>{llmTestResult.ok ? 'LLM Test Succeeded: ' : 'LLM Test Failed: '}</strong>
-            {llmTestResult.message}
+            <div className="flex items-center gap-1.5 font-semibold mb-1">
+              {llmTestResult.ok ? (
+                <>
+                  <Check size={14} />
+                  <span>LLM Test Succeeded</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle size={14} />
+                  <span>LLM Test Failed</span>
+                </>
+              )}
+            </div>
+            <div className="text-[11px] font-mono whitespace-pre-wrap break-words opacity-90">
+              {llmTestResult.message.replace(/^LLM test completion (succeeded with|failed:)\s*/i, '') ||
+                (llmTestResult.ok ? 'Connection verified successfully.' : 'Unable to complete test request.')}
+            </div>
           </div>
         )}
 
@@ -901,7 +918,7 @@ export function IntegrationsSettings({
                 const nextProvider = e.target.value as 'workers-ai' | 'gemini';
                 setLlmProvider(nextProvider);
                 if (nextProvider === 'workers-ai' && !llmModel.startsWith('@cf/')) {
-                  setLlmModel('@cf/meta/llama-3.3-70b-instruct');
+                  setLlmModel('@cf/meta/llama-3.2-3b-instruct');
                 } else if (nextProvider === 'gemini' && llmModel.startsWith('@cf/')) {
                   setLlmModel('gemini-3.5-flash-lite');
                 }
@@ -930,11 +947,49 @@ export function IntegrationsSettings({
               onChange={(e) => setLlmModel(e.target.value)}
               placeholder={
                 llmProvider === 'workers-ai'
-                  ? '@cf/meta/llama-3.3-70b-instruct'
+                  ? '@cf/meta/llama-3.2-3b-instruct'
                   : 'gemini-3.5-flash-lite'
               }
               className="w-full text-[13px] font-mono px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />
+            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px] text-fg-muted">
+              <span>Quick select:</span>
+              {llmProvider === 'gemini' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setLlmModel('gemini-3.5-flash-lite')}
+                    className="px-1.5 py-0.5 rounded border border-border hover:border-accent text-fg font-mono"
+                  >
+                    gemini-3.5-flash-lite (Recommended)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLlmModel('gemini-3.5-flash')}
+                    className="px-1.5 py-0.5 rounded border border-border hover:border-accent text-fg font-mono"
+                  >
+                    gemini-3.5-flash
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setLlmModel('@cf/meta/llama-3.2-3b-instruct')}
+                    className="px-1.5 py-0.5 rounded border border-border hover:border-accent text-fg font-mono"
+                  >
+                    llama-3.2-3b-instruct (Free Tier)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLlmModel('@cf/meta/llama-3.1-8b-instruct')}
+                    className="px-1.5 py-0.5 rounded border border-border hover:border-accent text-fg font-mono"
+                  >
+                    llama-3.1-8b-instruct
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
 

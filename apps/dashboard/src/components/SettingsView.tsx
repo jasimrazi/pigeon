@@ -260,6 +260,18 @@ export function SettingsView({
         name,
         email,
         skills,
+        experience_years: profile?.experience_years,
+        experience: profile?.experience || [],
+        education: profile?.education || [],
+        preferences: profile?.preferences || {},
+        answers: profile?.answers || {
+          notice_period: 'Immediate',
+          current_ctc: 'N/A',
+          expected_ctc: 'Competitive',
+          work_authorisation: 'Authorized',
+          links: {},
+          other: {},
+        },
         send_settings: {
           daily_cap: Number(dailyCap),
           ramp_base: Number(rampBase),
@@ -281,7 +293,7 @@ export function SettingsView({
       const res = await apiFetch(`${apiBase}/api/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ profile: payload }),
       });
       if (!res.ok) {
         const errJson = (await res.json().catch(() => ({}))) as { error?: string };

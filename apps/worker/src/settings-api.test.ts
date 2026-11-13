@@ -502,4 +502,81 @@ describe('Settings API Endpoints (Stage 3)', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  describe('POST /api/settings (Profile Updates)', () => {
+    const validProfile = {
+      name: 'Test Candidate',
+      email: 'candidate@example.com',
+      skills: ['TypeScript', 'Cloudflare Workers'],
+      send_settings: {
+        daily_cap: 20,
+        ramp_base: 5,
+        ramp_step: 2,
+        window: { start: '09:00', end: '18:00' },
+        timezone: 'UTC',
+        auto_approve_above_score: 85,
+      },
+      filters: {
+        titles: ['Engineer'],
+        company_blacklist: [],
+        min_score: 50,
+      },
+    };
+
+    it('saves profile when wrapped in { profile: ... }', async () => {
+      const res = await app.fetch(
+        new Request('http://localhost/api/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'http://localhost:5173',
+          },
+          body: JSON.stringify({ profile: validProfile }),
+        }),
+        workerEnv,
+      );
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { ok: boolean; profile: { name: string } };
+      expect(data.ok).toBe(true);
+      expect(data.profile.name).toBe('Test Candidate');
+    });
+
+    it('saves profile when passed directly as root body', async () => {
+      const res = await app.fetch(
+        new Request('http://localhost/api/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'http://localhost:5173',
+          },
+          body: JSON.stringify(validProfile),
+        }),
+        workerEnv,
+      );
+
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { ok: boolean; profile: { name: string } };
+      expect(data.ok).toBe(true);
+      expect(data.profile.name).toBe('Test Candidate');
+    });
+
+    it('rejects empty body with 400', async () => {
+      const res = await app.fetch(
+        new Request('http://localhost/api/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'http://localhost:5173',
+          },
+          body: JSON.stringify({}),
+        }),
+        workerEnv,
+      );
+
+      expect(res.status).toBe(400);
+      const data = (await res.json()) as { error: string };
+      expect(data.error).toContain('Missing profile object');
+    });
+  });
 });

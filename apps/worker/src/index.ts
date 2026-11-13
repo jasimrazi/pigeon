@@ -2217,15 +2217,40 @@ app.get('/api/settings', async (c) => {
 
 // 9. POST /api/settings: Validates and updates profile settings
 app.post('/api/settings', async (c) => {
-  const body = await c.req.json<{ profile?: unknown }>().catch(() => ({}) as { profile?: unknown });
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
 
-  if (!body.profile || typeof body.profile !== 'object') {
+  const candidate =
+    body && typeof body === 'object' && 'profile' in body && body.profile && typeof body.profile === 'object'
+      ? (body.profile as Record<string, unknown>)
+      : (body as Record<string, unknown>);
+
+  if (!candidate || typeof candidate !== 'object' || Object.keys(candidate).length === 0) {
     return c.json({ error: 'Missing profile object in request body' }, 400);
   }
 
+  // Ensure default answers if omitted so saving profile never fails due to missing answers
+  const candidateAnswers =
+    candidate.answers && typeof candidate.answers === 'object'
+      ? (candidate.answers as Record<string, unknown>)
+      : {};
+  const answers = {
+    notice_period: candidateAnswers.notice_period || 'Immediate',
+    current_ctc: candidateAnswers.current_ctc || 'N/A',
+    expected_ctc: candidateAnswers.expected_ctc || 'Competitive',
+    work_authorisation: candidateAnswers.work_authorisation || 'Authorized',
+    links: candidateAnswers.links || {},
+    other: candidateAnswers.other || {},
+    ...candidateAnswers,
+  };
+
+  const profileToValidate = {
+    ...candidate,
+    answers,
+  };
+
   let validatedProfile;
   try {
-    validatedProfile = ProfileSchema.parse(body.profile);
+    validatedProfile = ProfileSchema.parse(profileToValidate);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return c.json({ error: `Invalid profile settings: ${msg}` }, 400);
