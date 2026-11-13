@@ -94,11 +94,11 @@ binding = "AI"
 [[env.prod.d1_databases]]
 binding = "DB"
 database_name = "pigeon-db-prod"
-database_id = "prod-d1-id"
+database_id = "343fe5de-98b8-4526-80b0-372d7fa933f0"
 
 [[env.prod.kv_namespaces]]
 binding = "CONFIG"
-id = "prod-kv-id"
+id = "dbaa227e023b4dccab1049cea786d514"
 
 [[env.prod.queues.producers]]
 binding = "JOBS_QUEUE"

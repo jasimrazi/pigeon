@@ -182,21 +182,31 @@ app.use('*', async (c, next) => {
 
   // Allowed origins: dashboardOrigin, localhost dev/test origins, or matching request host
   let isHostMatch = false;
+  let isPagesDevMatch = false;
   try {
     if (origin) {
-      isHostMatch = new URL(origin).host === new URL(c.req.url).host;
+      const parsedOrigin = new URL(origin);
+      isHostMatch = parsedOrigin.host === new URL(c.req.url).host;
+      isPagesDevMatch =
+        parsedOrigin.protocol === 'https:' &&
+        (parsedOrigin.hostname === 'pigeon-dashboard.pages.dev' ||
+          parsedOrigin.hostname.endsWith('.pigeon-dashboard.pages.dev'));
     }
   } catch {
     isHostMatch = false;
+    isPagesDevMatch = false;
   }
 
   const allowedOrigins = [
     dashboardOrigin,
+    'https://pigeon-dashboard.pages.dev',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://localhost:3000',
   ];
-  const isAllowedOrigin = origin ? allowedOrigins.includes(origin) || isHostMatch : false;
+  const isAllowedOrigin = origin
+    ? allowedOrigins.includes(origin) || isHostMatch || isPagesDevMatch
+    : false;
 
   if (origin && isAllowedOrigin) {
     c.header('Access-Control-Allow-Origin', origin);

@@ -10,7 +10,10 @@ export interface LoginViewProps {
 
 export function LoginView({
   onLoginSuccess,
-  apiBase = (import.meta.env?.VITE_API_BASE as string | undefined) || '',
+  apiBase =
+    (import.meta.env?.VITE_API_BASE as string | undefined) ||
+    (import.meta.env?.VITE_API_URL as string | undefined) ||
+    '',
   initialError = null,
 }: LoginViewProps): React.JSX.Element {
   const [password, setPassword] = useState('');

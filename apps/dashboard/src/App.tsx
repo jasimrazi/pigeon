@@ -52,7 +52,10 @@ export function App(): React.JSX.Element {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const apiBase = (import.meta.env?.VITE_API_BASE as string | undefined) || '';
+  const apiBase =
+    (import.meta.env?.VITE_API_BASE as string | undefined) ||
+    (import.meta.env?.VITE_API_URL as string | undefined) ||
+    '';
 
   useEffect(() => {
     const unsubscribe = onUnauthorized(() => {
