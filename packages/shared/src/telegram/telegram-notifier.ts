@@ -45,7 +45,8 @@ export class TelegramNotifier implements Notifier {
     this.chatId = options.chatId;
     this.kv = options.kv;
     this.now = options.now ?? (() => new Date());
-    this.fetchFn = options.fetchFn ?? globalThis.fetch.bind(globalThis);
+    const rawFetch = options.fetchFn ?? fetch;
+    this.fetchFn = (input, init) => rawFetch(input, init);
   }
 
   async notify(input: string | NotificationPayload): Promise<void> {

@@ -97,7 +97,7 @@ export const SETTING_DEFINITIONS: Record<MigratedSettingKey, SettingFieldDefinit
     group: 'llm',
     class: 'SETTING',
     type: 'string',
-    defaultValue: '@cf/meta/llama-3.3-70b-instruct',
+    defaultValue: '@cf/meta/llama-3.2-3b-instruct',
     description: 'LLM Model ID',
   },
   GEMINI_API_KEY: {
@@ -543,7 +543,7 @@ async function resolveConfig(env: Record<string, unknown>, db: D1LikeDatabase): 
       const provider = providerRaw === 'gemini' ? 'gemini' : 'workers-ai';
       const model =
         resolvedValues.get('LLM_MODEL') ||
-        (provider === 'gemini' ? 'gemini-2.5-flash' : '@cf/meta/llama-3.3-70b-instruct');
+        (provider === 'gemini' ? 'gemini-3.5-flash-lite' : '@cf/meta/llama-3.2-3b-instruct');
       const geminiApiKey = resolvedValues.get('GEMINI_API_KEY');
 
       if (provider === 'gemini' && !geminiApiKey) {

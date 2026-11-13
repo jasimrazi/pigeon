@@ -51,6 +51,7 @@ import {
   logger,
   purgeExpiredJobDescriptions,
   getConfig,
+  normalizeSpreadsheetId,
   setAppSetting,
   deleteAppSetting,
   invalidateConfigCache,
@@ -2514,6 +2515,16 @@ app.post('/api/settings/test/:target', async (c) => {
       }
     }
   } else if (target === 'sheets') {
+    let testBody: { spreadsheetId?: string; tabApplications?: string } = {};
+    try {
+      const raw = await c.req.json();
+      if (raw && typeof raw === 'object') {
+        testBody = raw as { spreadsheetId?: string; tabApplications?: string };
+      }
+    } catch {
+      testBody = {};
+    }
+
     if (!appConfig.hasGoogleOAuth()) {
       result = {
         ok: false,
@@ -2522,7 +2533,17 @@ app.post('/api/settings/test/:target', async (c) => {
       };
     } else {
       const sheetsConfig = appConfig.getSheetsConfig();
-      if (!sheetsConfig.spreadsheetId) {
+      const rawSpreadsheet =
+        typeof testBody.spreadsheetId === 'string' && testBody.spreadsheetId.trim().length > 0
+          ? testBody.spreadsheetId.trim()
+          : sheetsConfig.spreadsheetId;
+      const spreadsheetId = rawSpreadsheet ? normalizeSpreadsheetId(rawSpreadsheet) : undefined;
+      const tabApplications =
+        typeof testBody.tabApplications === 'string' && testBody.tabApplications.trim().length > 0
+          ? testBody.tabApplications.trim()
+          : sheetsConfig.tabApplications;
+
+      if (!spreadsheetId) {
         result = {
           ok: false,
           code: 'sheet_missing',
@@ -2549,24 +2570,24 @@ app.post('/api/settings/test/:target', async (c) => {
             const sheetsClient = new RestSheetsClient(() =>
               getValidAccessToken({ config: c.env.CONFIG, secrets, notifier }),
             );
-            const meta = await sheetsClient.getSpreadsheet(sheetsConfig.spreadsheetId);
+            const meta = await sheetsClient.getSpreadsheet(spreadsheetId);
             const tabExists = meta.sheets.some(
-              (s) => s.properties.title === sheetsConfig.tabApplications,
+              (s) => s.properties.title === tabApplications,
             );
             result = {
               ok: true,
               code: 'ok',
               message: tabExists
-                ? `Connected to spreadsheet "${meta.properties.title}" (tab "${sheetsConfig.tabApplications}" found)`
-                : `Connected to spreadsheet "${meta.properties.title}", but tab "${sheetsConfig.tabApplications}" was not found`,
+                ? `Connected to spreadsheet "${meta.properties.title}" (tab "${tabApplications}" found)`
+                : `Connected to spreadsheet "${meta.properties.title}", but tab "${tabApplications}" was not found`,
               title: meta.properties.title,
               tabExists,
             };
-          } catch {
+          } catch (err) {
             result = {
               ok: false,
               code: 'sheets_error',
-              message: 'Failed to access Google Spreadsheet metadata',
+              message: `Failed to access Google Spreadsheet metadata: ${err instanceof Error ? err.message : String(err)}`,
             };
           }
         }
@@ -2626,8 +2647,27 @@ app.post('/api/settings/test/:target', async (c) => {
       }
     }
   } else if (target === 'telegram') {
+    let testBody: { botToken?: string; chatId?: string } = {};
+    try {
+      const raw = await c.req.json();
+      if (raw && typeof raw === 'object') {
+        testBody = raw as { botToken?: string; chatId?: string };
+      }
+    } catch {
+      testBody = {};
+    }
+
     const tg = appConfig.getTelegramConfig();
-    if (!tg.botToken || !tg.chatId) {
+    const botToken =
+      typeof testBody.botToken === 'string' && testBody.botToken.trim().length > 0
+        ? testBody.botToken.trim()
+        : tg.botToken;
+    const chatId =
+      typeof testBody.chatId === 'string' && testBody.chatId.trim().length > 0
+        ? testBody.chatId.trim()
+        : tg.chatId;
+
+    if (!botToken || !chatId) {
       result = {
         ok: false,
         code: 'unconfigured',
@@ -2636,8 +2676,8 @@ app.post('/api/settings/test/:target', async (c) => {
     } else {
       try {
         const notifier = new TelegramNotifier({
-          botToken: tg.botToken,
-          chatId: tg.chatId,
+          botToken,
+          chatId,
           kv: c.env.CONFIG,
         });
         await notifier.notify('Pigeon notification test: Telegram connection is working.');
@@ -2646,11 +2686,11 @@ app.post('/api/settings/test/:target', async (c) => {
           code: 'ok',
           message: 'Telegram test message sent successfully',
         };
-      } catch {
+      } catch (err) {
         result = {
           ok: false,
           code: 'telegram_error',
-          message: 'Failed to send Telegram test message',
+          message: `Failed to send Telegram test message: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     }

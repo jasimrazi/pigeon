@@ -237,7 +237,10 @@ export function IntegrationsSettings({
       const res = await apiFetch(`${apiBase}/api/settings/test/sheets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          spreadsheetId: spreadsheetId || undefined,
+          tabApplications: sheetTabApps || undefined,
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -357,7 +360,10 @@ export function IntegrationsSettings({
       const res = await apiFetch(`${apiBase}/api/settings/test/telegram`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          botToken: telegramToken || undefined,
+          chatId: telegramChatId || undefined,
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
