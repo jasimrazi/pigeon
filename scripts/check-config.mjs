@@ -101,28 +101,24 @@ export function validateConfig(env = loadEnv()) {
     console.log(`[bootstrap] Owner Gmail: ${env.OWNER_GMAIL}`);
   }
 
-  // 4. Cloudflare Access (Required for staging and prod)
+  // 4. Admin Authentication Password (Required for staging and prod)
   if (targetEnv === 'staging' || targetEnv === 'prod') {
-    if (!env.CF_ACCESS_AUD) {
-      errors.push('CF_ACCESS_AUD is required in staging and prod to secure the API.');
+    if (!env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 8) {
+      errors.push(
+        'ADMIN_PASSWORD is required in staging and prod (minimum 8 characters) to secure the API.',
+      );
     } else {
-      console.log('[bootstrap] Cloudflare Access AUD: configured');
-    }
-
-    if (!env.CF_ACCESS_TEAM_DOMAIN) {
-      errors.push('CF_ACCESS_TEAM_DOMAIN is required in staging and prod.');
-    } else {
-      console.log(`[bootstrap] Cloudflare Access Team Domain: ${env.CF_ACCESS_TEAM_DOMAIN}`);
-    }
-
-    if (!env.CF_ACCESS_ALLOWED_EMAIL) {
-      warnings.push('CF_ACCESS_ALLOWED_EMAIL not set; will fall back to OWNER_GMAIL.');
+      console.log('[bootstrap] Admin Password: configured (>= 8 characters)');
     }
   } else {
-    console.log(
-      '[bootstrap] Local Dev Auth: ALLOW_INSECURE_DEV_AUTH=' +
-        (env.ALLOW_INSECURE_DEV_AUTH || 'true'),
-    );
+    if (env.ADMIN_PASSWORD) {
+      console.log('[bootstrap] Admin Password: configured');
+    } else {
+      console.log(
+        '[bootstrap] Local Dev Auth: ALLOW_INSECURE_DEV_AUTH=' +
+          (env.ALLOW_INSECURE_DEV_AUTH || 'true'),
+      );
+    }
   }
 
   // 5. Report UI-Managed Settings

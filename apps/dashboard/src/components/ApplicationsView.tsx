@@ -3,6 +3,7 @@ import { FolderX, Layers, Loader2, Search } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
+import { apiFetch } from '../api.js';
 
 export interface ApplicationItem {
   id: string;
@@ -60,7 +61,7 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
       if (channelFilter) params.set('channel', channelFilter);
       if (sourceFilter) params.set('source', sourceFilter);
 
-      const res = await fetch(`${apiBase}/api/applications?${params.toString()}`);
+      const res = await apiFetch(`${apiBase}/api/applications?${params.toString()}`);
       if (!res.ok) {
         throw new Error(`Failed to load applications (${res.status})`);
       }
@@ -84,7 +85,7 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
     if (!selectedApp) return;
     try {
       setSavingOutcome(true);
-      const res = await fetch(`${apiBase}/api/applications/${selectedApp.id}/outcome`, {
+      const res = await apiFetch(`${apiBase}/api/applications/${selectedApp.id}/outcome`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -12,6 +12,7 @@ describe('Dashboard App & Operations Components', () => {
   let root: ReturnType<typeof createRoot> | null = null;
 
   beforeEach(() => {
+    localStorage.setItem('pigeon_admin_token', 'mock-owner-token');
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -233,6 +234,7 @@ describe('Dashboard App & Operations Components', () => {
   });
 
   afterEach(() => {
+    localStorage.clear();
     if (root && container) {
       act(() => {
         root?.unmount();
@@ -839,6 +841,208 @@ describe('Dashboard App & Operations Components', () => {
       expect(ksOffBadge).not.toBeNull();
       expect(ksOffBadge?.textContent).toContain('Kill Switch Off');
       expect(ksOffBadge?.className).toContain('bg-surface-subtle');
+    });
+  });
+
+  describe('Single-Owner Login & Bearer Token Authentication', () => {
+    it('renders LoginView when no token is present in localStorage', async () => {
+      localStorage.clear();
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      expect(container?.textContent).toContain('Pigeon');
+      expect(container?.textContent).toContain('Owner Authentication');
+      expect(container?.textContent).toContain('Admin Password');
+
+      const passInput = container?.querySelector('[data-testid="admin-password-input"]');
+      expect(passInput).not.toBeNull();
+      const submitBtn = container?.querySelector('[data-testid="login-submit-button"]');
+      expect(submitBtn).not.toBeNull();
+    });
+
+    it('logging in saves token in localStorage and attaches Authorization: Bearer <password> header', async () => {
+      localStorage.clear();
+      const fetchCalls: Array<{ url: string; headers: HeadersInit | undefined }> = [];
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string, init?: RequestInit) => {
+          fetchCalls.push({ url: url.toString(), headers: init?.headers });
+          if (url.toString().includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 5,
+                effectiveCap: 20,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                authHealth: { status: 'ok' },
+                dryRun: true,
+                killSwitch: false,
+              }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const passInput = container?.querySelector(
+        '[data-testid="admin-password-input"]',
+      ) as HTMLInputElement;
+      expect(passInput).not.toBeNull();
+
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )?.set;
+
+      // Type password into input
+      await act(async () => {
+        nativeInputValueSetter?.call(passInput, 'my-secret-admin-token');
+        passInput.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+
+      const form = container?.querySelector('form') as HTMLFormElement;
+      expect(form).not.toBeNull();
+
+      await act(async () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      // Verify token is saved in localStorage
+      expect(localStorage.getItem('pigeon_admin_token')).toBe('my-secret-admin-token');
+
+      // Verify Authorization header was sent
+      const overviewCall = fetchCalls.find((c) => c.url.includes('/api/overview'));
+      expect(overviewCall).toBeDefined();
+      const authHeader =
+        overviewCall?.headers instanceof Headers
+          ? overviewCall.headers.get('Authorization')
+          : (overviewCall?.headers as Record<string, string>)?.[
+              'Authorization'
+            ];
+      expect(authHeader).toBe('Bearer my-secret-admin-token');
+
+      // Verify dashboard overview rendered
+      expect(container?.textContent).toContain("Today's Sends");
+    });
+
+    it('displays error alert when login returns 401 Unauthorized', async () => {
+      localStorage.clear();
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          if (url.toString().includes('/api/overview')) {
+            return Promise.resolve({
+              ok: false,
+              status: 401,
+              json: async () => ({ error: 'Unauthorized: Invalid admin password' }),
+            });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      const passInput = container?.querySelector(
+        '[data-testid="admin-password-input"]',
+      ) as HTMLInputElement;
+      const form = container?.querySelector('form') as HTMLFormElement;
+
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )?.set;
+
+      await act(async () => {
+        nativeInputValueSetter?.call(passInput, 'wrong-password');
+        passInput.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+
+      await act(async () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+
+      // Token should NOT be saved in localStorage
+      expect(localStorage.getItem('pigeon_admin_token')).toBeNull();
+
+      // Error alert should be displayed
+      const errorAlert = container?.querySelector('[data-testid="login-error-alert"]');
+      expect(errorAlert).not.toBeNull();
+      expect(errorAlert?.textContent).toContain('Invalid admin password');
+    });
+
+    it('redirects to LoginView when an API call returns 401 Unauthorized', async () => {
+      localStorage.setItem('pigeon_admin_token', 'initial-token');
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      // Initially rendered in dashboard view
+      expect(container?.textContent).toContain('Pigeon');
+      expect(container?.textContent).toContain("Today's Sends");
+
+      // Now mock a 401 response and trigger an action
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => {
+          return Promise.resolve({
+            ok: false,
+            status: 401,
+            json: async () => ({ error: 'Unauthorized: Session expired' }),
+          });
+        }),
+      );
+
+      // Trigger an API call using the kill-switch toggle or directly dispatch unauthorized
+      const { notifyUnauthorized } = await import('./api.js');
+      await act(async () => {
+        notifyUnauthorized();
+      });
+
+      // Token in localStorage is cleared
+      expect(localStorage.getItem('pigeon_admin_token')).toBeNull();
+
+      // App should transition back to LoginView
+      expect(container?.textContent).toContain('Owner Authentication');
+      expect(container?.textContent).toContain('Admin Password');
+    });
+
+    it('clicking Sign Out button clears token and redirects to LoginView', async () => {
+      localStorage.setItem('pigeon_admin_token', 'initial-token');
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      expect(container?.textContent).toContain("Today's Sends");
+
+      const signOutBtn = container?.querySelector(
+        '[data-testid="header-signout-button"]',
+      ) as HTMLButtonElement;
+      expect(signOutBtn).not.toBeNull();
+
+      await act(async () => {
+        signOutBtn.click();
+      });
+
+      expect(localStorage.getItem('pigeon_admin_token')).toBeNull();
+      expect(container?.textContent).toContain('Owner Authentication');
     });
   });
 });

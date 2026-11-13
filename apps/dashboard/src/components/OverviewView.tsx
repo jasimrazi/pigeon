@@ -4,6 +4,7 @@ import { ConfirmationModal } from './ConfirmationModal.js';
 import { AlertBanner } from './ui/AlertBanner.js';
 import { MetricCard } from './ui/MetricCard.js';
 import { Button } from './ui/Button.js';
+import { apiFetch } from '../api.js';
 
 interface OverviewData {
   sendsToday: number;
@@ -50,7 +51,7 @@ export function OverviewView({
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${apiBase}/api/overview`);
+      const res = await apiFetch(`${apiBase}/api/overview`);
       if (!res.ok) {
         throw new Error(`Failed to load overview (${res.status})`);
       }
@@ -59,7 +60,7 @@ export function OverviewView({
 
       // Check setup status
       try {
-        const setupRes = await fetch(`${apiBase}/api/setup/status`);
+        const setupRes = await apiFetch(`${apiBase}/api/setup/status`);
         if (setupRes.ok) {
           const sJson = (await setupRes.json()) as {
             readyForDryRun: boolean;
@@ -84,7 +85,7 @@ export function OverviewView({
   const handleToggleKillSwitch = async (activate: boolean) => {
     try {
       setActionLoading(true);
-      const res = await fetch(`${apiBase}/api/settings/kill-switch`, {
+      const res = await apiFetch(`${apiBase}/api/settings/kill-switch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kill_switch: activate, confirmed: true }),
@@ -105,7 +106,7 @@ export function OverviewView({
   const handleToggleDryRun = async (dryRun: boolean, confirmed = false) => {
     try {
       setActionLoading(true);
-      const res = await fetch(`${apiBase}/api/settings/dry-run`, {
+      const res = await apiFetch(`${apiBase}/api/settings/dry-run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dry_run: dryRun, confirmed: dryRun ? true : confirmed }),

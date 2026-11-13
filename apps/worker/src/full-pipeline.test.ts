@@ -128,18 +128,13 @@ describe('Full Pipeline Integration Test Suite (Phase 11)', () => {
     workerEnv.ALERT_FORWARDING_ADDRESS = 'alex.mercer@example.com';
     workerEnv.DASHBOARD_ORIGIN = 'http://localhost:5173';
 
-    // Disable Access JWT for direct route invocation in test environment
-    delete workerEnv.CF_ACCESS_AUD;
-    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
+    // Test environment uses ALLOW_INSECURE_DEV_AUTH=true by default
   });
 
   beforeEach(async () => {
     server.use(...googleHandlers, ...sheetsHandlers);
     resetMockThreadsStore();
     resetSheetsStore();
-
-    delete workerEnv.CF_ACCESS_AUD;
-    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
 
     // Seed profile in DB
     const nowIso = new Date().toISOString();

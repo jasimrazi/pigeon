@@ -19,6 +19,7 @@ import { Button } from './ui/Button.js';
 import { IntegrationsSettings } from './IntegrationsSettings.js';
 import { ResumesSettings } from './ResumesSettings.js';
 import { getStoredTheme, setStoredTheme, type ThemePreference } from '../theme.js';
+import { apiFetch } from '../api.js';
 
 export type SettingsSubTab = 'profile' | 'resumes' | 'integrations' | 'safety';
 
@@ -113,7 +114,7 @@ export function SettingsView({
     try {
       setLoading(true);
       setFeedback(null);
-      const res = await fetch(`${apiBase}/api/settings`);
+      const res = await apiFetch(`${apiBase}/api/settings`);
       if (!res.ok) {
         throw new Error(`Failed to load settings (${res.status})`);
       }
@@ -128,7 +129,7 @@ export function SettingsView({
 
       // Also fetch auth health for the Google status card
       try {
-        const healthRes = await fetch(`${apiBase}/api/auth/google/health`);
+        const healthRes = await apiFetch(`${apiBase}/api/auth/google/health`);
         if (healthRes.ok) {
           const hData = (await healthRes.json()) as {
             health?: {
@@ -178,7 +179,7 @@ export function SettingsView({
   const handleToggleKillSwitch = async (activate: boolean) => {
     try {
       setSaving(true);
-      const res = await fetch(`${apiBase}/api/settings/kill-switch`, {
+      const res = await apiFetch(`${apiBase}/api/settings/kill-switch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kill_switch: activate, confirmed: true }),
@@ -209,7 +210,7 @@ export function SettingsView({
   const handleToggleDryRun = async (isDryRun: boolean, confirmed = false) => {
     try {
       setSaving(true);
-      const res = await fetch(`${apiBase}/api/settings/dry-run`, {
+      const res = await apiFetch(`${apiBase}/api/settings/dry-run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dry_run: isDryRun, confirmed: isDryRun ? true : confirmed }),
@@ -277,7 +278,7 @@ export function SettingsView({
         },
       };
 
-      const res = await fetch(`${apiBase}/api/settings`, {
+      const res = await apiFetch(`${apiBase}/api/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

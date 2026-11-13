@@ -22,9 +22,7 @@ export interface Bindings {
   GOOGLE_TOKEN_ENCRYPTION_KEY?: string | undefined;
   GOOGLE_REDIRECT_URI?: string | undefined;
   GOOGLE_SHEET_ID?: string | undefined;
-  CF_ACCESS_AUD?: string | undefined;
-  CF_ACCESS_TEAM_DOMAIN?: string | undefined;
-  CF_ACCESS_ALLOWED_EMAIL?: string | undefined;
+  ADMIN_PASSWORD?: string | undefined;
   DASHBOARD_ORIGIN?: string | undefined;
   TELEGRAM_BOT_TOKEN?: string | undefined;
   TELEGRAM_CHAT_ID?: string | undefined;
@@ -51,6 +49,7 @@ export interface ValidatedEnv extends WorkerEnvVars {
   GOOGLE_SHEET_ID?: string | undefined;
   OWNER_GMAIL?: string | undefined;
   ALLOW_INSECURE_DEV_AUTH: boolean;
+  ADMIN_PASSWORD?: string | undefined;
 }
 
 export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): ValidatedEnv {
@@ -108,6 +107,11 @@ export function validateWorkerEnv(rawEnv: Bindings, isTest?: boolean): Validated
   }
   if (parsed.ALLOW_INSECURE_DEV_AUTH !== undefined) {
     result.ALLOW_INSECURE_DEV_AUTH = parsed.ALLOW_INSECURE_DEV_AUTH;
+  }
+  if (parsed.ADMIN_PASSWORD !== undefined) {
+    result.ADMIN_PASSWORD = parsed.ADMIN_PASSWORD;
+  } else if (typeof rawEnv.ADMIN_PASSWORD === 'string') {
+    result.ADMIN_PASSWORD = rawEnv.ADMIN_PASSWORD;
   }
 
   return result;

@@ -155,34 +155,27 @@ async function run() {
     process.exit(1);
   }
 
-  // 3. Prompt for Cloudflare Access details (staging & prod)
-  let cfAccessAud = process.env.CF_ACCESS_AUD || '';
-  let cfAccessTeamDomain = process.env.CF_ACCESS_TEAM_DOMAIN || '';
-  let cfAccessAllowedEmail = process.env.CF_ACCESS_ALLOWED_EMAIL || '';
-
-  if (envName === 'staging' || envName === 'prod') {
-    console.log('\nCloudflare Access Credentials (from Zero Trust > Access > Applications):');
-    if (!cfAccessAud) {
-      cfAccessAud = await promptHidden('Enter CF_ACCESS_AUD (Audience tag from Cloudflare Access)');
-    }
-    if (!cfAccessTeamDomain) {
-      cfAccessTeamDomain = await promptVisible(
-        'Enter CF_ACCESS_TEAM_DOMAIN (e.g. myteam.cloudflareaccess.com)',
+  // 3. Prompt for Admin Password
+  let adminPassword = process.env.ADMIN_PASSWORD || '';
+  if (!adminPassword) {
+    if (envName === 'dev') {
+      const generated = crypto.randomBytes(16).toString('hex');
+      adminPassword = await promptVisible(
+        'Enter ADMIN_PASSWORD (or press Enter to use generated password)',
+        generated,
       );
-    }
-    if (!cfAccessAllowedEmail) {
-      cfAccessAllowedEmail = await promptVisible('Enter CF_ACCESS_ALLOWED_EMAIL', ownerGmail);
+    } else {
+      adminPassword = await promptHidden(
+        'Enter ADMIN_PASSWORD (minimum 8 characters for dashboard login)',
+      );
     }
   }
 
   const secrets = {
     SETTINGS_ENCRYPTION_KEY: masterKey,
     OWNER_GMAIL: ownerGmail,
+    ADMIN_PASSWORD: adminPassword,
   };
-
-  if (cfAccessAud) secrets.CF_ACCESS_AUD = cfAccessAud;
-  if (cfAccessTeamDomain) secrets.CF_ACCESS_TEAM_DOMAIN = cfAccessTeamDomain;
-  if (cfAccessAllowedEmail) secrets.CF_ACCESS_ALLOWED_EMAIL = cfAccessAllowedEmail;
 
   if (envName === 'dev') {
     updateDevVars(secrets);
@@ -196,11 +189,7 @@ async function run() {
   console.log('Summary:');
   console.log('  - Master encryption key generated and stored.');
   console.log(`  - Owner Gmail configured: ${ownerGmail}`);
-  if (envName !== 'dev') {
-    console.log(
-      `  - Cloudflare Access protection configured for team domain: ${cfAccessTeamDomain}`,
-    );
-  }
+  console.log('  - Admin password configured for dashboard access.');
   console.log('\nRun `pnpm check:config` to verify readiness.\n');
 }
 

@@ -18,6 +18,7 @@ import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { SecretSettingField } from './SecretSettingField.js';
 import { ConfirmationModal } from './ConfirmationModal.js';
+import { apiFetch } from '../api.js';
 
 interface Props {
   apiBase?: string;
@@ -123,7 +124,7 @@ export function IntegrationsSettings({
   };
 
   const updateSetting = async (key: string, value: string) => {
-    const res = await fetch(`${apiBase}/api/settings/${key}`, {
+    const res = await apiFetch(`${apiBase}/api/settings/${key}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value }),
@@ -135,7 +136,7 @@ export function IntegrationsSettings({
   };
 
   const clearSetting = async (key: string) => {
-    const res = await fetch(`${apiBase}/api/settings/${key}`, {
+    const res = await apiFetch(`${apiBase}/api/settings/${key}`, {
       method: 'DELETE',
     });
     if (!res.ok) {
@@ -233,7 +234,7 @@ export function IntegrationsSettings({
     try {
       setTestingSheets(true);
       setSheetsTestResult(null);
-      const res = await fetch(`${apiBase}/api/settings/test/sheets`, {
+      const res = await apiFetch(`${apiBase}/api/settings/test/sheets`, {
         method: 'POST',
       });
       const data = (await res.json()) as { ok: boolean; message: string };
@@ -281,7 +282,7 @@ export function IntegrationsSettings({
     try {
       setTestingLlm(true);
       setLlmTestResult(null);
-      const res = await fetch(`${apiBase}/api/settings/test/llm`, {
+      const res = await apiFetch(`${apiBase}/api/settings/test/llm`, {
         method: 'POST',
       });
       const data = (await res.json()) as { ok: boolean; message: string };
@@ -325,7 +326,7 @@ export function IntegrationsSettings({
     try {
       setTestingTelegram(true);
       setTelegramTestResult(null);
-      const res = await fetch(`${apiBase}/api/settings/test/telegram`, {
+      const res = await apiFetch(`${apiBase}/api/settings/test/telegram`, {
         method: 'POST',
       });
       const data = (await res.json()) as { ok: boolean; message: string };

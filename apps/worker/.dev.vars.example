@@ -29,10 +29,8 @@ GOOGLE_TOKEN_ENCRYPTION_KEY="0123456789abcdef0123456789abcdef0123456789abcdef012
 # Job seeker / candidate profile email address
 OWNER_GMAIL="user@example.com"
 
-# Cloudflare Access Configuration (required when ENV is staging or prod, or when ALLOW_INSECURE_DEV_AUTH=false)
-CF_ACCESS_AUD=""
-CF_ACCESS_TEAM_DOMAIN=""
-CF_ACCESS_ALLOWED_EMAIL=""
+# Admin Authentication Password (required when ENV is staging or prod, or when ALLOW_INSECURE_DEV_AUTH=false)
+ADMIN_PASSWORD=""
 
 # --- OPTIONAL DEV-CONVENIENCE VALUES ---
 # These are local fallbacks for development convenience only.

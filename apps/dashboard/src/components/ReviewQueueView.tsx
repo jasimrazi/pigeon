@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
+import { apiFetch } from '../api.js';
 
 export interface ReviewQueueItem {
   id: string;
@@ -68,8 +69,8 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       setLoading(true);
       setError(null);
       const [queueRes, resumesRes] = await Promise.all([
-        fetch(`${apiBase}/api/review-queue`),
-        fetch(`${apiBase}/api/resumes`).catch(() => null),
+        apiFetch(`${apiBase}/api/review-queue`),
+        apiFetch(`${apiBase}/api/resumes`).catch(() => null),
       ]);
 
       if (!queueRes.ok) {
@@ -131,7 +132,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
     if (!selectedItem) return;
     try {
       setSavingLetter(true);
-      const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/letter`, {
+      const res = await apiFetch(`${apiBase}/api/applications/${selectedItem.id}/letter`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ letter: editedLetter }),
@@ -172,7 +173,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
   const handleChangeResume = async (resumeId: string) => {
     if (!selectedItem) return;
     try {
-      const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/resume`, {
+      const res = await apiFetch(`${apiBase}/api/applications/${selectedItem.id}/resume`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resume_id: resumeId || null }),
@@ -202,7 +203,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
   const handleApprove = async () => {
     if (!selectedItem) return;
     try {
-      const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/approve`, {
+      const res = await apiFetch(`${apiBase}/api/applications/${selectedItem.id}/approve`, {
         method: 'POST',
       });
       if (!res.ok) {
@@ -225,7 +226,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
     if (!selectedItem) return;
     if (!confirm(`Reject and dismiss application for ${selectedItem.company}?`)) return;
     try {
-      const res = await fetch(`${apiBase}/api/applications/${selectedItem.id}/reject`, {
+      const res = await apiFetch(`${apiBase}/api/applications/${selectedItem.id}/reject`, {
         method: 'POST',
       });
       if (!res.ok) {
@@ -256,7 +257,7 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
 
     try {
       const safeIds = safeItems.map((it) => it.id);
-      const res = await fetch(`${apiBase}/api/applications/bulk-approve`, {
+      const res = await apiFetch(`${apiBase}/api/applications/bulk-approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: safeIds }),

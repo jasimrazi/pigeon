@@ -19,9 +19,7 @@ This guide details all required secrets and configuration variables for Pigeon a
 | `ADZUNA_APP_KEY`              | Adzuna Job Source             | Adzuna Developer Application Key                               | `9f8e7d6c5b4a3...`                                                 |
 | `TELEGRAM_BOT_TOKEN`          | Alert Notifier                | Telegram Bot Token obtained from `@BotFather`                  | `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`                             |
 | `TELEGRAM_CHAT_ID`            | Alert Notifier                | Telegram Chat ID of owner to receive notifications             | `987654321`                                                        |
-| `CF_ACCESS_AUD`               | Cloudflare Access Auth        | Expected Audience (`aud`) tag from Access Application          | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
-| `CF_ACCESS_TEAM_DOMAIN`       | Cloudflare Access Auth        | Team domain hosting the Access authentication certs            | `https://my-team.cloudflareaccess.com`                             |
-| `CF_ACCESS_ALLOWED_EMAIL`     | Cloudflare Access Auth        | Owner email claim required on incoming Access JWTs             | `owner@example.com`                                                |
+| `ADMIN_PASSWORD`              | Owner Authentication          | Admin password / Bearer token for API & dashboard access        | Minimum 8 characters string                                         |
 
 ---
 
@@ -74,10 +72,8 @@ pnpm --filter @pigeon/worker exec wrangler secret put ADZUNA_APP_KEY --env stagi
 pnpm --filter @pigeon/worker exec wrangler secret put TELEGRAM_BOT_TOKEN --env staging
 pnpm --filter @pigeon/worker exec wrangler secret put TELEGRAM_CHAT_ID --env staging
 
-# Cloudflare Access
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_AUD --env staging
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_TEAM_DOMAIN --env staging
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_ALLOWED_EMAIL --env staging
+# Owner Authentication
+pnpm --filter @pigeon/worker exec wrangler secret put ADMIN_PASSWORD --env staging
 
 # Optional LLM
 pnpm --filter @pigeon/worker exec wrangler secret put GEMINI_API_KEY --env staging
@@ -99,10 +95,8 @@ pnpm --filter @pigeon/worker exec wrangler secret put ADZUNA_APP_KEY --env prod
 pnpm --filter @pigeon/worker exec wrangler secret put TELEGRAM_BOT_TOKEN --env prod
 pnpm --filter @pigeon/worker exec wrangler secret put TELEGRAM_CHAT_ID --env prod
 
-# Cloudflare Access
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_AUD --env prod
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_TEAM_DOMAIN --env prod
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_ALLOWED_EMAIL --env prod
+# Owner Authentication
+pnpm --filter @pigeon/worker exec wrangler secret put ADMIN_PASSWORD --env prod
 
 # Optional LLM
 pnpm --filter @pigeon/worker exec wrangler secret put GEMINI_API_KEY --env prod

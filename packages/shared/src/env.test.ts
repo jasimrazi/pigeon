@@ -81,15 +81,51 @@ describe('packages/shared env validation', () => {
     const result = validateEnv({
       DRY_RUN: 'true',
       ENV: 'dev',
-      CF_ACCESS_ALLOWED_EMAIL: '',
+      ADMIN_PASSWORD: '',
       GEMINI_API_KEY: '',
       ADZUNA_APP_ID: '',
       ADZUNA_APP_KEY: '',
     });
-    expect(result.CF_ACCESS_ALLOWED_EMAIL).toBeUndefined();
+    expect(result.ADMIN_PASSWORD).toBeUndefined();
     expect(result.GEMINI_API_KEY).toBeUndefined();
     expect(result.ADZUNA_APP_ID).toBeUndefined();
     expect(result.ADZUNA_APP_KEY).toBeUndefined();
+  });
+
+  it('enforces ADMIN_PASSWORD is required and at least 8 chars in staging/prod when not in test mode', () => {
+    expect(() =>
+      validateEnv(
+        {
+          DRY_RUN: 'false',
+          ENV: 'staging',
+          GOOGLE_TOKEN_ENCRYPTION_KEY: '12345678901234567890123456789012',
+        },
+        false,
+      ),
+    ).toThrowError(/ADMIN_PASSWORD/);
+
+    expect(() =>
+      validateEnv(
+        {
+          DRY_RUN: 'false',
+          ENV: 'staging',
+          GOOGLE_TOKEN_ENCRYPTION_KEY: '12345678901234567890123456789012',
+          ADMIN_PASSWORD: 'short',
+        },
+        false,
+      ),
+    ).toThrowError(/ADMIN_PASSWORD.*at least 8 characters/);
+
+    const valid = validateEnv(
+      {
+        DRY_RUN: 'false',
+        ENV: 'staging',
+        GOOGLE_TOKEN_ENCRYPTION_KEY: '12345678901234567890123456789012',
+        ADMIN_PASSWORD: 'secure-password-123',
+      },
+      false,
+    );
+    expect(valid.ADMIN_PASSWORD).toBe('secure-password-123');
   });
 
   describe('getGoogleClient helper', () => {

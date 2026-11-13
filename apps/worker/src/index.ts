@@ -37,7 +37,6 @@ import {
   syncApplicationsToSheet,
   getValidAccessToken,
   pollInboxAndTrackOutcomes,
-  verifyCfAccessJwt,
   calculateEffectiveCap,
   calculateFailureRate,
   checkFailureRateAlert,
@@ -103,14 +102,15 @@ app.use('*', async (c, next) => {
       return c.json({ error: 'Service Unavailable: Missing or invalid ENV configuration' }, 503);
     }
     if (envMode === 'staging' || envMode === 'prod') {
-      if (
-        !c.env.CF_ACCESS_AUD ||
-        !c.env.CF_ACCESS_TEAM_DOMAIN ||
-        !c.env.CF_ACCESS_ALLOWED_EMAIL ||
-        !c.env.OWNER_GMAIL
-      ) {
+      if (!c.env.ADMIN_PASSWORD) {
         return c.json(
-          { error: 'Service Unavailable: Cloudflare Access or Owner configuration missing' },
+          { error: 'Service Unavailable: Admin password or Owner configuration missing' },
+          503,
+        );
+      }
+      if (!c.env.OWNER_GMAIL) {
+        return c.json(
+          { error: 'Service Unavailable: Admin password or Owner configuration missing' },
           503,
         );
       }
@@ -154,8 +154,27 @@ export const BulkApproveRequestSchema = z
     message: "Missing required 'ids' or 'application_ids' array in body",
   });
 
+/**
+ * Constant-time comparison of admin password / token using SHA-256 digest
+ * to prevent timing attacks.
+ */
+export async function verifyAdminPassword(provided: string, expected: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const providedBuf = encoder.encode(provided);
+  const expectedBuf = encoder.encode(expected);
+
+  const providedHash = new Uint8Array(await crypto.subtle.digest('SHA-256', providedBuf));
+  const expectedHash = new Uint8Array(await crypto.subtle.digest('SHA-256', expectedBuf));
+
+  let diff = 0;
+  for (let i = 0; i < providedHash.byteLength; i++) {
+    diff |= (providedHash[i] ?? 0) ^ (expectedHash[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 // -------------------------------------------------------------
-// Security Middleware: CORS, State-Changing Requests, CF Access
+// Security Middleware: CORS, State-Changing Requests, Owner Token Auth
 // -------------------------------------------------------------
 app.use('*', async (c, next) => {
   const origin = c.req.header('origin') || '';
@@ -185,7 +204,7 @@ app.use('*', async (c, next) => {
     c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     c.header(
       'Access-Control-Allow-Headers',
-      'Content-Type, Cf-Access-Jwt-Assertion, Authorization',
+      'Content-Type, Authorization',
     );
   }
 
@@ -221,39 +240,55 @@ app.use('*', async (c, next) => {
     }
   }
 
-  // Cloudflare Access JWT Assertion check for /api/* and /auth/*
+  // Owner Bearer token / password check for /api/* and /auth/*
   if (path.startsWith('/api') || path.startsWith('/auth')) {
     const envMode = c.env.ENV as string;
     const isDev = envMode === 'dev';
     const allowInsecureDevAuth =
       c.env.ALLOW_INSECURE_DEV_AUTH === true || c.env.ALLOW_INSECURE_DEV_AUTH === 'true';
 
-    // Cloudflare Access JWT Assertion check for /api/* and /auth/google/*
+    // Allow bypassing auth ONLY when ENV=dev AND ALLOW_INSECURE_DEV_AUTH=true
     if (isDev && allowInsecureDevAuth) {
       // Skip the check only when ENV=dev AND ALLOW_INSECURE_DEV_AUTH=true
     } else {
-      const cfAccessAud = (c.env.CF_ACCESS_AUD as string) || undefined;
-      const cfAccessTeamDomain = (c.env.CF_ACCESS_TEAM_DOMAIN as string) || undefined;
-      const cfAccessAllowedEmail = (c.env.CF_ACCESS_ALLOWED_EMAIL as string) || undefined;
+      const adminPassword =
+        typeof c.env.ADMIN_PASSWORD === 'string' && c.env.ADMIN_PASSWORD.length > 0
+          ? c.env.ADMIN_PASSWORD
+          : undefined;
 
-      // If Cloudflare Access is unconfigured: fail closed (503)
-      if (!cfAccessAud || !cfAccessTeamDomain) {
-        return c.json({ error: 'Service Unavailable: Cloudflare Access not configured' }, 503);
+      // If Admin Password is not configured: fail closed (503)
+      if (!adminPassword) {
+        return c.json({ error: 'Service Unavailable: Admin password not configured' }, 503);
       }
 
-      const assertion = c.req.header('cf-access-jwt-assertion');
-      if (!assertion) {
-        return c.json({ error: 'Unauthorized: Missing Cf-Access-Jwt-Assertion header' }, 401);
+      let token: string | undefined;
+      const authHeader = c.req.header('authorization');
+      if (authHeader) {
+        const match = authHeader.match(/^Bearer\s+(.+)$/i);
+        const matchedToken = match?.[1]?.trim();
+        if (matchedToken) {
+          token = matchedToken;
+        } else {
+          return c.json({ error: 'Unauthorized: Invalid Authorization header format' }, 401);
+        }
+      } else {
+        const cookieHeader = c.req.header('cookie');
+        if (cookieHeader) {
+          const cookieMatch = cookieHeader.match(/(?:^|;\s*)pigeon_token=([^;]+)/);
+          const matchedCookie = cookieMatch?.[1]?.trim();
+          if (matchedCookie) {
+            token = decodeURIComponent(matchedCookie);
+          }
+        }
       }
 
-      const verifyRes = await verifyCfAccessJwt(assertion, {
-        teamDomain: cfAccessTeamDomain,
-        audience: cfAccessAud,
-        allowedEmail: cfAccessAllowedEmail,
-      });
+      if (!token) {
+        return c.json({ error: 'Unauthorized: Missing Authorization header' }, 401);
+      }
 
-      if (!verifyRes.valid) {
-        return c.json({ error: `Unauthorized: ${verifyRes.reason || 'Invalid Access JWT'}` }, 401);
+      const isValid = await verifyAdminPassword(token, adminPassword);
+      if (!isValid) {
+        return c.json({ error: 'Unauthorized: Invalid admin password' }, 401);
       }
     }
   }
@@ -291,6 +326,11 @@ app.get('/health', (c) => {
     dryRun: env.DRY_RUN,
     env: env.ENV,
   });
+});
+
+// GET /api/auth/verify returns {ok:true} when owner token is authenticated
+app.get('/api/auth/verify', (c) => {
+  return c.json({ ok: true });
 });
 
 // POST /api/resumes: PDF only (%PDF magic bytes), max 5 MB, stored in R2, tags supplied by caller

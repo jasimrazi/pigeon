@@ -48,7 +48,6 @@ export const WorkerEnvVarsSchema = z.object({
     .default(false),
   GOOGLE_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().optional()),
   GOOGLE_SHEET_ID: z.preprocess(emptyToUndefined, z.string().optional()),
-  CF_ACCESS_ALLOWED_EMAIL: z.preprocess(emptyToUndefined, z.string().email().optional()),
   OWNER_GMAIL: z.preprocess(emptyToUndefined, z.string().email().optional()),
   ALLOW_INSECURE_DEV_AUTH: z
     .union([z.enum(['true', 'false']).transform((v) => v === 'true'), z.boolean()])
@@ -58,6 +57,7 @@ export const WorkerEnvVarsSchema = z.object({
 });
 
 export const WorkerSecretsSchema = z.object({
+  ADMIN_PASSWORD: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   GEMINI_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   ADZUNA_APP_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   ADZUNA_APP_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
@@ -94,6 +94,14 @@ export function createEnvSchema(isTest = false) {
           path: ['GOOGLE_TOKEN_ENCRYPTION_KEY'],
           message:
             'GOOGLE_TOKEN_ENCRYPTION_KEY is required and must be at least 32 characters in staging and prod',
+        });
+      }
+      if (!data.ADMIN_PASSWORD || data.ADMIN_PASSWORD.length < 8) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ADMIN_PASSWORD'],
+          message:
+            'ADMIN_PASSWORD is required and must be at least 8 characters in staging and prod',
         });
       }
     }

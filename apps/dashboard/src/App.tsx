@@ -11,7 +11,10 @@ import {
   History,
   ShieldCheck,
   X,
+  LogOut,
 } from 'lucide-react';
+import { getStoredToken, clearStoredToken, onUnauthorized, apiFetch } from './api.js';
+import { LoginView } from './components/LoginView.js';
 import { OverviewView } from './components/OverviewView.js';
 import { ReviewQueueView } from './components/ReviewQueueView.js';
 import { ManualQueueView } from './components/ManualQueueView.js';
@@ -33,6 +36,7 @@ export type TabKey =
   | 'setup';
 
 export function App(): React.JSX.Element {
+  const [token, setToken] = useState<string | null>(() => getStoredToken());
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     if (typeof window !== 'undefined' && window.location.pathname === '/setup') {
       return 'setup';
@@ -50,6 +54,13 @@ export function App(): React.JSX.Element {
 
   const apiBase = (import.meta.env?.VITE_API_BASE as string | undefined) || '';
 
+  useEffect(() => {
+    const unsubscribe = onUnauthorized(() => {
+      setToken(null);
+    });
+    return unsubscribe;
+  }, []);
+
   const isMoreActive =
     mobileMenuOpen ||
     activeTab === 'sources' ||
@@ -58,8 +69,9 @@ export function App(): React.JSX.Element {
     activeTab === 'setup';
 
   const loadHeaderStatus = useCallback(async () => {
+    if (!token) return;
     try {
-      const res = await fetch(`${apiBase}/api/overview`);
+      const res = await apiFetch(`${apiBase}/api/overview`);
       if (res.ok) {
         const data = (await res.json()) as {
           killSwitch?: boolean;
@@ -82,15 +94,17 @@ export function App(): React.JSX.Element {
     } catch {
       setHeaderState('error');
     }
-  }, []);
+  }, [apiBase, token]);
 
   useEffect(() => {
-    void loadHeaderStatus();
-  }, [loadHeaderStatus, refreshTrigger]);
+    if (token) {
+      void loadHeaderStatus();
+    }
+  }, [loadHeaderStatus, refreshTrigger, token]);
 
   const handleToggleKillSwitch = async (activate: boolean) => {
     try {
-      const res = await fetch(`${apiBase}/api/settings/kill-switch`, {
+      const res = await apiFetch(`${apiBase}/api/settings/kill-switch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kill_switch: activate, confirmed: true }),
@@ -106,6 +120,17 @@ export function App(): React.JSX.Element {
       setShowKsModal(false);
     }
   };
+
+  if (!token) {
+    return (
+      <LoginView
+        onLoginSuccess={(newToken) => {
+          setToken(newToken);
+        }}
+        apiBase={apiBase}
+      />
+    );
+  }
 
   const navItems: Array<{ key: TabKey; label: string }> = [
     { key: 'overview', label: 'Overview' },
@@ -308,6 +333,21 @@ export function App(): React.JSX.Element {
                     aria-hidden="true"
                   />
                   {killSwitch ? 'KILL SWITCH ON' : 'Kill Switch Off'}
+                </button>
+
+                {/* Sign Out Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearStoredToken();
+                    setToken(null);
+                  }}
+                  data-testid="header-signout-button"
+                  title="Sign out / Lock dashboard"
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted hover:text-fg hover:bg-surface transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <LogOut size={13} aria-hidden="true" />
+                  <span className="hidden sm:inline">Sign Out</span>
                 </button>
               </>
             )}

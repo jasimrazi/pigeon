@@ -3,6 +3,7 @@ import { AlertTriangle, Info, Loader2, Radio, RefreshCw } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
+import { apiFetch } from '../api.js';
 
 export interface SourceStatusItem {
   name: string;
@@ -34,7 +35,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${apiBase}/api/sources`);
+      const res = await apiFetch(`${apiBase}/api/sources`);
       if (!res.ok) {
         throw new Error(`Failed to load sources (${res.status})`);
       }

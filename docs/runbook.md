@@ -68,9 +68,8 @@ Follow this procedure when periodically rotating credentials or when an API key 
 ### Routine Secret Rotation
 
 ```bash
-# 1. Update Cloudflare Access credentials if audience or certificates changed
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_AUD --env prod
-pnpm --filter @pigeon/worker exec wrangler secret put CF_ACCESS_TEAM_DOMAIN --env prod
+# 1. Update Admin Authentication Password
+pnpm --filter @pigeon/worker exec wrangler secret put ADMIN_PASSWORD --env prod
 
 # 2. Update Job Source API keys
 pnpm --filter @pigeon/worker exec wrangler secret put ADZUNA_APP_ID --env prod

@@ -26,10 +26,6 @@ describe('Worker Operations, Review Queue & Kill Switch Workflow', () => {
     workerEnv.GOOGLE_CLIENT_SECRET = 'test-ops-client-secret';
     workerEnv.GOOGLE_TOKEN_ENCRYPTION_KEY = 'test-encryption-key-for-wrangler';
 
-    // Disable CF Access in this test file so we test operations logic directly
-    delete workerEnv.CF_ACCESS_AUD;
-    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
-
     const nowIso = new Date().toISOString();
     await workerEnv.DB.prepare(
       `INSERT OR REPLACE INTO profile (id, data, updated_at) VALUES (?, ?, ?)`,
@@ -72,8 +68,6 @@ describe('Worker Operations, Review Queue & Kill Switch Workflow', () => {
 
   beforeEach(async () => {
     server.use(...googleHandlers);
-    delete workerEnv.CF_ACCESS_AUD;
-    delete workerEnv.CF_ACCESS_TEAM_DOMAIN;
 
     // Setup valid Google Auth in KV
     const encrypted = await encryptRefreshToken(

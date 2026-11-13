@@ -18,6 +18,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { Button } from './ui/Button.js';
+import { apiFetch } from '../api.js';
 
 interface Props {
   apiBase?: string;
@@ -90,7 +91,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
   const loadResumes = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${apiBase}/api/resumes`);
+      const res = await apiFetch(`${apiBase}/api/resumes`);
       if (!res.ok) {
         throw new Error(`Failed to load resumes (${res.status})`);
       }
@@ -250,7 +251,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
       formData.append('tags', JSON.stringify(tags));
       formData.append('is_default', String(isFirstResume ? true : isDefault));
 
-      const res = await fetch(`${apiBase}/api/resumes`, {
+      const res = await apiFetch(`${apiBase}/api/resumes`, {
         method: 'POST',
         headers: {
           Origin: window.location.origin,
@@ -296,7 +297,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
   const handleSetDefault = async (resume: ResumeSummary) => {
     try {
       setFeedback(null);
-      const res = await fetch(`${apiBase}/api/resumes/${resume.id}`, {
+      const res = await apiFetch(`${apiBase}/api/resumes/${resume.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -342,7 +343,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
 
     try {
       setSavingEdit(true);
-      const res = await fetch(`${apiBase}/api/resumes/${editingResume.id}`, {
+      const res = await apiFetch(`${apiBase}/api/resumes/${editingResume.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -377,7 +378,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
 
     try {
       setDeleting(true);
-      const res = await fetch(`${apiBase}/api/resumes/${deleteModalResume.id}`, {
+      const res = await apiFetch(`${apiBase}/api/resumes/${deleteModalResume.id}`, {
         method: 'DELETE',
         headers: {
           Origin: window.location.origin,
@@ -418,7 +419,7 @@ export function ResumesSettings({ apiBase = '' }: Props): React.JSX.Element {
 
     try {
       setReassigning(true);
-      const res = await fetch(`${apiBase}/api/resumes/${deleteModalResume.id}/reassign`, {
+      const res = await apiFetch(`${apiBase}/api/resumes/${deleteModalResume.id}/reassign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

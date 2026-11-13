@@ -16,6 +16,7 @@ import {
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
+import { apiFetch } from '../api.js';
 
 interface Props {
   apiBase?: string;
@@ -41,7 +42,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${apiBase}/api/manual`);
+      const res = await apiFetch(`${apiBase}/api/manual`);
       if (!res.ok) {
         throw new Error(`Failed to load queue (${res.status})`);
       }
@@ -75,7 +76,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     async function loadKit() {
       try {
         setKitLoading(true);
-        const res = await fetch(`${apiBase}/api/manual/${selectedId}/kit`);
+        const res = await apiFetch(`${apiBase}/api/manual/${selectedId}/kit`);
         if (!res.ok) {
           throw new Error('Failed to load kit');
         }
@@ -114,7 +115,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   const handleMarkApplied = useCallback(async () => {
     if (!selectedId) return;
     try {
-      const res = await fetch(`${apiBase}/api/manual/${selectedId}/applied`, {
+      const res = await apiFetch(`${apiBase}/api/manual/${selectedId}/applied`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -134,7 +135,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     if (!selectedId) return;
     const reason = window.prompt('Reason for skipping this job:', 'NOT_INTERESTED') || 'SKIPPED';
     try {
-      const res = await fetch(`${apiBase}/api/manual/${selectedId}/skip`, {
+      const res = await apiFetch(`${apiBase}/api/manual/${selectedId}/skip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
@@ -154,7 +155,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     async (days = 3) => {
       if (!selectedId) return;
       try {
-        const res = await fetch(`${apiBase}/api/manual/${selectedId}/snooze`, {
+        const res = await apiFetch(`${apiBase}/api/manual/${selectedId}/snooze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ days }),
@@ -189,7 +190,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     setSavingLetter(true);
     setLetterErrors([]);
     try {
-      const res = await fetch(`${apiBase}/api/applications/${selectedId}/letter`, {
+      const res = await apiFetch(`${apiBase}/api/applications/${selectedId}/letter`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cover_letter: editedLetter }),

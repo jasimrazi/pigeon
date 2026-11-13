@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
+import { apiFetch } from '../api.js';
 
 export interface SetupItem {
   id: string;
@@ -38,7 +39,7 @@ export function SetupView({ apiBase = '', onNavigateTab }: Props): React.JSX.Ele
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${apiBase}/api/setup/status`);
+      const res = await apiFetch(`${apiBase}/api/setup/status`);
       if (!res.ok) {
         throw new Error(`Failed to load setup status (${res.status})`);
       }

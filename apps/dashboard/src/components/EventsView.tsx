@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { History, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
+import { apiFetch } from '../api.js';
 
 export interface AuditEventItem {
   id: string;
@@ -35,7 +36,7 @@ export function EventsView({ apiBase = '' }: Props): React.JSX.Element {
       if (entityFilter) params.set('entity', entityFilter);
       if (typeFilter) params.set('type', typeFilter);
 
-      const res = await fetch(`${apiBase}/api/events?${params.toString()}`);
+      const res = await apiFetch(`${apiBase}/api/events?${params.toString()}`);
       if (!res.ok) {
         throw new Error(`Failed to load events (${res.status})`);
       }

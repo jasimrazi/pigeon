@@ -4,16 +4,12 @@ This document details the security verification performed across Pigeon's archit
 
 ---
 
-## 1. Cloudflare Access JWT Verification on `/api/*`
+## 1. Owner Token Authentication on `/api/*`
 
-- **Enforcement**: Middleware in `apps/worker/src/index.ts` validates the `Cf-Access-Jwt-Assertion` header on every route under `/api/*`.
+- **Enforcement**: Middleware in `apps/worker/src/index.ts` validates the `Authorization: Bearer <ADMIN_PASSWORD>` header (or `pigeon_token` cookie) on every route under `/api/*` and `/auth/*`.
 - **Cryptographic Guarantees**:
-  - Algorithm strictly pinned to `RS256` (header `alg === "RS256"` required).
-  - Public keys retrieved from Cloudflare Access JWKS (`${CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`).
-  - Single JWKS refresh attempt on unknown `kid` to handle key rollover without false rejections.
-  - Verification of audience (`aud === env.CF_ACCESS_AUD`).
-  - Verification of issuer (`iss === env.CF_ACCESS_TEAM_DOMAIN`).
-  - Owner authorization check: JWT claim `email === env.CF_ACCESS_ALLOWED_EMAIL`.
+  - Constant-time verification using WebCrypto SHA-256 digest (`crypto.subtle.digest('SHA-256', ...)`) preventing timing side-channel attacks on password length or contents.
+  - Fail-closed behavior: returns HTTP 503 if `ADMIN_PASSWORD` is not configured on the worker in staging/prod.
 - **CORS & CSRF Defense**:
   - All state-changing HTTP methods (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid `Origin` header matching `DASHBOARD_ORIGIN`. Unmatched or missing origins are rejected with 403 Forbidden.
 

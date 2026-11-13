@@ -26,20 +26,13 @@ This document guides a new owner through deploying their own instance of **Pigeo
 
 ---
 
-## 3. Cloudflare Access Zero Trust Setup
+## 3. Owner Admin Password Authentication
 
-To prevent unauthorized public access to your personal job applications, Pigeon requires Cloudflare Access:
+Pigeon uses simple, self-contained single-owner Bearer token / admin password authentication, allowing the app to run on a Cloudflare Free account without requiring Cloudflare Zero Trust.
 
-1. In the [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com/):
-   - Navigate to **Settings > Custom Pages** and note your **Team Domain** (e.g. `myteam.cloudflareaccess.com`).
-2. Navigate to **Access > Applications > Add an application**:
-   - Choose **Self-hosted**.
-   - **Application name**: `Pigeon Dashboard`.
-   - **Application domain**: your custom domain or pages URL (e.g. `pigeon.yourdomain.com`).
-3. Under **Policies**:
-   - Add an Allow rule with **Selector**: `Emails` -> enter your personal Google email (`OWNER_GMAIL`).
-4. Under **Advanced settings**:
-   - Copy the **Application Audience (AUD) Tag**. This is your `CF_ACCESS_AUD`.
+- Your admin password is set via `ADMIN_PASSWORD` Worker secret.
+- The dashboard prompts you for this password on initial load, stores it in `localStorage`, and sends `Authorization: Bearer <password>` on all API requests.
+- All mutating endpoints enforce strict CORS Origin checks matching your dashboard domain.
 
 ---
 
@@ -82,9 +75,7 @@ The script will:
 1. Automatically generate a cryptographically secure 32-byte master encryption key (`SETTINGS_ENCRYPTION_KEY`) using `WebCrypto/crypto.randomBytes(32)` encoded as base64.
 2. Securely prompt for your bootstrap values without echoing sensitive characters:
    - `OWNER_GMAIL`: Your primary Gmail address.
-   - `CF_ACCESS_AUD`: Cloudflare Access Application Audience tag copied in Step 3.
-   - `CF_ACCESS_TEAM_DOMAIN`: Your Zero Trust team domain (e.g. `myteam.cloudflareaccess.com`).
-   - `CF_ACCESS_ALLOWED_EMAIL`: Your authorized login email (defaults to `OWNER_GMAIL`).
+   - `ADMIN_PASSWORD`: Your secret admin password for single-owner dashboard and API access.
 3. Safely set each secret in your production worker using `wrangler secret put`.
 
 ---
