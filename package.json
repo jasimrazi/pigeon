@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@12.16.1",
   "scripts": {
+    "build": "pnpm -r --if-present run build",
     "dev": "pnpm --filter @pigeon/worker dev",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
