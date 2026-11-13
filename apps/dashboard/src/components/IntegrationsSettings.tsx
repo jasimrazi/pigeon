@@ -236,9 +236,21 @@ export function IntegrationsSettings({
       setSheetsTestResult(null);
       const res = await apiFetch(`${apiBase}/api/settings/test/sheets`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
-      const data = (await res.json()) as { ok: boolean; message: string };
-      setSheetsTestResult(data);
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+      setSheetsTestResult({
+        ok: Boolean(data.ok),
+        message:
+          data.message ||
+          data.error ||
+          (res.ok ? 'Google Sheets test succeeded' : 'Google Sheets test failed'),
+      });
     } catch (err) {
       setSheetsTestResult({
         ok: false,
@@ -284,9 +296,25 @@ export function IntegrationsSettings({
       setLlmTestResult(null);
       const res = await apiFetch(`${apiBase}/api/settings/test/llm`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: llmProvider,
+          model: llmModel,
+          geminiApiKey: geminiApiKey || undefined,
+        }),
       });
-      const data = (await res.json()) as { ok: boolean; message: string };
-      setLlmTestResult(data);
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+      setLlmTestResult({
+        ok: Boolean(data.ok),
+        message:
+          data.message ||
+          data.error ||
+          (res.ok ? 'LLM test completion succeeded' : 'LLM test completion failed'),
+      });
     } catch (err) {
       setLlmTestResult({
         ok: false,
@@ -328,9 +356,21 @@ export function IntegrationsSettings({
       setTelegramTestResult(null);
       const res = await apiFetch(`${apiBase}/api/settings/test/telegram`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
-      const data = (await res.json()) as { ok: boolean; message: string };
-      setTelegramTestResult(data);
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+      setTelegramTestResult({
+        ok: Boolean(data.ok),
+        message:
+          data.message ||
+          data.error ||
+          (res.ok ? 'Telegram test succeeded' : 'Telegram test failed'),
+      });
     } catch (err) {
       setTelegramTestResult({
         ok: false,
@@ -857,7 +897,7 @@ export function IntegrationsSettings({
                 if (nextProvider === 'workers-ai' && !llmModel.startsWith('@cf/')) {
                   setLlmModel('@cf/meta/llama-3.3-70b-instruct');
                 } else if (nextProvider === 'gemini' && llmModel.startsWith('@cf/')) {
-                  setLlmModel('gemini-1.5-flash');
+                  setLlmModel('gemini-3.5-flash-lite');
                 }
               }}
               className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -885,7 +925,7 @@ export function IntegrationsSettings({
               placeholder={
                 llmProvider === 'workers-ai'
                   ? '@cf/meta/llama-3.3-70b-instruct'
-                  : 'gemini-1.5-flash'
+                  : 'gemini-3.5-flash-lite'
               }
               className="w-full text-[13px] font-mono px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             />

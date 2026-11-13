@@ -243,7 +243,7 @@ app.use('*', async (c, next) => {
     } else {
       const contentLength = c.req.header('content-length');
       const hasBody =
-        (contentLength !== undefined && contentLength !== '0') || c.req.raw.body !== null;
+        contentLength !== undefined ? contentLength !== '0' : c.req.raw.body !== null;
       if (hasBody && !contentType.includes('application/json')) {
         return c.json({ error: 'Unsupported Media Type: expected application/json' }, 415);
       }
@@ -2573,26 +2573,57 @@ app.post('/api/settings/test/:target', async (c) => {
       }
     }
   } else if (target === 'llm') {
-    const llmConfig = appConfig.getLlmConfig();
+    let testBody: { provider?: string; model?: string; geminiApiKey?: string } = {};
     try {
-      const llmClient = createLLMClient({
-        provider: llmConfig.provider,
-        ai: c.env.AI as CloudflareAiBinding | undefined,
-        geminiApiKey: llmConfig.geminiApiKey,
-        model: llmConfig.model,
-      });
-      await llmClient.generateText('Respond with {"ok":true}');
-      result = {
-        ok: true,
-        code: 'ok',
-        message: `LLM test completion succeeded with ${llmConfig.provider} (${llmConfig.model})`,
-      };
+      const raw = await c.req.json();
+      if (raw && typeof raw === 'object') {
+        testBody = raw as { provider?: string; model?: string; geminiApiKey?: string };
+      }
     } catch {
+      testBody = {};
+    }
+
+    const savedLlmConfig = appConfig.getLlmConfig();
+    const provider =
+      testBody.provider === 'gemini' || testBody.provider === 'workers-ai'
+        ? testBody.provider
+        : savedLlmConfig.provider;
+    const model =
+      typeof testBody.model === 'string' && testBody.model.trim().length > 0
+        ? testBody.model.trim()
+        : savedLlmConfig.model;
+    const geminiApiKey =
+      typeof testBody.geminiApiKey === 'string' && testBody.geminiApiKey.trim().length > 0
+        ? testBody.geminiApiKey.trim()
+        : savedLlmConfig.geminiApiKey;
+
+    if (provider === 'gemini' && !geminiApiKey) {
       result = {
         ok: false,
-        code: 'llm_error',
-        message: 'LLM test completion failed',
+        code: 'unconfigured',
+        message: 'Gemini API key is required when provider is Google Gemini',
       };
+    } else {
+      try {
+        const llmClient = createLLMClient({
+          provider,
+          ai: c.env.AI as CloudflareAiBinding | undefined,
+          geminiApiKey,
+          model,
+        });
+        await llmClient.generateText('Respond with {"ok":true}');
+        result = {
+          ok: true,
+          code: 'ok',
+          message: `LLM test completion succeeded with ${provider} (${model})`,
+        };
+      } catch (err) {
+        result = {
+          ok: false,
+          code: 'llm_error',
+          message: `LLM test completion failed: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
     }
   } else if (target === 'telegram') {
     const tg = appConfig.getTelegramConfig();

@@ -43,7 +43,7 @@ export class GeminiClient implements LLMClient {
   constructor(apiKey: string, model: string = 'gemini-2.0-flash', fetchFn: typeof fetch = fetch) {
     this.apiKey = apiKey;
     this.model = model;
-    this.fetchFn = fetchFn;
+    this.fetchFn = (input, init) => fetchFn(input, init);
   }
 
   async generateText(prompt: string): Promise<string> {

@@ -32,7 +32,8 @@ export class RestSheetsClient implements SheetsClient {
     options?: RestSheetsClientOptions,
   ) {
     this.baseUrl = options?.baseUrl || 'https://sheets.googleapis.com/v4/spreadsheets';
-    this.fetchFn = options?.fetchFn || fetch;
+    const rawFetch = options?.fetchFn || fetch;
+    this.fetchFn = (input, init) => rawFetch(input, init);
     this.maxRetries = options?.maxRetries ?? 3;
     this.initialDelayMs = options?.initialDelayMs ?? 500;
   }
