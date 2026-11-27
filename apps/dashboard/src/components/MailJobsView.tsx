@@ -76,7 +76,10 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
   const [sourceKind, setSourceKind] = useState<'alert_email' | 'all'>('alert_email');
   const [sourceFilter, setSourceFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [minScoreFilter, setMinScoreFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'score_desc'>('newest');
   const [search, setSearch] = useState('');
+  const [pageLimit, setPageLimit] = useState(50);
 
   // Expandable match details
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -139,6 +142,31 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
     }
   };
 
+  const handlePromoteToQueue = async (jobId: string) => {
+    try {
+      setCreatingAppJobId(jobId);
+      const res = await apiFetch(`${apiBase}/api/applications/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId }),
+      });
+      if (!res.ok) {
+        const errJson = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errJson.error || `Failed to create application (${res.status})`);
+      }
+      setSyncFeedback('Job promoted to Manual Apply / Review Queue.');
+      setTimeout(() => setSyncFeedback(null), 5000);
+      await loadJobs();
+    } catch (err) {
+      setSyncFeedback(
+        `Promote failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      setTimeout(() => setSyncFeedback(null), 5000);
+    } finally {
+      setCreatingAppJobId(null);
+    }
+  };
+
   const handleViewInManualApply = async (jobId: string) => {
     try {
       setCreatingAppJobId(jobId);
@@ -177,8 +205,10 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
       if (sourceKind !== 'all') params.set('source_kind', sourceKind);
       if (sourceFilter) params.set('source', sourceFilter);
       if (statusFilter) params.set('status', statusFilter);
+      if (minScoreFilter) params.set('min_score', minScoreFilter);
+      if (sortOrder !== 'newest') params.set('sort', sortOrder);
       if (search.trim()) params.set('search', search.trim());
-      params.set('limit', '100');
+      params.set('limit', String(pageLimit));
 
       const res = await apiFetch(`${apiBase}/api/jobs?${params.toString()}`);
       if (!res.ok) {
@@ -192,7 +222,7 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
     } finally {
       setLoading(false);
     }
-  }, [apiBase, sourceKind, sourceFilter, statusFilter, search]);
+  }, [apiBase, sourceKind, sourceFilter, statusFilter, minScoreFilter, sortOrder, search, pageLimit]);
 
   useEffect(() => {
     void loadJobs();
@@ -378,7 +408,7 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
         </div>
 
         {/* Dropdowns */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
           <div>
             <label htmlFor="portal-filter-select" className="block text-[11px] font-medium text-fg-muted uppercase tracking-wider mb-1">
               Source Portal
@@ -435,6 +465,38 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
               <option value="new">Pending Evaluation (New)</option>
             </select>
           </div>
+
+          <div>
+            <label htmlFor="min-score-filter-select" className="block text-[11px] font-medium text-fg-muted uppercase tracking-wider mb-1">
+              Minimum Score
+            </label>
+            <select
+              id="min-score-filter-select"
+              value={minScoreFilter}
+              onChange={(e) => setMinScoreFilter(e.target.value)}
+              className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="">Any Score</option>
+              <option value="80">80+ (Top Matches)</option>
+              <option value="65">65+ (Strong Matches)</option>
+              <option value="50">50+ (Moderate)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="jobs-sort-select" className="block text-[11px] font-medium text-fg-muted uppercase tracking-wider mb-1">
+              Sort Order
+            </label>
+            <select
+              id="jobs-sort-select"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as 'newest' | 'score_desc')}
+              className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="newest">Newest Updated</option>
+              <option value="score_desc">Highest Fit Score</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -463,9 +525,9 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
             <p className="text-[13px] text-fg-muted leading-relaxed">
               {sourceKind === 'alert_email' ? (
                 <>
-                  When WhatJobs, beBee, or LinkedIn send alert emails to{' '}
-                  <span className="font-mono text-fg">jasimrazi17@gmail.com</span>, Pigeon parses each
-                  opening and computes full match scores against your Flutter experience.
+                  When portal alert emails (LinkedIn, Indeed, Naukri, Wellfound, etc.) arrive in
+                  your connected Gmail inbox, Pigeon parses each opening and computes match scores
+                  against your profile.
                 </>
               ) : (
                 'Try adjusting your filters or search keywords.'
@@ -659,6 +721,17 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
                         Re-queue
                       </Button>
                     )}
+                    {job.status !== 'routed' && (
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        icon={ArrowRight}
+                        loading={creatingAppJobId === job.id}
+                        onClick={() => void handlePromoteToQueue(job.id)}
+                      >
+                        Promote to Apply
+                      </Button>
+                    )}
                     {job.status === 'routed' && onNavigateTab && (
                       <Button
                         variant="secondary"
@@ -686,6 +759,22 @@ export function MailJobsView({ apiBase = '', onNavigateTab }: Props): React.JSX.
               </div>
             );
           })}
+
+          {jobs.length < total && (
+            <div className="pt-2 flex items-center justify-between text-[12px] text-fg-muted">
+              <span className="font-mono">
+                Showing {jobs.length} of {total} jobs
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={loading}
+                onClick={() => setPageLimit((prev) => prev + 50)}
+              >
+                Load More
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

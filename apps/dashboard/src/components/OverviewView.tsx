@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Loader2, ArrowRight, Clock, Mail, Play } from 'lucide-react';
+import { Loader2, ArrowRight, Clock, Mail, Play, FileSpreadsheet, Inbox } from 'lucide-react';
 import { ConfirmationModal } from './ConfirmationModal.js';
 import { AlertBanner } from './ui/AlertBanner.js';
 import { MetricCard } from './ui/MetricCard.js';
 import { Button } from './ui/Button.js';
 import { useDialog } from './ui/DialogProvider.js';
+import { useToast } from './ui/ToastProvider.js';
 import { apiFetch, getGoogleAuthStartUrl } from '../api.js';
 
 export interface CronJobInfo {
@@ -25,6 +26,9 @@ interface OverviewData {
   jobsByStatus: Record<string, number>;
   jobsByRoute: Record<string, number>;
   manualWaitingCount: number;
+  reviewPendingCount?: number;
+  followUpDraftCount?: number;
+  approvedOutboxCount?: number;
   authHealth: {
     status: 'ok' | 'invalid' | 'unknown';
     reason: string | null;
@@ -61,6 +65,7 @@ export function OverviewView({
   onDataRefresh,
 }: Props): React.JSX.Element {
   const dialog = useDialog();
+  const toast = useToast();
   const [data, setData] = useState<OverviewData | null>(null);
   const [setupStatus, setSetupStatus] = useState<{
     readyForDryRun: boolean;
@@ -76,6 +81,8 @@ export function OverviewView({
   const [pipelineResult, setPipelineResult] = useState<string | null>(null);
   const [syncingGmail, setSyncingGmail] = useState(false);
   const [gmailSyncResult, setGmailSyncResult] = useState<string | null>(null);
+  const [syncingSheet, setSyncingSheet] = useState(false);
+  const [pollingInbox, setPollingInbox] = useState(false);
   const [runningCronIds, setRunningCronIds] = useState<Record<string, boolean>>({});
   const [cronFeedback, setCronFeedback] = useState<{
     id: string;
@@ -154,6 +161,53 @@ export function OverviewView({
       setTimeout(() => setGmailSyncResult(null), 6000);
     } finally {
       setSyncingGmail(false);
+    }
+  };
+
+  const handleSyncSheet = async () => {
+    try {
+      setSyncingSheet(true);
+      const res = await apiFetch(`${apiBase}/api/sync/sheet`, { method: 'POST' });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        rowsWritten?: number;
+        error?: string;
+      };
+      if (!res.ok || json.ok === false) {
+        throw new Error(json.error || `Sheet sync failed (${res.status})`);
+      }
+      toast.success(`Google Sheet synced (${json.rowsWritten ?? 0} row(s) updated).`);
+      await loadOverview();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Google Sheet sync failed');
+    } finally {
+      setSyncingSheet(false);
+    }
+  };
+
+  const handlePollInbox = async () => {
+    try {
+      setPollingInbox(true);
+      const res = await apiFetch(`${apiBase}/api/inbox/poll`, { method: 'POST' });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        repliedCount?: number;
+        followUpsCreated?: number;
+        bouncedCount?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(json.error || `Inbox poll failed (${res.status})`);
+      }
+      toast.success(
+        `Inbox polled: ${json.repliedCount ?? 0} reply(s), ${json.bouncedCount ?? 0} bounce(s), ${json.followUpsCreated ?? 0} follow-up(s).`,
+      );
+      await loadOverview();
+      onDataRefresh?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Inbox poll failed');
+    } finally {
+      setPollingInbox(false);
     }
   };
 
@@ -351,15 +405,35 @@ export function OverviewView({
         action={
           <div className="flex flex-wrap items-center gap-2">
             {!isAuthInvalid && (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={Mail}
-                loading={syncingGmail}
-                onClick={() => void handleSyncGmailAlerts()}
-              >
-                {syncingGmail ? 'Checking Gmail...' : 'Sync Alerts from Gmail'}
-              </Button>
+              <>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={Mail}
+                  loading={syncingGmail}
+                  onClick={() => void handleSyncGmailAlerts()}
+                >
+                  {syncingGmail ? 'Checking Gmail...' : 'Sync Alerts from Gmail'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Inbox}
+                  loading={pollingInbox}
+                  onClick={() => void handlePollInbox()}
+                >
+                  {pollingInbox ? 'Polling...' : 'Poll Replies'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={FileSpreadsheet}
+                  loading={syncingSheet}
+                  onClick={() => void handleSyncSheet()}
+                >
+                  {syncingSheet ? 'Syncing...' : 'Sync Sheet'}
+                </Button>
+              </>
             )}
             <a
               href={getGoogleAuthStartUrl(apiBase)}

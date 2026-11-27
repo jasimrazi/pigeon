@@ -17,6 +17,8 @@ export interface SourceStatusItem {
   untrusted?: boolean;
   boards_total?: number | null;
   boards_failed?: number | null;
+  jobs_7d?: number;
+  high_match_7d?: number;
 }
 
 interface Props {
@@ -34,6 +36,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
   const [gmailFeedback, setGmailFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<FilterKind>('all');
+  const [sourceSearch, setSourceSearch] = useState('');
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState<string | null>(null);
@@ -163,9 +166,15 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
   }, [loadSources]);
 
   const filteredSources = useMemo(() => {
-    if (selectedFilter === 'all') return sources;
-    return sources.filter((s) => s.kind === selectedFilter);
-  }, [sources, selectedFilter]);
+    const q = sourceSearch.trim().toLowerCase();
+    return sources.filter((s) => {
+      if (selectedFilter !== 'all' && s.kind !== selectedFilter) return false;
+      if (q && !s.name.toLowerCase().includes(q) && !getSourceDisplayName(s.name).toLowerCase().includes(q)) {
+        return false;
+      }
+      return true;
+    });
+  }, [sources, selectedFilter, sourceSearch]);
 
   const counts = useMemo(
     () => ({
@@ -334,30 +343,41 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto scrollbar-none">
-        {(
-          [
-            { id: 'all', label: 'All Sources', count: counts.all },
-            { id: 'alert_email', label: 'Alert Emails', count: counts.alert_email },
-            { id: 'ats', label: 'ATS Endpoints', count: counts.ats },
-            { id: 'api', label: 'Job APIs & Feeds', count: counts.api },
-          ] as const
-        ).map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setSelectedFilter(tab.id)}
-            className={`px-3 py-1.5 text-[12px] font-medium rounded-[4px] transition-colors cursor-pointer inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
-              selectedFilter === tab.id
-                ? 'bg-accent/10 text-accent border border-accent/30'
-                : 'text-fg-muted hover:text-fg hover:bg-surface-subtle border border-transparent'
-            }`}
-          >
-            <span>{tab.label}</span>
-            <span className="font-mono text-[11px]">({tab.count})</span>
-          </button>
-        ))}
+      {/* Filter Tabs & Search */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-3">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+          {(
+            [
+              { id: 'all', label: 'All Sources', count: counts.all },
+              { id: 'alert_email', label: 'Alert Emails', count: counts.alert_email },
+              { id: 'ats', label: 'ATS Endpoints', count: counts.ats },
+              { id: 'api', label: 'Job APIs & Feeds', count: counts.api },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSelectedFilter(tab.id)}
+              className={`px-3 py-1.5 text-[12px] font-medium rounded-[4px] transition-colors cursor-pointer inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                selectedFilter === tab.id
+                  ? 'bg-accent/10 text-accent border border-accent/30'
+                  : 'text-fg-muted hover:text-fg hover:bg-surface-subtle border border-transparent'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span className="font-mono text-[11px]">({tab.count})</span>
+            </button>
+          ))}
+        </div>
+
+        <input
+          type="text"
+          aria-label="Filter sources by name"
+          placeholder="Filter sources..."
+          value={sourceSearch}
+          onChange={(e) => setSourceSearch(e.target.value)}
+          className="text-[12px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:w-48"
+        />
       </div>
 
       {loading && sources.length === 0 ? (
@@ -461,6 +481,15 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
                       {src.last_run ? new Date(src.last_run).toLocaleString() : 'Never'}
                     </span>
                   </div>
+
+                  {src.jobs_7d !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-fg-muted">7d Yield:</span>
+                      <span className="font-mono tabular-nums text-fg">
+                        {src.jobs_7d} jobs ({src.high_match_7d ?? 0} ≥65)
+                      </span>
+                    </div>
+                  )}
 
                   {src.last_error && (
                     <div className="pt-1">
