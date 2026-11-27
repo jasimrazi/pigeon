@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Bird,
+  Briefcase,
   ChevronRight,
   Command,
-  Mail,
   Moon,
-  Send,
   Layers,
   MoreHorizontal,
   Radio,
@@ -16,16 +15,13 @@ import {
   ShieldCheck,
   X,
   LogOut,
-  Sparkles,
 } from 'lucide-react';
 import { getAppVersionInfo, type AppVersionInfo } from '@pigeon/shared';
 import { getStoredToken, clearStoredToken, onUnauthorized, apiFetch } from './api.js';
 import { getStoredTheme, setStoredTheme, type ThemePreference } from './theme.js';
 import { LoginView } from './components/LoginView.js';
 import { OverviewView } from './components/OverviewView.js';
-import { ReviewQueueView } from './components/ReviewQueueView.js';
-import { ManualQueueView } from './components/ManualQueueView.js';
-import { MailJobsView } from './components/MailJobsView.js';
+import { JobsHubView, type JobsSubTab } from './components/JobsHubView.js';
 import { ApplicationsView } from './components/ApplicationsView.js';
 import { SourcesView } from './components/SourcesView.js';
 import { SettingsView, type SettingsSubTab } from './components/SettingsView.js';
@@ -38,9 +34,7 @@ import { CommandPalette, type CommandPaletteAction } from './components/ui/Comma
 
 export type TabKey =
   | 'overview'
-  | 'review-queue'
-  | 'manual-apply'
-  | 'mail-jobs'
+  | 'jobs'
   | 'applications'
   | 'sources'
   | 'settings'
@@ -68,7 +62,22 @@ function AppContent(): React.JSX.Element {
     }
     return 'overview';
   });
+  const [jobsSubTab, setJobsSubTab] = useState<JobsSubTab>('review-queue');
   const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTab>('profile');
+
+  const navigateToTab = useCallback((tab: string, subTab?: string) => {
+    if (tab === 'review-queue' || tab === 'manual-apply' || tab === 'mail-jobs') {
+      setActiveTab('jobs');
+      setJobsSubTab(tab);
+      return;
+    }
+    setActiveTab(tab as TabKey);
+    if (tab === 'jobs' && (subTab === 'review-queue' || subTab === 'manual-apply' || subTab === 'mail-jobs')) {
+      setJobsSubTab(subTab);
+    } else if (tab === 'settings' && subTab) {
+      setSettingsSubTab(subTab as SettingsSubTab);
+    }
+  }, []);
   const [headerState, setHeaderState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [killSwitch, setKillSwitch] = useState<boolean | null>(null);
   const [dryRun, setDryRun] = useState<boolean | null>(null);
@@ -96,8 +105,6 @@ function AppContent(): React.JSX.Element {
 
   const isMoreActive =
     mobileMenuOpen ||
-    activeTab === 'sources' ||
-    activeTab === 'mail-jobs' ||
     activeTab === 'settings' ||
     activeTab === 'events' ||
     activeTab === 'setup';
@@ -182,10 +189,10 @@ function AppContent(): React.JSX.Element {
     };
 
     return [
-      { id: 'nav-overview', label: 'Go to Overview', group: 'Navigation', onSelect: () => setActiveTab('overview') },
-      { id: 'nav-review', label: 'Go to Review Queue', group: 'Navigation', keywords: 'email drafts approve', onSelect: () => setActiveTab('review-queue') },
-      { id: 'nav-manual', label: 'Go to Manual Apply', group: 'Navigation', keywords: 'portal focus kit', onSelect: () => setActiveTab('manual-apply') },
-      { id: 'nav-jobs', label: 'Go to Parsed Jobs', group: 'Navigation', keywords: 'alerts scores mail', onSelect: () => setActiveTab('mail-jobs') },
+      { id: 'nav-overview', label: 'Go to Overview', group: 'Navigation', onSelect: () => navigateToTab('overview') },
+      { id: 'nav-review', label: 'Jobs: Review Queue', group: 'Navigation', keywords: 'email drafts approve', onSelect: () => navigateToTab('jobs', 'review-queue') },
+      { id: 'nav-manual', label: 'Jobs: Manual Apply', group: 'Navigation', keywords: 'portal focus kit', onSelect: () => navigateToTab('jobs', 'manual-apply') },
+      { id: 'nav-jobs', label: 'Jobs: Parsed Jobs', group: 'Navigation', keywords: 'alerts scores mail', onSelect: () => navigateToTab('jobs', 'mail-jobs') },
       { id: 'nav-apps', label: 'Go to Applications', group: 'Navigation', keywords: 'outcomes ledger history', onSelect: () => setActiveTab('applications') },
       { id: 'nav-sources', label: 'Go to Sources', group: 'Navigation', keywords: 'ats circuits rss', onSelect: () => setActiveTab('sources') },
       {
@@ -262,7 +269,7 @@ function AppContent(): React.JSX.Element {
         onSelect: handleCycleTheme,
       },
     ];
-  }, [apiBase, handleCycleTheme, themePref, toast]);
+  }, [apiBase, handleCycleTheme, navigateToTab, themePref, toast]);
 
   const handleToggleKillSwitch = async (activate: boolean) => {
     try {
@@ -298,19 +305,15 @@ function AppContent(): React.JSX.Element {
     );
   }
 
+  const jobsPendingTotal = reviewPendingCount + manualWaitingCount;
+
   const navItems: Array<{ key: TabKey; label: string; count?: number | undefined }> = [
     { key: 'overview', label: 'Overview' },
     {
-      key: 'review-queue',
-      label: 'Review Queue',
-      count: reviewPendingCount > 0 ? reviewPendingCount : undefined,
+      key: 'jobs',
+      label: 'Jobs',
+      count: jobsPendingTotal > 0 ? jobsPendingTotal : undefined,
     },
-    {
-      key: 'manual-apply',
-      label: 'Manual Apply',
-      count: manualWaitingCount > 0 ? manualWaitingCount : undefined,
-    },
-    { key: 'mail-jobs', label: 'Parsed Jobs' },
     { key: 'applications', label: 'Applications' },
     { key: 'sources', label: 'Sources' },
     { key: 'settings', label: 'Settings' },
@@ -566,26 +569,19 @@ function AppContent(): React.JSX.Element {
         {activeTab === 'overview' && (
           <OverviewView
             apiBase={apiBase}
-            onNavigateTab={(tab) => setActiveTab(tab as TabKey)}
+            onNavigateTab={navigateToTab}
             onDataRefresh={() => setRefreshTrigger((prev) => prev + 1)}
           />
         )}
-        {activeTab === 'review-queue' && (
-          <ReviewQueueView
+        {activeTab === 'jobs' && (
+          <JobsHubView
             apiBase={apiBase}
+            initialSubTab={jobsSubTab}
+            onSubTabChange={setJobsSubTab}
+            reviewPendingCount={reviewPendingCount}
+            manualWaitingCount={manualWaitingCount}
             onActionComplete={() => setRefreshTrigger((prev) => prev + 1)}
-          />
-        )}
-        {activeTab === 'manual-apply' && (
-          <ManualQueueView
-            apiBase={apiBase}
-            onActionComplete={() => setRefreshTrigger((prev) => prev + 1)}
-          />
-        )}
-        {activeTab === 'mail-jobs' && (
-          <MailJobsView
-            apiBase={apiBase}
-            onNavigateTab={(tab) => setActiveTab(tab as TabKey)}
+            onNavigateTab={navigateToTab}
           />
         )}
         {activeTab === 'applications' && <ApplicationsView apiBase={apiBase} />}
@@ -602,12 +598,7 @@ function AppContent(): React.JSX.Element {
         {activeTab === 'setup' && (
           <SetupView
             apiBase={apiBase}
-            onNavigateTab={(tab, subTab) => {
-              setActiveTab(tab as TabKey);
-              if (subTab) {
-                setSettingsSubTab(subTab as SettingsSubTab);
-              }
-            }}
+            onNavigateTab={navigateToTab}
           />
         )}
       </main>
@@ -635,55 +626,31 @@ function AppContent(): React.JSX.Element {
             <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate">Overview</span>
           </button>
 
-          {/* 2. Review Queue */}
+          {/* 2. Jobs (Review Queue + Manual Apply + Parsed Jobs) */}
           <button
             type="button"
             onClick={() => {
-              setActiveTab('review-queue');
+              setActiveTab('jobs');
               setMobileMenuOpen(false);
             }}
             className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
-              activeTab === 'review-queue'
+              activeTab === 'jobs'
                 ? 'text-accent font-semibold'
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
             <div className="relative">
-              <Mail size={17} strokeWidth={activeTab === 'review-queue' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
-              {reviewPendingCount > 0 && (
+              <Briefcase size={17} strokeWidth={activeTab === 'jobs' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+              {jobsPendingTotal > 0 && (
                 <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-accent text-accent-fg text-[9px] font-mono font-semibold flex items-center justify-center">
-                  {reviewPendingCount > 99 ? '99+' : reviewPendingCount}
+                  {jobsPendingTotal > 99 ? '99+' : jobsPendingTotal}
                 </span>
               )}
             </div>
-            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Review Queue</span>
+            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Jobs</span>
           </button>
 
-          {/* 3. Manual Apply */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('manual-apply');
-              setMobileMenuOpen(false);
-            }}
-            className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
-              activeTab === 'manual-apply'
-                ? 'text-accent font-semibold'
-                : 'text-fg-muted hover:text-fg'
-            }`}
-          >
-            <div className="relative">
-              <Send size={17} strokeWidth={activeTab === 'manual-apply' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
-              {manualWaitingCount > 0 && (
-                <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-accent text-accent-fg text-[9px] font-mono font-semibold flex items-center justify-center">
-                  {manualWaitingCount > 99 ? '99+' : manualWaitingCount}
-                </span>
-              )}
-            </div>
-            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Manual Apply</span>
-          </button>
-
-          {/* 4. Applications */}
+          {/* 3. Applications */}
           <button
             type="button"
             onClick={() => {
@@ -698,6 +665,23 @@ function AppContent(): React.JSX.Element {
           >
             <Layers size={17} strokeWidth={activeTab === 'applications' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
             <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Applications</span>
+          </button>
+
+          {/* 4. Sources */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('sources');
+              setMobileMenuOpen(false);
+            }}
+            className={`flex flex-col items-center justify-center py-1 transition-colors cursor-pointer relative ${
+              activeTab === 'sources'
+                ? 'text-accent font-semibold'
+                : 'text-fg-muted hover:text-fg'
+            }`}
+          >
+            <Radio size={17} strokeWidth={activeTab === 'sources' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Sources</span>
           </button>
 
           {/* 5. More */}
@@ -749,59 +733,7 @@ function AppContent(): React.JSX.Element {
 
             {/* List of Remaining Sections Only */}
             <div className="space-y-2">
-              {/* 1. Parsed Jobs */}
-              <button
-                type="button"
-                aria-label="Parsed Jobs"
-                onClick={() => {
-                  setActiveTab('mail-jobs');
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center justify-between p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
-                  activeTab === 'mail-jobs'
-                    ? 'bg-surface-subtle border-accent ring-1 ring-accent text-fg font-semibold'
-                    : 'bg-surface border-border hover:bg-surface-subtle text-fg-muted hover:text-fg'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-[6px] bg-surface-subtle border border-border flex items-center justify-center shrink-0">
-                    <Sparkles size={16} strokeWidth={1.5} className={activeTab === 'mail-jobs' ? 'text-accent' : 'text-fg-muted'} aria-hidden="true" />
-                  </div>
-                  <div>
-                    <span className="text-[13px] font-medium text-fg block">Parsed Jobs</span>
-                    <span className="text-[11px] text-fg-muted block mt-0.5">Email alert feed, match scores & AI breakdown</span>
-                  </div>
-                </div>
-                <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
-              </button>
-
-              {/* 2. Sources */}
-              <button
-                type="button"
-                aria-label="Sources"
-                onClick={() => {
-                  setActiveTab('sources');
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center justify-between p-3 rounded-[8px] border text-left transition-colors cursor-pointer ${
-                  activeTab === 'sources'
-                    ? 'bg-surface-subtle border-accent ring-1 ring-accent text-fg font-semibold'
-                    : 'bg-surface border-border hover:bg-surface-subtle text-fg-muted hover:text-fg'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-[6px] bg-surface-subtle border border-border flex items-center justify-center shrink-0">
-                    <Radio size={16} strokeWidth={1.5} className={activeTab === 'sources' ? 'text-accent' : 'text-fg-muted'} aria-hidden="true" />
-                  </div>
-                  <div>
-                    <span className="text-[13px] font-medium text-fg block">Sources</span>
-                    <span className="text-[11px] text-fg-muted block mt-0.5">Job sources, ATS scrapers & circuit health</span>
-                  </div>
-                </div>
-                <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
-              </button>
-
-              {/* 2. Settings */}
+              {/* 1. Settings */}
               <button
                 type="button"
                 aria-label="Settings"
@@ -827,7 +759,7 @@ function AppContent(): React.JSX.Element {
                 <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
               </button>
 
-              {/* 3. Events */}
+              {/* 2. Events */}
               <button
                 type="button"
                 aria-label="Events"
@@ -853,7 +785,7 @@ function AppContent(): React.JSX.Element {
                 <ChevronRight size={15} strokeWidth={1.5} className="text-fg-muted shrink-0" aria-hidden="true" />
               </button>
 
-              {/* 4. Setup */}
+              {/* 3. Setup */}
               <button
                 type="button"
                 aria-label="Setup"

@@ -512,8 +512,9 @@ test.describe('Complete Button & Interactive UI Smoke Test Suite', () => {
       await cancelBtn.click();
     }
 
-    // Navigate to Review Queue
-    await page.getByRole('button', { name: /^Review Queue$/i }).first().click();
+    // Navigate to Jobs -> Review Queue
+    await page.getByRole('button', { name: /^Jobs/i }).first().click();
+    await page.getByRole('tab', { name: /Review Queue/i }).click();
     await expect(page.getByText('Email Review Queue')).toBeVisible();
 
     // Review Queue actions
@@ -526,8 +527,8 @@ test.describe('Complete Button & Interactive UI Smoke Test Suite', () => {
       await saveLetterBtn.click();
     }
 
-    // Navigate to Manual Apply Queue
-    await page.getByRole('button', { name: /^Manual Apply$/i }).first().click();
+    // Navigate to Manual Apply Queue subtab
+    await page.getByRole('tab', { name: /Manual Apply/i }).click();
     await expect(page.getByText('Manual Apply Queue')).toBeVisible();
 
     // Test Manual Apply metrics & filter tabs
@@ -649,10 +650,11 @@ test.describe('Complete Button & Interactive UI Smoke Test Suite', () => {
     await page.goto('/');
     await expect(page.getByText('Pigeon')).toBeVisible();
 
-    // 1. Bottom Navbar: Switch to Review Queue
-    const btmReview = page.getByRole('button', { name: /^Review Queue$/i });
-    await expect(btmReview).toBeVisible();
-    await btmReview.click();
+    // 1. Bottom Navbar: Switch to Jobs -> Review Queue
+    const btmJobs = page.getByRole('button', { name: /^Jobs/i });
+    await expect(btmJobs).toBeVisible();
+    await btmJobs.click();
+    await page.getByRole('tab', { name: /Review Queue/i }).click();
     await expect(page.getByText('Email Review Queue')).toBeVisible();
 
     // Detail view back button on mobile
@@ -665,10 +667,8 @@ test.describe('Complete Button & Interactive UI Smoke Test Suite', () => {
       }
     }
 
-    // 2. Bottom Navbar: Switch to Manual Apply
-    const btmManual = page.getByRole('button', { name: /^Manual Apply$/i });
-    await expect(btmManual).toBeVisible();
-    await btmManual.click();
+    // 2. Switch to Manual Apply subtab
+    await page.getByRole('tab', { name: /Manual Apply/i }).click();
     await expect(page.getByText('Manual Apply Queue')).toBeVisible();
 
     // Test responsive metric cards (Waiting, Needs Review, Snoozed)

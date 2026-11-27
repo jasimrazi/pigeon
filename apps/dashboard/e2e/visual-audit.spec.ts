@@ -380,10 +380,10 @@ async function setupApiMocks(page: Page, config: MockConfig) {
   });
 }
 
-const views: Array<{ tabKey: string; navName: RegExp; viewName: string }> = [
+const views: Array<{ tabKey: string; subTabName?: RegExp; navName: RegExp; viewName: string }> = [
   { tabKey: 'overview', navName: /^Overview$/i, viewName: 'overview' },
-  { tabKey: 'review-queue', navName: /^Review Queue$/i, viewName: 'review-queue' },
-  { tabKey: 'manual-apply', navName: /^Manual Apply$/i, viewName: 'manual-apply' },
+  { tabKey: 'jobs', subTabName: /Review Queue/i, navName: /^Jobs/i, viewName: 'review-queue' },
+  { tabKey: 'jobs', subTabName: /Manual Apply/i, navName: /^Jobs/i, viewName: 'manual-apply' },
   { tabKey: 'applications', navName: /^Applications$/i, viewName: 'applications' },
   { tabKey: 'sources', navName: /^Sources$/i, viewName: 'sources' },
   { tabKey: 'settings', navName: /^Settings$/i, viewName: 'settings' },
@@ -417,7 +417,7 @@ test.describe('Visual Design Audit, Axe Accessibility, & Screenshot Suite', () =
           // Switch tab if not overview
           if (v.tabKey !== 'overview') {
             if (viewport.width < 768) {
-              const isMoreSection = ['sources', 'settings', 'events', 'setup'].includes(v.tabKey);
+              const isMoreSection = ['settings', 'events', 'setup'].includes(v.tabKey);
               if (isMoreSection) {
                 const menuBtn = page.getByRole('button', { name: /Toggle navigation menu/i });
                 if (await menuBtn.isVisible()) {
@@ -432,6 +432,9 @@ test.describe('Visual Design Audit, Axe Accessibility, & Screenshot Suite', () =
               }
             } else {
               await page.getByRole('banner').getByRole('button', { name: v.navName }).click();
+            }
+            if (v.subTabName) {
+              await page.getByRole('tab', { name: v.subTabName }).click();
             }
           }
 

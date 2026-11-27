@@ -278,11 +278,12 @@ test.describe('Pigeon Operations & Workflows E2E', () => {
     await expect(page.getByText('Pigeon')).toBeVisible();
     await expect(page.getByText("Today's Sends")).toBeVisible();
 
-    // 2. Open Review Queue
+    // 2. Open Jobs -> Review Queue
     await page
-      .getByRole('button', { name: /Review Queue/i })
+      .getByRole('button', { name: /^Jobs/i })
       .first()
       .click();
+    await page.getByRole('tab', { name: /Review Queue/i }).click();
     await expect(page.getByText('Email Review Queue')).toBeVisible();
     await expect(page.getByText('Acme Corp').first()).toBeVisible();
 
@@ -308,11 +309,12 @@ test.describe('Pigeon Operations & Workflows E2E', () => {
     await expect(acmeRow).toBeVisible();
     await expect(acmeRow.getByText('approved')).toBeVisible();
 
-    // 4. Open Manual Apply
+    // 4. Open Jobs -> Manual Apply
     await page
-      .getByRole('button', { name: /Manual Apply/i })
+      .getByRole('button', { name: /^Jobs/i })
       .first()
       .click();
+    await page.getByRole('tab', { name: /Manual Apply/i }).click();
     await expect(page.locator('h4', { hasText: 'Platform Architect' })).toBeVisible();
     await expect(page.getByText('Cloudflare').first()).toBeVisible();
 

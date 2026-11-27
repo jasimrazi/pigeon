@@ -341,19 +341,28 @@ describe('Dashboard App & Operations Components', () => {
     expect(container?.textContent).toContain('Google Auth Health: Connected & Healthy');
   });
 
-  it('navigates to Review Queue and displays draft items with validator warnings', async () => {
+  it('navigates to Review Queue inside Jobs tab and displays draft items with validator warnings', async () => {
     await act(async () => {
       root?.render(<App />);
     });
 
-    // Find and click "Review Queue" nav tab
-    const reviewTabs = Array.from(container?.querySelectorAll('button') || []).filter((b) =>
-      b.textContent?.includes('Review Queue'),
+    // Click unified "Jobs" nav tab (defaults to Review Queue)
+    const jobsTabs = Array.from(container?.querySelectorAll('button') || []).filter((b) =>
+      b.textContent?.includes('Jobs'),
     );
-    expect(reviewTabs.length).toBeGreaterThan(0);
+    expect(jobsTabs.length).toBeGreaterThan(0);
 
     await act(async () => {
-      reviewTabs[0]?.click();
+      jobsTabs[0]?.click();
+    });
+
+    const reviewSubTabs = Array.from(container?.querySelectorAll('[role="tab"]') || []).filter(
+      (b) => b.textContent?.includes('Review Queue'),
+    );
+    expect(reviewSubTabs.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      (reviewSubTabs[0] as HTMLElement | undefined)?.click();
     });
 
     expect(container?.textContent).toContain('Email Review Queue');
@@ -400,18 +409,27 @@ describe('Dashboard App & Operations Components', () => {
     expect(container?.textContent).toContain('kill_switch_toggled');
   });
 
-  it('navigates to Parsed Jobs view and displays parsed jobs with match scores', async () => {
+  it('navigates to Parsed Jobs inside Jobs tab and displays parsed jobs with match scores', async () => {
     await act(async () => {
       root?.render(<App />);
     });
 
-    const parsedJobsTabs = Array.from(container?.querySelectorAll('button') || []).filter((b) =>
-      b.textContent?.includes('Parsed Jobs'),
+    const jobsTabs = Array.from(container?.querySelectorAll('button') || []).filter((b) =>
+      b.textContent?.includes('Jobs'),
+    );
+    expect(jobsTabs.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      jobsTabs[0]?.click();
+    });
+
+    const parsedJobsTabs = Array.from(container?.querySelectorAll('[role="tab"]') || []).filter(
+      (b) => b.textContent?.includes('Parsed Jobs'),
     );
     expect(parsedJobsTabs.length).toBeGreaterThan(0);
 
     await act(async () => {
-      parsedJobsTabs[0]?.click();
+      (parsedJobsTabs[0] as HTMLElement | undefined)?.click();
     });
 
     await act(async () => {
@@ -1443,10 +1461,16 @@ describe('Dashboard App & Operations Components', () => {
       });
       expect(document.querySelector('[role="dialog"]')).toBeNull();
 
-      // Switch to Review Queue and click Reject -> opens in-app ConfirmationModal
-      const rqTab = Array.from(container?.querySelectorAll('button') || []).find((b) =>
-        b.textContent?.includes('Review Queue'),
+      // Switch to Jobs -> Review Queue and click Reject -> opens in-app ConfirmationModal
+      const jobsTab = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+        b.textContent?.includes('Jobs'),
       );
+      await act(async () => {
+        jobsTab?.click();
+      });
+      const rqTab = Array.from(container?.querySelectorAll('[role="tab"]') || []).find((b) =>
+        b.textContent?.includes('Review Queue'),
+      ) as HTMLElement | undefined;
       await act(async () => {
         rqTab?.click();
       });
