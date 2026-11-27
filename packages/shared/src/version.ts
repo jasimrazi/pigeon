@@ -6,8 +6,8 @@ export interface AppVersionInfo {
 }
 
 export const APP_VERSION = '0.2.0';
-export const BUILD_NUMBER = 117;
-export const GIT_COMMIT = '1978209';
+export const BUILD_NUMBER = 121;
+export const GIT_COMMIT = 'd6a964b';
 
 export function getAppVersionInfo(): AppVersionInfo {
   return {
