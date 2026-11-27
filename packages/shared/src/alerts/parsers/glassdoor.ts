@@ -64,7 +64,11 @@ export const glassdoorParser: PortalParser = {
           if (GLASSDOOR_BADGE_OR_AGE_REGEX.test(extra)) {
             continue;
           }
-          if (!salaryRaw && (/[₹$€£]/.test(extra) || /\best\.\)/i.test(extra)) && /\d/.test(extra)) {
+          if (
+            !salaryRaw &&
+            (/[₹$€£]/.test(extra) || /\b(?:AED|SAR|QAR|SGD|AUD|CAD)\b/.test(extra) || /\best\.\)/i.test(extra)) &&
+            /\d/.test(extra)
+          ) {
             salaryRaw = extra;
           } else if (!location) {
             location = extra;

@@ -8,6 +8,7 @@ import {
   cleanTrackingUrl,
   detectPortal,
   getParser,
+  parseAlertEmail,
   isAllowedSender,
   isAuthorizedForwarding,
   handleParserHealth,
@@ -386,6 +387,32 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       expect(jobs[1]?.salary_raw).toBeNull();
     });
 
+    it('Naukri parser extracts /jd/job-listings URLs inside nested table card anchors', () => {
+      const naukriNestedHtml = `
+        <a href="https://www.naukri.com/jd/job-listings-mobile-app-developer-associative-pune-0-to-1-years-191126505414?xp=1&amp;src=jasp_campus&amp;utm_source=joblink" target="_blank">
+          <table><tbody><tr>
+            <td><img src="https://img.naukimg.com/logo.gif" width="40" height="38"></td>
+            <td><table><tbody>
+              <tr><td><a href="https://www.naukri.com/jd/job-listings-mobile-app-developer-associative-pune-0-to-1-years-191126505414?xp=1" target="_blank">Mobile App Developer</a></td></tr>
+              <tr><td><table><tbody><tr><td>Associative</td><td><a href="https://www.ambitionbox.com/reviews/associative-reviews">4.9</a></td></tr></tbody></table></td></tr>
+              <tr><td><table><tbody><tr><td><img src="https://www.ieplads.com/location-icon.png"></td><td><table><tbody><tr><td class="cart_subheading">Pune</td></tr></tbody></table></td></tr></tbody></table></td></tr>
+            </tbody></table></td>
+          </tr></tbody></table>
+        </a>
+        <div>View All Recommendations</div>
+      `;
+
+      const jobs = getParser('naukri').parse(naukriNestedHtml);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        title: 'Mobile App Developer',
+        company: 'Associative',
+        location: 'Pune',
+        apply_url:
+          'https://www.naukri.com/jd/job-listings-mobile-app-developer-associative-pune-0-to-1-years-191126505414',
+      });
+    });
+
     it('Indeed parser extracts exact job list and preserves jk parameter', async () => {
       const email = await new PostalMime().parse(INDEED_EML_FIXTURE);
       const portal = detectPortal(email.from?.address ?? '');
@@ -422,6 +449,63 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       expect(jobs[0]?.location).toBe('San Francisco, CA (Remote)');
       expect(jobs[0]?.salary_raw).toBe('$160k – $190k • 0.2% equity');
       expect(jobs[0]?.apply_url).toBe('https://wellfound.com/jobs/3019284-senior-backend-engineer');
+    });
+
+    it('Wellfound parser extracts jobs from multipart Iterable emails (text/plain canonical URLs + HTML fallback)', () => {
+      const textBody = `
+<https://wellfound.com/company/digital-dictionary-1/jobs?email_uid=111>
+Mobile App Development Intern
+<https://wellfound.com/jobs/5138133-mobile-app-development-intern?email_uid=111&utm_campaign=daily_subscription_digest&utm_source=subscription-digest>
+ Digital Dictionary  / 11-50 Employees  ₹10,000 – ₹15,000 • No equity  |
+Siliguri  |  No experience required
+ Actively Hiring  Growing fast
+View job
+<https://wellfound.com/jobs/5138133-mobile-app-development-intern?email_uid=111>
+
+<https://wellfound.com/company/elvoro-ai/jobs?email_uid=111>
+AI Creative Engineer (Social Media)
+<https://wellfound.com/job_ads/email_clicks/abc123?email_uid=111&utm_campaign=daily_subscription_digest>
+ Elvoro  / 1-10 Employees  Miami, Munich  |  2 years of exp
+ Actively Hiring  B2B  Growing fast
+ Our take  Elvoro is an AI-driven startup seeking a Python AI Creative Engineer.
+
+ Promoted View job
+<https://wellfound.com/job_ads/email_clicks/abc123?email_uid=111>
+`;
+
+      const iterableHtml = `
+        <div><a style="color: #000; text-decoration: underline;" href="https://links.wellfound.com/s/c/opaque-token-1">Mobile App Development Intern</a>
+        <span> Digital Dictionary </span><span> / 11-50 Employees </span>
+        <span> ₹10,000 – ₹15,000 • No equity </span><span> | </span><span> Siliguri </span><span> | </span><span> No experience required </span>
+        <a href="https://links.wellfound.com/s/c/opaque-token-1b">View job</a></div>
+      `;
+
+      // With multipart text present, parser uses canonical wellfound.com URLs
+      const jobsFromMultipart = parseAlertEmail('wellfound', iterableHtml, textBody);
+      expect(jobsFromMultipart).toHaveLength(2);
+      expect(jobsFromMultipart[0]).toMatchObject({
+        title: 'Mobile App Development Intern',
+        company: 'Digital Dictionary',
+        location: 'Siliguri',
+        salary_raw: '₹10,000 – ₹15,000 • No equity',
+        apply_url: 'https://wellfound.com/jobs/5138133-mobile-app-development-intern',
+      });
+      expect(jobsFromMultipart[1]).toMatchObject({
+        title: 'AI Creative Engineer (Social Media)',
+        company: 'Elvoro',
+        location: 'Miami, Munich',
+        apply_url: 'https://wellfound.com/job_ads/email_clicks/abc123',
+      });
+      expect(jobsFromMultipart[1]?.description).toContain('Elvoro is an AI-driven startup');
+
+      // When only HTML is supplied, Iterable cards are still extracted as fallback
+      const jobsHtmlOnly = parseAlertEmail('wellfound', iterableHtml);
+      expect(jobsHtmlOnly).toHaveLength(1);
+      expect(jobsHtmlOnly[0]).toMatchObject({
+        title: 'Mobile App Development Intern',
+        company: 'Digital Dictionary',
+        location: 'Siliguri',
+      });
     });
 
     it('Otta parser extracts curated tech job alerts with salary and remote status', async () => {
@@ -478,6 +562,67 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       );
     });
 
+    it('Dice parser extracts jobs from multipart Iterable emails (text/plain canonical URLs + elinks HTML fallback)', () => {
+      const textBody = `
+ <https://www.dice.com/company/10416061>
+
+Technical Program Manager - Mobile Platform Design System - 100% Remote
+<https://www.dice.com/job-detail/ef75487e-c798-461c-a57b-bbb7edc1144d>
+
+
+Saksoft
+
+Remote
+
+
+
+Posted: 10-21-2026
+
+ <https://www.dice.com/company/90765065>
+
+Technical Program Manager
+<https://www.dice.com/job-detail/d9f0049e-a3c9-4c88-8450-0e98ff88884d>
+
+
+Unikon IT
+
+Remote
+
+
+
+Posted: 11-19-2026
+`;
+
+      const iterableHtml = `
+        <p><span style="color: #236fa1;"><a href="https://elinks.dice.com/a/sc/opaque-dice-token-1">Technical Program Manager - Mobile Platform Design System - 100% Remote</a></span></p>
+        <p><span><strong>Saksoft</strong></span></p><p><span>Remote</span></p>
+        <p><span>Posted: 10-21-2026</span></p>
+      `;
+
+      const jobsFromMultipart = parseAlertEmail('dice', iterableHtml, textBody);
+      expect(jobsFromMultipart).toHaveLength(2);
+      expect(jobsFromMultipart[0]).toMatchObject({
+        title: 'Technical Program Manager - Mobile Platform Design System - 100% Remote',
+        company: 'Saksoft',
+        location: 'Remote',
+        apply_url: 'https://www.dice.com/job-detail/ef75487e-c798-461c-a57b-bbb7edc1144d',
+      });
+      expect(jobsFromMultipart[1]).toMatchObject({
+        title: 'Technical Program Manager',
+        company: 'Unikon IT',
+        location: 'Remote',
+        apply_url: 'https://www.dice.com/job-detail/d9f0049e-a3c9-4c88-8450-0e98ff88884d',
+      });
+
+      const jobsHtmlOnly = parseAlertEmail('dice', iterableHtml);
+      expect(jobsHtmlOnly).toHaveLength(1);
+      expect(jobsHtmlOnly[0]).toMatchObject({
+        title: 'Technical Program Manager - Mobile Platform Design System - 100% Remote',
+        company: 'Saksoft',
+        location: 'Remote',
+      });
+    });
+
     it('Glassdoor parser extracts jobs and preserves jl parameter', async () => {
       const email = await new PostalMime().parse(GLASSDOOR_EML_FIXTURE);
       const portal = detectPortal(email.from?.address ?? '');
@@ -514,6 +659,79 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       );
     });
 
+    it('Instahyre parser handles MJML mobile-card-link cards with SES click4 tracking links and nested Apply anchors', () => {
+      const mjmlHtml = `
+        <a href="https://click4.instahyre.com/CL0/https:%2F%2Fwww.instahyre.com%2Fjob-499978-principal-ai-architect-at-6sense-bangalore%2F%3Furl_auth_token=tok1%26utm_source=instahyre%26referrer=job_post/1/sig1=258" class="mobile-card-link">
+          <div class="mj-column-per-58 mj-outlook-group-fix name-container">
+            <table><tbody>
+              <tr><td><div>Principal AI Architect</div></td></tr>
+              <tr><td><div><span>6sense</span> <table class="bg-orange-lighter chip chip-rad-sm"><tr><td><img src="pin.png"></td><td>Bangalore</td></tr></table></div></td></tr>
+            </tbody></table>
+          </div>
+          <div class="mj-column-per-25 hide-on-mobile">
+            <a href="https://click4.instahyre.com/CL0/https:%2F%2Fwww.instahyre.com%2Fjob-499978-principal-ai-architect-at-6sense-bangalore%2F%3Furl_auth_token=tok1%26referrer=job_post/2/sig2=258">Apply here</a>
+          </div>
+          <div class="mj-column-per-100">
+            <div class="note-long has-short-note">6sense provides software that helps B2B sales teams.</div>
+            <div class="skills-box"><span>AWS</span><span>LangChain</span><span>Python</span></div>
+          </div>
+        </a>
+        <a href="https://click4.instahyre.com/CL0/https:%2F%2Fwww.instahyre.com%2Fjob-500002-senior-security-engineer-at-godaddy-work-from-home%2F%3Furl_auth_token=tok2/1/sig3=258" class="mobile-card-link">
+          <div class="mj-column-per-58 mj-outlook-group-fix name-container">
+            <table><tbody>
+              <tr><td><div>Senior Security Engineer</div></td></tr>
+              <tr><td><div><span>GoDaddy</span> <table class="bg-orange-lighter chip chip-rad-sm"><tr><td><img src="pin.png"></td><td>Work From Home</td></tr></table></div></td></tr>
+            </tbody></table>
+          </div>
+          <div class="mj-column-per-25 hide-on-mobile">
+            <a href="https://click4.instahyre.com/CL0/https:%2F%2Fwww.instahyre.com%2Fjob-500002-senior-security-engineer-at-godaddy-work-from-home%2F%3Furl_auth_token=tok2/2/sig4=258">Apply here</a>
+          </div>
+          <div class="mj-column-per-100">
+            <div class="note-long">GoDaddy builds cloud tools for entrepreneurs.</div>
+            <div class="skills-box"><span>Product Security</span><span>Threat Modeling</span></div>
+          </div>
+        </a>
+        <div>Thanks,<br>The Instahyre Team</div>
+      `;
+
+      const jobs = getParser('instahyre').parse(mjmlHtml);
+      expect(jobs).toHaveLength(2);
+      expect(jobs[0]).toMatchObject({
+        title: 'Principal AI Architect',
+        company: '6sense',
+        location: 'Bangalore',
+        apply_url: 'https://www.instahyre.com/job-499978-principal-ai-architect-at-6sense-bangalore/',
+      });
+      expect(jobs[0]?.description).toContain('6sense provides software');
+      expect(jobs[0]?.description).toContain('AWS, LangChain, Python');
+
+      expect(jobs[1]).toMatchObject({
+        title: 'Senior Security Engineer',
+        company: 'GoDaddy',
+        location: 'Work From Home',
+        apply_url: 'https://www.instahyre.com/job-500002-senior-security-engineer-at-godaddy-work-from-home/',
+      });
+    });
+
+    it('cleanTrackingUrl unwraps Amazon SES /CL0/ click-tracking links offline for multiple portals', () => {
+      expect(
+        cleanTrackingUrl(
+          'https://click4.instahyre.com/CL0/https:%2F%2Fwww.instahyre.com%2Fjob-499978-test%2F%3Furl_auth_token=secret%26utm_source=email/1/hmac=258',
+          'instahyre',
+        ),
+      ).toBe('https://www.instahyre.com/job-499978-test/');
+
+      const naukriWrapped =
+        '<a href="https://mailer.naukri.com/CL0/https:%2F%2Fwww.naukri.com%2Fjob-listings-staff-eng-123%3Fsrc=alert/1/sig=1">Staff Engineer</a><div>Acme India</div>';
+      expect(getParser('naukri').parse(naukriWrapped)).toMatchObject([
+        {
+          title: 'Staff Engineer',
+          company: 'Acme India',
+          apply_url: 'https://www.naukri.com/job-listings-staff-eng-123',
+        },
+      ]);
+    });
+
     it('Foundit parser extracts jobs and strips tracking parameters', async () => {
       const email = await new PostalMime().parse(FOUNDIT_EML_FIXTURE);
       const portal = detectPortal(email.from?.address ?? '');
@@ -530,6 +748,47 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       expect(jobs[0]?.apply_url).toBe(
         'https://www.foundit.in/job/principal-software-engineer-cloud-12345',
       );
+    });
+
+    it('Foundit parser unwraps /rio/autoLogin return_url links and extracts table card company/location', () => {
+      const founditAutoLoginHtml = `
+        <table><tbody>
+          <tr><td>
+            <a href="https://www.foundit.in/rio/autoLogin/seeker/MockToken123?return_url=https%3A%2F%2Fwww.foundit.in%2Fjob%2F69659793%3Fspl%3Ddaily_Job1%26utm_source%3Drecommendedjobs">
+              <p>React Native Developer</p>
+            </a>
+          </td></tr>
+          <tr><td><p>superpe marketplace private limited</p></td></tr>
+          <tr><td><p>Bengaluru</p></td></tr>
+          <tr><td>
+            <a href="https://www.foundit.in/rio/autoLogin/seeker/MockToken123?return_url=https%3A%2F%2Fwww.foundit.in%2Fjob%2F69659793%3FautoApply%3Dtrue">
+              <p>Apply now</p>
+            </a>
+          </td></tr>
+          <tr><td>
+            <a href="https://www.foundit.in/rio/autoLogin/seeker/MockToken123?return_url=https%3A%2F%2Fwww.foundit.in%2Fjob%2F69895434%3Fspl%3Ddaily_Job2">
+              <p>React Developer</p>
+            </a>
+          </td></tr>
+          <tr><td><p>Recro</p></td></tr>
+          <tr><td><p>Bengaluru</p></td></tr>
+        </tbody></table>
+      `;
+
+      const jobs = getParser('foundit').parse(founditAutoLoginHtml);
+      expect(jobs).toHaveLength(2);
+      expect(jobs[0]).toMatchObject({
+        title: 'React Native Developer',
+        company: 'superpe marketplace private limited',
+        location: 'Bengaluru',
+        apply_url: 'https://www.foundit.in/job/69659793',
+      });
+      expect(jobs[1]).toMatchObject({
+        title: 'React Developer',
+        company: 'Recro',
+        location: 'Bengaluru',
+        apply_url: 'https://www.foundit.in/job/69895434',
+      });
     });
 
     it('WhatJobs parser extracts jobs and preserves jobid parameter', async () => {

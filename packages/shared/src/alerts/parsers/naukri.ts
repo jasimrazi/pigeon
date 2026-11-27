@@ -15,14 +15,18 @@ export const naukriParser: PortalParser = {
     const jobs: ParsedAlertJob[] = [];
     if (!html) return jobs;
 
-    const linkRegex =
-      /<a\b[^>]*href="([^"]*(?:naukri\.com\/(?:job-listings|job-alert)[^"]*))"[^>]*>([\s\S]*?)<\/a>/gi;
+    const linkRegex = /<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
 
     let match: RegExpExecArray | null;
     const seenUrls = new Set<string>();
 
     while ((match = linkRegex.exec(html)) !== null) {
       const rawHref = match[1] ?? '';
+      const applyUrl = cleanTrackingUrl(rawHref, 'naukri');
+      if (!/naukri\.com\/(?:[^/?#]+\/)*(?:job-listings|job-alert|job-details)/i.test(applyUrl)) {
+        continue;
+      }
+
       const rawTitle = match[2] ?? '';
       const cleanTitle = stripHtml(rawTitle);
 
@@ -33,15 +37,14 @@ export const naukriParser: PortalParser = {
         continue;
       }
 
-      const applyUrl = cleanTrackingUrl(rawHref, 'naukri');
       if (seenUrls.has(applyUrl)) {
         continue;
       }
       seenUrls.add(applyUrl);
 
-      const afterLink = html.slice(match.index + match[0].length, match.index + 800);
+      const afterLink = html.slice(match.index + match[0].length, match.index + match[0].length + 2500);
       const nextCardBoundary = afterLink.search(
-        /<div class="job-tuple"|<table|<tr|<a\b[^>]*href="[^"]*naukri\.com/i,
+        /<div class="job-tuple"|View All Recommendations|Applies are a click away|<a\b[^>]*href="[^"]*naukri\.com\/(?:[^"?#]+\/)*(?:job-listings|job-alert|job-details)/i,
       );
       const contextSnippet =
         nextCardBoundary !== -1 ? afterLink.slice(0, nextCardBoundary) : afterLink;
@@ -61,7 +64,10 @@ export const naukriParser: PortalParser = {
       let location: string | null = null;
       const locationMatch =
         contextSnippet.match(
-          /(?:class="[^"]*(?:location|loc|city)[^"]*"[^>]*>)([\s\S]*?)<\/(?:div|span|p)>/i,
+          /(?:class="[^"]*(?:location|loc|city)[^"]*"[^>]*>)([\s\S]*?)<\/(?:div|span|p|td)>/i,
+        ) ||
+        contextSnippet.match(
+          /location-icon\.[a-z]+[\s\S]{0,300}class="[^"]*cart_subheading[^"]*"[^>]*>([\s\S]*?)<\/(?:div|span|p|td)>/i,
         ) ||
         contextSnippet.match(
           /(?:Bengaluru|Bangalore|Mumbai|Delhi|Hyderabad|Pune|Chennai|Gurgaon|Gurugram|Noida|Kolkata|Ahmedabad|Remote)/i,
