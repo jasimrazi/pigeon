@@ -1,5 +1,6 @@
 {
   "name": "pigeon",
+  "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@12.16.1",
   "scripts": {
@@ -12,6 +13,8 @@
     "test:e2e": "pnpm --filter @pigeon/dashboard test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:bump": "node scripts/sync-version.mjs --bump",
     "parse-eml": "node scripts/parse-eml.mjs",
     "trigger:ingest": "node scripts/trigger.mjs ingest",
     "trigger:score": "node scripts/trigger.mjs score",
