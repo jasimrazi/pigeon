@@ -1319,4 +1319,159 @@ describe('Dashboard App & Operations Components', () => {
       expect(container?.textContent).toContain('Scoring & Pipeline: Queue unavailable');
     });
   });
+
+  describe('App-Wide Styled Alert & Confirmation Dialogs', () => {
+    it('shows in-app AlertModal on action error and ConfirmationModal on Review Queue reject instead of browser dialogs', async () => {
+      const alertSpy = vi.fn(() => {
+        throw new Error('window.alert should not be called');
+      });
+      const confirmSpy = vi.fn(() => {
+        throw new Error('window.confirm should not be called');
+      });
+      vi.stubGlobal('alert', alertSpy);
+      vi.stubGlobal('confirm', confirmSpy);
+
+      let rejected = false;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string, init?: RequestInit) => {
+          const u = url.toString();
+          if (u.includes('/api/overview')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                sendsToday: 0,
+                effectiveCap: 20,
+                dailyCap: 20,
+                bounceRate: 0,
+                failureRate: 0,
+                jobsByStatus: {},
+                jobsByRoute: {},
+                manualWaitingCount: 0,
+                authHealth: { status: 'ok', reason: null, checked_at: null },
+                dryRun: true,
+                killSwitch: false,
+              }),
+            });
+          }
+          if (u.includes('/api/settings/dry-run') && init?.method === 'POST') {
+            return Promise.resolve({
+              ok: false,
+              status: 500,
+              json: async () => ({ error: 'Failed to persist DRY_RUN' }),
+            });
+          }
+          if (u.includes('/api/review-queue')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                ok: true,
+                items: [
+                  {
+                    id: 'app-rq-1',
+                    job_id: 'job-rq-1',
+                    status: 'draft',
+                    cover_letter: 'Dear Acme...',
+                    subject: 'Application for Engineer',
+                    resume_id: null,
+                    resume_label: null,
+                    validator_errors: null,
+                    updated_at: new Date().toISOString(),
+                    title: 'Systems Engineer',
+                    company: 'Acme Corp',
+                    location: 'Remote',
+                    salary_raw: null,
+                    description: 'Systems engineering role.',
+                    apply_url: 'https://acme.com/jobs/1',
+                    contact_email: 'jobs@acme.com',
+                    contact_source: 'posting',
+                    match_score: 90,
+                    match_reasons: 'Great match',
+                    red_flags: [],
+                    untrusted: false,
+                    route_reason: 'OK',
+                    is_safe_for_bulk: true,
+                  },
+                ],
+              }),
+            });
+          }
+          if (u.includes('/api/resumes')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({ ok: true, resumes: [] }),
+            });
+          }
+          if (u.includes('/api/applications/app-rq-1/reject') && init?.method === 'POST') {
+            rejected = true;
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+        }),
+      );
+
+      await act(async () => {
+        root?.render(<App />);
+      });
+
+      // Trigger DRY_RUN live modal, confirm it -> 500 error opens in-app AlertModal
+      const dryRunBtn = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+        b.textContent?.includes('DRY RUN: ON'),
+      );
+      await act(async () => {
+        dryRunBtn?.click();
+      });
+      const confirmLiveBtn = Array.from(
+        document.querySelector('[role="dialog"]')?.querySelectorAll('button') || [],
+      ).find((b) => b.textContent?.includes('Switch to LIVE'));
+      await act(async () => {
+        confirmLiveBtn?.click();
+      });
+
+      expect(alertSpy).not.toHaveBeenCalled();
+      const alertModal = document.querySelector('[role="dialog"]');
+      expect(alertModal).not.toBeNull();
+      expect(alertModal?.textContent).toContain('DRY_RUN Update Failed');
+      expect(alertModal?.textContent).toContain('Failed to persist DRY_RUN');
+
+      const alertOkBtn = alertModal?.querySelector('[data-testid="alert-modal-ok"]') as HTMLButtonElement;
+      await act(async () => {
+        alertOkBtn?.click();
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+      // Switch to Review Queue and click Reject -> opens in-app ConfirmationModal
+      const rqTab = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+        b.textContent?.includes('Review Queue'),
+      );
+      await act(async () => {
+        rqTab?.click();
+      });
+
+      const rejectBtn = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+        b.textContent?.trim() === 'Reject Application',
+      );
+      expect(rejectBtn).toBeDefined();
+      await act(async () => {
+        rejectBtn?.click();
+      });
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      const confirmModal = document.querySelector('[role="dialog"]');
+      expect(confirmModal).not.toBeNull();
+      expect(confirmModal?.textContent).toContain('Reject Application?');
+      expect(confirmModal?.textContent).toContain('Acme Corp');
+
+      const confirmRejectBtn = Array.from(confirmModal?.querySelectorAll('button') || []).find((b) =>
+        b.textContent?.includes('Reject Application'),
+      );
+      await act(async () => {
+        confirmRejectBtn?.click();
+      });
+      expect(rejected).toBe(true);
+    });
+  });
 });

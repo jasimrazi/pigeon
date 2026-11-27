@@ -411,4 +411,66 @@ describe('ManualQueueView Component', () => {
     });
     expect(postCalls.some((c) => c.url.includes('/api/manual/app-focus-1/snooze'))).toBe(true);
   });
+
+  it('opens in-app PromptModal for skipping instead of browser window.prompt', async () => {
+    const promptSpy = vi.fn(() => {
+      throw new Error('window.prompt should not be called');
+    });
+    vi.stubGlobal('prompt', promptSpy);
+    const postCalls: Array<{ url: string; body: string }> = [];
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/manual')) {
+        return Promise.resolve(new Response(JSON.stringify(mockQueueResponse)));
+      }
+      if (url.includes('/kit')) {
+        return Promise.resolve(new Response(JSON.stringify(mockKitResponse)));
+      }
+      if (init?.method === 'POST') {
+        postCalls.push({ url, body: String(init.body || '') });
+        return Promise.resolve(new Response(JSON.stringify({ success: true })));
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await act(async () => {
+      root?.render(<ManualQueueView />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Press 's' to open skip dialog
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }));
+    });
+
+    expect(promptSpy).not.toHaveBeenCalled();
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.textContent).toContain('Skip Application');
+
+    // Click quick suggestion chip "LOW_PAY"
+    const lowPayChip = Array.from(dialog?.querySelectorAll('button') ?? []).find(
+      (b) => b.textContent?.trim() === 'LOW_PAY',
+    );
+    expect(lowPayChip).toBeDefined();
+    await act(async () => {
+      lowPayChip?.click();
+    });
+
+    // Confirm skip
+    const confirmBtn = dialog?.querySelector('[data-testid="prompt-modal-confirm"]') as HTMLButtonElement;
+    expect(confirmBtn).not.toBeNull();
+    await act(async () => {
+      confirmBtn.click();
+    });
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(postCalls).toContainEqual({
+      url: '/api/manual/app-focus-1/skip',
+      body: JSON.stringify({ reason: 'LOW_PAY' }),
+    });
+  });
 });

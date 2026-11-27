@@ -13,6 +13,7 @@ import {
 import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { WorkplaceBadge, getWorkplaceType } from './ui/WorkplaceBadge.js';
+import { useDialog } from './ui/DialogProvider.js';
 import { apiFetch } from '../api.js';
 
 export interface ReviewQueueItem {
@@ -55,6 +56,7 @@ interface Props {
 }
 
 export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): React.JSX.Element {
+  const dialog = useDialog();
   const [items, setItems] = useState<ReviewQueueItem[]>([]);
   const [resumes, setResumes] = useState<ResumeOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,7 +173,11 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       setActionFeedback('Letter updated and validated successfully.');
       setTimeout(() => setActionFeedback(null), 3500);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Letter Validation Error',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     } finally {
       setSavingLetter(false);
     }
@@ -203,7 +209,11 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       setActionFeedback('Attached resume updated.');
       setTimeout(() => setActionFeedback(null), 3000);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Resume Update Failed',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     }
   };
 
@@ -225,14 +235,24 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       setTimeout(() => setActionFeedback(null), 3500);
       onActionComplete?.();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Approval Failed',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     }
   };
 
   // Handle Reject Single Item
   const handleReject = async () => {
     if (!selectedItem) return;
-    if (!confirm(`Reject and dismiss application for ${selectedItem.company}?`)) return;
+    const confirmed = await dialog.confirm({
+      title: 'Reject Application?',
+      message: `Reject and dismiss application for ${selectedItem.company}?`,
+      confirmLabel: 'Reject Application',
+      isDanger: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await apiFetch(`${apiBase}/api/applications/${selectedItem.id}/reject`, {
         method: 'POST',
@@ -247,7 +267,11 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       setTimeout(() => setActionFeedback(null), 3500);
       onActionComplete?.();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Reject Failed',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     }
   };
 
@@ -255,11 +279,12 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
   const handleBulkApprove = async () => {
     if (safeItems.length === 0) return;
     const count = safeItems.length;
-    if (
-      !confirm(
-        `Approve all ${count} safe applications ready for dispatch? Unsafe items will remain for review.`,
-      )
-    ) {
+    const confirmed = await dialog.confirm({
+      title: `Approve ${count} Safe Draft${count === 1 ? '' : 's'}?`,
+      message: `Approve all ${count} safe applications ready for dispatch? Unsafe items will remain for review.`,
+      confirmLabel: `Approve All (${count})`,
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -280,7 +305,11 @@ export function ReviewQueueView({ apiBase = '', onActionComplete }: Props): Reac
       setTimeout(() => setActionFeedback(null), 4000);
       onActionComplete?.();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Bulk Approval Failed',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     }
   };
 

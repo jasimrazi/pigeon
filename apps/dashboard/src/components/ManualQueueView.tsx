@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Button } from './ui/Button.js';
+import { AlertModal, PromptModal } from './ui/ModalShell.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
 import { WorkplaceBadge, getWorkplaceType } from './ui/WorkplaceBadge.js';
@@ -38,6 +39,8 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   const [savingLetter, setSavingLetter] = useState(false);
   const [letterErrors, setLetterErrors] = useState<string[]>([]);
   const [workplaceFilter, setWorkplaceFilter] = useState<'all' | 'remote' | 'hybrid' | 'onsite'>('all');
+  const [showSkipModal, setShowSkipModal] = useState(false);
+  const [alertState, setAlertState] = useState<{ title: string; message: string } | null>(null);
 
   // Fetch Queue Items
   const loadQueue = useCallback(async () => {
@@ -130,31 +133,56 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         setTimeout(() => setActionFeedback(null), 3000);
         setMobileDetailOpen(false);
         void loadQueue();
+      } else {
+        setAlertState({
+          title: 'Action Failed',
+          message: `Failed to mark application as applied (${res.status}).`,
+        });
       }
-    } catch {
-      // Ignored
+    } catch (err) {
+      setAlertState({
+        title: 'Action Failed',
+        message: err instanceof Error ? err.message : 'Failed to mark application as applied.',
+      });
     }
   }, [apiBase, selectedId, loadQueue]);
 
-  const handleSkip = useCallback(async () => {
+  const handleSkip = useCallback(() => {
     if (!selectedId) return;
-    const reason = window.prompt('Reason for skipping this job:', 'NOT_INTERESTED') || 'SKIPPED';
-    try {
-      const res = await apiFetch(`${apiBase}/api/manual/${selectedId}/skip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
-      });
-      if (res.ok) {
-        setActionFeedback('Application skipped.');
-        setTimeout(() => setActionFeedback(null), 3000);
-        setMobileDetailOpen(false);
-        void loadQueue();
+    setShowSkipModal(true);
+  }, [selectedId]);
+
+  const handleConfirmSkip = useCallback(
+    async (rawReason: string) => {
+      setShowSkipModal(false);
+      if (!selectedId) return;
+      const reason = rawReason.trim() || 'SKIPPED';
+      try {
+        const res = await apiFetch(`${apiBase}/api/manual/${selectedId}/skip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason }),
+        });
+        if (res.ok) {
+          setActionFeedback('Application skipped.');
+          setTimeout(() => setActionFeedback(null), 3000);
+          setMobileDetailOpen(false);
+          void loadQueue();
+        } else {
+          setAlertState({
+            title: 'Skip Failed',
+            message: `Failed to skip application (${res.status}).`,
+          });
+        }
+      } catch (err) {
+        setAlertState({
+          title: 'Skip Failed',
+          message: err instanceof Error ? err.message : 'Failed to skip application.',
+        });
       }
-    } catch {
-      // Ignored
-    }
-  }, [apiBase, selectedId, loadQueue]);
+    },
+    [apiBase, selectedId, loadQueue],
+  );
 
   const handleSnooze = useCallback(
     async (days = 3) => {
@@ -170,9 +198,17 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           setTimeout(() => setActionFeedback(null), 3000);
           setMobileDetailOpen(false);
           void loadQueue();
+        } else {
+          setAlertState({
+            title: 'Snooze Failed',
+            message: `Failed to snooze application (${res.status}).`,
+          });
         }
-      } catch {
-        // Ignored
+      } catch (err) {
+        setAlertState({
+          title: 'Snooze Failed',
+          message: err instanceof Error ? err.message : 'Failed to snooze application.',
+        });
       }
     },
     [apiBase, selectedId, loadQueue],
@@ -217,6 +253,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   // Keyboard navigation shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (showSkipModal || alertState) return;
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') {
         return;
@@ -267,6 +304,8 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     handleMarkApplied,
     handleSkip,
     handleSnooze,
+    showSkipModal,
+    alertState,
   ]);
 
   return (
@@ -897,6 +936,32 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           )}
         </div>
       </div>
+
+      <PromptModal
+        isOpen={showSkipModal}
+        title="Skip Application"
+        message="Reason for skipping this job:"
+        defaultValue="NOT_INTERESTED"
+        placeholder="e.g. NOT_INTERESTED"
+        suggestions={[
+          'NOT_INTERESTED',
+          'LOW_PAY',
+          'WRONG_STACK',
+          'LOCATION_MISMATCH',
+          'ALREADY_APPLIED',
+        ]}
+        confirmLabel="Skip Job"
+        onConfirm={(reason) => void handleConfirmSkip(reason)}
+        onCancel={() => setShowSkipModal(false)}
+      />
+
+      <AlertModal
+        isOpen={alertState !== null}
+        title={alertState?.title || 'Notice'}
+        message={alertState?.message || ''}
+        variant="danger"
+        onClose={() => setAlertState(null)}
+      />
     </div>
   );
 }

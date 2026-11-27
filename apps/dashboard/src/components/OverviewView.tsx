@@ -4,6 +4,7 @@ import { ConfirmationModal } from './ConfirmationModal.js';
 import { AlertBanner } from './ui/AlertBanner.js';
 import { MetricCard } from './ui/MetricCard.js';
 import { Button } from './ui/Button.js';
+import { useDialog } from './ui/DialogProvider.js';
 import { apiFetch, getGoogleAuthStartUrl } from '../api.js';
 
 export interface CronJobInfo {
@@ -59,6 +60,7 @@ export function OverviewView({
   onNavigateTab,
   onDataRefresh,
 }: Props): React.JSX.Element {
+  const dialog = useDialog();
   const [data, setData] = useState<OverviewData | null>(null);
   const [setupStatus, setSetupStatus] = useState<{
     readyForDryRun: boolean;
@@ -169,7 +171,11 @@ export function OverviewView({
       await loadOverview();
       onDataRefresh?.();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Kill Switch Update Failed',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     } finally {
       setActionLoading(false);
       setShowKsModal(false);
@@ -191,7 +197,11 @@ export function OverviewView({
       await loadOverview();
       onDataRefresh?.();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'DRY_RUN Update Failed',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     } finally {
       setActionLoading(false);
     }

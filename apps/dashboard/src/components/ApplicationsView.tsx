@@ -4,6 +4,7 @@ import { Button } from './ui/Button.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
 import { WorkplaceBadge, getWorkplaceType } from './ui/WorkplaceBadge.js';
+import { useDialog } from './ui/DialogProvider.js';
 import { apiFetch } from '../api.js';
 
 export interface ApplicationItem {
@@ -35,6 +36,7 @@ interface Props {
 }
 
 export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
+  const dialog = useDialog();
   const [apps, setApps] = useState<ApplicationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +110,11 @@ export function ApplicationsView({ apiBase = '' }: Props): React.JSX.Element {
       setOutcomeNotes('');
       await loadApplications();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Failed to Record Outcome',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     } finally {
       setSavingOutcome(false);
     }

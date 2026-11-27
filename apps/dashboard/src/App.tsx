@@ -26,6 +26,7 @@ import { SettingsView, type SettingsSubTab } from './components/SettingsView.js'
 import { EventsView } from './components/EventsView.js';
 import { SetupView } from './components/SetupView.js';
 import { ConfirmationModal } from './components/ConfirmationModal.js';
+import { DialogProvider, useDialog } from './components/ui/DialogProvider.js';
 
 export type TabKey =
   | 'overview'
@@ -39,6 +40,15 @@ export type TabKey =
   | 'setup';
 
 export function App(): React.JSX.Element {
+  return (
+    <DialogProvider>
+      <AppContent />
+    </DialogProvider>
+  );
+}
+
+function AppContent(): React.JSX.Element {
+  const dialog = useDialog();
   const [token, setToken] = useState<string | null>(() => getStoredToken());
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     if (typeof window !== 'undefined' && window.location.pathname === '/setup') {
@@ -122,7 +132,11 @@ export function App(): React.JSX.Element {
       setKillSwitch(activate);
       setRefreshTrigger((prev) => prev + 1);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      void dialog.alert({
+        title: 'Kill Switch Update Failed',
+        message: err instanceof Error ? err.message : String(err),
+        variant: 'danger',
+      });
     } finally {
       setShowKsModal(false);
     }
