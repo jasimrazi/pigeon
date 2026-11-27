@@ -323,47 +323,45 @@ function AppContent(): React.JSX.Element {
     <div className="min-h-screen flex flex-col bg-canvas text-fg">
       {/* Top Header */}
       <header className="border-b border-border bg-surface sticky top-0 z-40">
-        <div className="max-w-[1200px] mx-auto px-3 sm:px-6 flex items-center justify-between h-14">
-          <div className="flex items-center gap-4 lg:gap-6 min-w-0">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className="flex items-center gap-2 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[4px] shrink-0"
-            >
-              <Bird size={18} strokeWidth={1.5} className="text-fg shrink-0" aria-hidden="true" />
-              <span className="text-[16px] font-semibold tracking-tight text-fg">Pigeon</span>
-            </button>
+        <div className="max-w-[1440px] mx-auto px-3 sm:px-6 flex flex-wrap items-center justify-between min-h-14 gap-x-4">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className="flex items-center gap-2 h-14 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[4px] shrink-0 order-1"
+          >
+            <Bird size={18} strokeWidth={1.5} className="text-fg shrink-0" aria-hidden="true" />
+            <span className="text-[16px] font-semibold tracking-tight text-fg">Pigeon</span>
+          </button>
 
-            {/* Navigation Tabs (Desktop: text-only, 2px underline active indicator) */}
-            <nav className="hidden md:flex items-center gap-0.5 lg:gap-1 h-14 overflow-x-auto scrollbar-none">
-              {navItems.map((item) => {
-                const isActive = activeTab === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    onClick={() => setActiveTab(item.key)}
-                    className={`h-full px-2.5 lg:px-3 text-[13px] font-medium transition-colors cursor-pointer border-b-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-                      isActive
-                        ? 'border-accent text-fg bg-surface-subtle/50'
-                        : 'border-transparent text-fg-muted hover:text-fg hover:bg-surface-subtle/30'
-                    }`}
-                  >
-                    <span>{item.label}</span>
-                    {item.count !== undefined && (
-                      <span
-                        data-testid={`nav-badge-${item.key}`}
-                        className="text-[10px] font-mono font-semibold tabular-nums px-1.5 py-0.2 rounded-[4px] bg-accent/15 text-accent border border-accent/25 leading-tight"
-                      >
-                        {item.count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
+          {/* Navigation Tabs (Desktop: single row on xl+, dedicated full-width bar on md..lg so nothing clips) */}
+          <nav className="hidden md:flex items-center flex-wrap gap-0.5 lg:gap-1 w-full xl:w-auto xl:flex-1 xl:pl-2 border-t border-border/60 xl:border-t-0 h-11 xl:h-14 order-3 xl:order-2">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setActiveTab(item.key)}
+                  className={`h-full px-2.5 text-[13px] font-medium transition-colors cursor-pointer border-b-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                    isActive
+                      ? 'border-accent text-fg bg-surface-subtle/50'
+                      : 'border-transparent text-fg-muted hover:text-fg hover:bg-surface-subtle/30'
+                  }`}
+                >
+                  <span>{item.label}</span>
+                  {item.count !== undefined && (
+                    <span
+                      data-testid={`nav-badge-${item.key}`}
+                      className="text-[10px] font-mono font-semibold tabular-nums px-1.5 py-0.2 rounded-[4px] bg-accent/15 text-accent border border-accent/25 leading-tight"
+                    >
+                      {item.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
 
           {/* Right Header Status Indicators (Compact Dot + Label Chips) */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 h-14 shrink-0 order-2 xl:order-3">
             <button
               type="button"
               onClick={() => setCommandOpen(true)}
@@ -551,10 +549,11 @@ function AppContent(): React.JSX.Element {
                   }}
                   data-testid="header-signout-button"
                   title="Sign out / Lock dashboard"
+                  aria-label="Sign out"
                   className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] sm:text-[12px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted hover:text-fg hover:bg-surface transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   <LogOut size={13} aria-hidden="true" />
-                  <span className="hidden sm:inline">Sign Out</span>
+                  <span className="hidden 2xl:inline">Sign Out</span>
                 </button>
               </>
             )}
