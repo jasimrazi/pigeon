@@ -363,6 +363,93 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       expect(jobs[1]?.apply_url).toBe('https://www.linkedin.com/jobs/view/3948572020');
     });
 
+    it('LinkedIn parser handles modern nested-anchor table digest cards with middot company/location and plain-text fallback', () => {
+      const longParams = 'trackingId=mock&lipi=urn%3Ali%3Apage&trk=' + 'x'.repeat(650);
+      const modernLinkedInHtml = `
+        <table><tbody>
+          <tr><td data-test-id="job-card">
+            <table><tbody><tr>
+              <td><a href="https://www.linkedin.com/comm/jobs/view/4486302601/?${longParams}"><img alt="Google" width="48" height="48"></a></td>
+              <td><a href="https://www.linkedin.com/comm/jobs/view/4486302601/?${longParams}">
+                <table><tbody>
+                  <tr><td><a href="https://www.linkedin.com/comm/jobs/view/4486302601/?${longParams}" class="font-bold"> Software Engineer III, Mobile, Android </a></td></tr>
+                  <tr><td><p class="text-system-gray-100"> Google &middot; Bengaluru (On-site) </p></td></tr>
+                  <tr><td><table><tbody><tr><td><p class="job-card-flavor__detail"> Actively recruiting </p></td></tr></tbody></table></td></tr>
+                </tbody></table>
+              </a></td>
+            </tr></tbody></table>
+          </td></tr>
+          <tr><td data-test-id="job-card">
+            <table><tbody><tr>
+              <td><a href="https://www.linkedin.com/comm/jobs/view/4495223329/?${longParams}"><img alt="Sortly" width="48" height="48"></a></td>
+              <td><a href="https://www.linkedin.com/comm/jobs/view/4495223329/?${longParams}">
+                <table><tbody>
+                  <tr><td><a href="https://www.linkedin.com/comm/jobs/view/4495223329/?${longParams}" class="font-bold"> Senior Product Manager (Mobile) </a></td></tr>
+                  <tr><td><p class="text-system-gray-100"> Sortly &middot; India (Remote) </p></td></tr>
+                  <tr><td><table><tbody><tr><td><p class="job-card-flavor__detail"> Easy Apply </p></td></tr></tbody></table></td></tr>
+                </tbody></table>
+              </a></td>
+            </tr></tbody></table>
+          </td></tr>
+        </tbody></table>
+      `;
+
+      const modernLinkedInText = `Your job alert for mobile in India
+30+ new jobs match your preferences.
+
+Software Engineer III, Mobile, Android
+Google
+Bengaluru
+
+This company is actively hiring
+View job: https://www.linkedin.com/comm/jobs/view/4486302601/?${longParams}
+
+---------------------------------------------------------
+
+Senior Product Manager (Mobile)
+Sortly
+India
+Apply with resume & profile
+View job: https://www.linkedin.com/comm/jobs/view/4495223329/?${longParams}
+
+---------------------------------------------------------
+`;
+
+      const htmlJobs = getParser('linkedin').parse(modernLinkedInHtml, modernLinkedInText);
+      expect(htmlJobs).toHaveLength(2);
+      expect(htmlJobs[0]).toMatchObject({
+        title: 'Software Engineer III, Mobile, Android',
+        company: 'Google',
+        location: 'Bengaluru (On-site)',
+        apply_url: 'https://www.linkedin.com/comm/jobs/view/4486302601/',
+        description:
+          'Software Engineer III, Mobile, Android at Google - Bengaluru (On-site) (Actively recruiting)',
+      });
+      expect(htmlJobs[1]).toMatchObject({
+        title: 'Senior Product Manager (Mobile)',
+        company: 'Sortly',
+        location: 'India (Remote)',
+        apply_url: 'https://www.linkedin.com/comm/jobs/view/4495223329/',
+        description:
+          'Senior Product Manager (Mobile) at Sortly - India (Remote) (Easy Apply)',
+      });
+
+      const textOnlyJobs = getParser('linkedin').parse('', modernLinkedInText);
+      expect(textOnlyJobs).toHaveLength(2);
+      expect(textOnlyJobs[0]).toMatchObject({
+        title: 'Software Engineer III, Mobile, Android',
+        company: 'Google',
+        location: 'Bengaluru',
+        apply_url: 'https://www.linkedin.com/comm/jobs/view/4486302601/',
+      });
+      expect(textOnlyJobs[1]).toMatchObject({
+        title: 'Senior Product Manager (Mobile)',
+        company: 'Sortly',
+        location: 'India',
+        apply_url: 'https://www.linkedin.com/comm/jobs/view/4495223329/',
+      });
+    });
+
     it('Naukri parser extracts exact job list and strips HTML tags from titles', async () => {
       const email = await new PostalMime().parse(NAUKRI_EML_FIXTURE);
       const portal = detectPortal(email.from?.address ?? '');
@@ -433,6 +520,88 @@ describe('Pigeon Email Alert Ingestion (Shared Suite)', () => {
       expect(jobs[1]?.company).toBe('Cyberdyne Systems');
       expect(jobs[1]?.location).toBe('Austin, TX');
       expect(jobs[1]?.apply_url).toBe('https://www.indeed.com/viewjob?jk=5c6d7e8f9a0b1c2d');
+    });
+
+    it('Indeed parser handles table cards with Indian locations, From salaries, and text/plain descriptions', () => {
+      const paddingUrlParams = 'bb=' + 'x'.repeat(320) + '&tmtk=1k7ple87ag1qo800';
+      const modernIndeedHtml = `
+        <table><tbody><tr><td>
+          <h2><a href="https://in.indeed.com/rc/clk/dl?jk=3b66abf9b73f9f58&amp;from=ja&amp;${paddingUrlParams}" class="strong-text-link">Flutter Developer – iOS</a></h2>
+          <table cellPadding="0" cellSpacing="0" border="0" role="presentation"><tbody>
+            <tr><td><table><tbody><tr><td style="padding:0 12px 0 0"><p style="margin:0;padding:0">Clann Staffing</p></td></tr></tbody></table></td></tr>
+            <tr><td><p style="margin:0;padding:0">Bengaluru, Karnataka</p></td></tr>
+          </tbody></table>
+          <table><tbody><tr><td><p style="margin:0;padding:0">₹10,00,000 - ₹18,00,000 a year</p></td></tr></tbody></table>
+          <table><tbody><tr><td><img src="https://prod.statics.indeed.com/eml/assets/images/plane.png" alt=" "></td><td><p>Easily apply</p></td></tr></tbody></table>
+          <p>2 days ago</p>
+        </td></tr><tr><td>
+          <h2><a href="https://in.indeed.com/rc/clk/dl?jk=ce245a2874f55b91&amp;from=ja&amp;${paddingUrlParams}" class="strong-text-link">Flutter Application Developer</a></h2>
+          <table cellPadding="0" cellSpacing="0" border="0" role="presentation"><tbody>
+            <tr><td><p>Innomatrics Technologies</p></td></tr>
+            <tr><td><p>BTM Layout, Bengaluru, Karnataka</p></td></tr>
+          </tbody></table>
+          <table><tbody><tr><td><p>From ₹10,000 a month</p></td></tr></tbody></table>
+          <table><tbody><tr><td><p>Responsive employer</p></td><td><p>Easily apply</p></td></tr></tbody></table>
+          <p>Just posted</p>
+        </td></tr></tbody></table>
+        <div>View all jobs</div>
+      `;
+
+      const modernIndeedText = `Indeed Job Alert
+20 new flutter vacancies in India
+
+Flutter Developer – iOS
+Clann Staffing - Bengaluru, Karnataka
+₹10,00,000 - ₹18,00,000 a year
+Easily apply
+Design and maintain cross-platform mobile applications with Swift and Dart.
+2 days ago
+https://in.indeed.com/rc/clk/dl?jk=3b66abf9b73f9f58&from=ja&${paddingUrlParams}
+
+Flutter Application Developer
+Innomatrics Technologies - BTM Layout, Bengaluru, Karnataka
+From ₹10,000 a month
+Responsive employer
+Easily apply
+Build clean architecture Flutter & Dart mobile apps for Android and iOS.
+Just posted
+https://in.indeed.com/rc/clk/dl?jk=ce245a2874f55b91&from=ja&${paddingUrlParams}
+`;
+
+      const htmlOnlyJobs = getParser('indeed').parse(modernIndeedHtml);
+      expect(htmlOnlyJobs).toHaveLength(2);
+      expect(htmlOnlyJobs[0]).toMatchObject({
+        title: 'Flutter Developer – iOS',
+        company: 'Clann Staffing',
+        location: 'Bengaluru, Karnataka',
+        salary_raw: '₹10,00,000 - ₹18,00,000 a year',
+        apply_url: 'https://in.indeed.com/rc/clk/dl?jk=3b66abf9b73f9f58',
+      });
+      expect(htmlOnlyJobs[1]).toMatchObject({
+        title: 'Flutter Application Developer',
+        company: 'Innomatrics Technologies',
+        location: 'BTM Layout, Bengaluru, Karnataka',
+        salary_raw: 'From ₹10,000 a month',
+        apply_url: 'https://in.indeed.com/rc/clk/dl?jk=ce245a2874f55b91',
+      });
+
+      const enrichedJobs = getParser('indeed').parse(modernIndeedHtml, modernIndeedText);
+      expect(enrichedJobs).toHaveLength(2);
+      expect(enrichedJobs[0]?.description).toBe(
+        'Design and maintain cross-platform mobile applications with Swift and Dart.',
+      );
+      expect(enrichedJobs[1]?.description).toBe(
+        'Build clean architecture Flutter & Dart mobile apps for Android and iOS.',
+      );
+
+      const textOnlyJobs = getParser('indeed').parse('', modernIndeedText);
+      expect(textOnlyJobs).toHaveLength(2);
+      expect(textOnlyJobs[1]).toMatchObject({
+        title: 'Flutter Application Developer',
+        company: 'Innomatrics Technologies',
+        location: 'BTM Layout, Bengaluru, Karnataka',
+        salary_raw: 'From ₹10,000 a month',
+      });
     });
 
     it('Wellfound parser extracts startup jobs and cleans tracking parameters', async () => {
