@@ -1,20 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Bird,
   ChevronRight,
+  Command,
   Mail,
+  Moon,
   Send,
   Layers,
   MoreHorizontal,
   Radio,
   Sliders,
+  Sun,
+  SunMoon,
   History,
   ShieldCheck,
   X,
   LogOut,
   Sparkles,
 } from 'lucide-react';
+import { getAppVersionInfo, type AppVersionInfo } from '@pigeon/shared';
 import { getStoredToken, clearStoredToken, onUnauthorized, apiFetch } from './api.js';
+import { getStoredTheme, setStoredTheme, type ThemePreference } from './theme.js';
 import { LoginView } from './components/LoginView.js';
 import { OverviewView } from './components/OverviewView.js';
 import { ReviewQueueView } from './components/ReviewQueueView.js';
@@ -27,6 +33,8 @@ import { EventsView } from './components/EventsView.js';
 import { SetupView } from './components/SetupView.js';
 import { ConfirmationModal } from './components/ConfirmationModal.js';
 import { DialogProvider, useDialog } from './components/ui/DialogProvider.js';
+import { ToastProvider, useToast } from './components/ui/ToastProvider.js';
+import { CommandPalette, type CommandPaletteAction } from './components/ui/CommandPalette.js';
 
 export type TabKey =
   | 'overview'
@@ -42,13 +50,17 @@ export type TabKey =
 export function App(): React.JSX.Element {
   return (
     <DialogProvider>
-      <AppContent />
+      <ToastProvider>
+        <AppContent />
+      </ToastProvider>
     </DialogProvider>
   );
 }
 
 function AppContent(): React.JSX.Element {
   const dialog = useDialog();
+  const toast = useToast();
+  const clientVersion = useMemo(() => getAppVersionInfo(), []);
   const [token, setToken] = useState<string | null>(() => getStoredToken());
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     if (typeof window !== 'undefined' && window.location.pathname === '/setup') {
@@ -61,9 +73,14 @@ function AppContent(): React.JSX.Element {
   const [killSwitch, setKillSwitch] = useState<boolean | null>(null);
   const [dryRun, setDryRun] = useState<boolean | null>(null);
   const [authHealth, setAuthHealth] = useState<'ok' | 'invalid' | 'unknown' | null>(null);
+  const [reviewPendingCount, setReviewPendingCount] = useState<number>(0);
+  const [manualWaitingCount, setManualWaitingCount] = useState<number>(0);
+  const [apiVersion, setApiVersion] = useState<AppVersionInfo | null>(null);
   const [showKsModal, setShowKsModal] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [themePref, setThemePref] = useState<ThemePreference>(() => getStoredTheme());
 
   const apiBase =
     (import.meta.env?.VITE_API_BASE as string | undefined) ||
@@ -94,9 +111,21 @@ function AppContent(): React.JSX.Element {
           killSwitch?: boolean;
           dryRun?: boolean;
           authHealth?: { status: 'ok' | 'invalid' | 'unknown' };
+          reviewPendingCount?: number;
+          manualWaitingCount?: number;
+          version?: AppVersionInfo;
         };
         if (typeof data.killSwitch === 'boolean') setKillSwitch(data.killSwitch);
         if (typeof data.dryRun === 'boolean') setDryRun(data.dryRun);
+        if (typeof data.reviewPendingCount === 'number') {
+          setReviewPendingCount(data.reviewPendingCount);
+        }
+        if (typeof data.manualWaitingCount === 'number') {
+          setManualWaitingCount(data.manualWaitingCount);
+        }
+        if (data.version) {
+          setApiVersion(data.version);
+        }
         if (data.authHealth?.status === 'ok') {
           setAuthHealth('ok');
         } else if (data.authHealth?.status === 'invalid') {
@@ -118,6 +147,122 @@ function AppContent(): React.JSX.Element {
       void loadHeaderStatus();
     }
   }, [loadHeaderStatus, refreshTrigger, token]);
+
+  const handleCycleTheme = useCallback(() => {
+    const order: ThemePreference[] = ['system', 'light', 'dark'];
+    const next = order[(order.indexOf(themePref) + 1) % order.length] ?? 'system';
+    setThemePref(next);
+    setStoredTheme(next);
+    toast.info(`Theme switched to ${next}.`);
+  }, [themePref, toast]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const commandActions = useMemo<CommandPaletteAction[]>(() => {
+    const runAction = async (label: string, url: string) => {
+      try {
+        const res = await apiFetch(url, { method: 'POST' });
+        if (!res.ok) {
+          throw new Error(`${label} failed (${res.status})`);
+        }
+        toast.success(`${label} completed.`);
+        setRefreshTrigger((prev) => prev + 1);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : `${label} failed`);
+      }
+    };
+
+    return [
+      { id: 'nav-overview', label: 'Go to Overview', group: 'Navigation', onSelect: () => setActiveTab('overview') },
+      { id: 'nav-review', label: 'Go to Review Queue', group: 'Navigation', keywords: 'email drafts approve', onSelect: () => setActiveTab('review-queue') },
+      { id: 'nav-manual', label: 'Go to Manual Apply', group: 'Navigation', keywords: 'portal focus kit', onSelect: () => setActiveTab('manual-apply') },
+      { id: 'nav-jobs', label: 'Go to Parsed Jobs', group: 'Navigation', keywords: 'alerts scores mail', onSelect: () => setActiveTab('mail-jobs') },
+      { id: 'nav-apps', label: 'Go to Applications', group: 'Navigation', keywords: 'outcomes ledger history', onSelect: () => setActiveTab('applications') },
+      { id: 'nav-sources', label: 'Go to Sources', group: 'Navigation', keywords: 'ats circuits rss', onSelect: () => setActiveTab('sources') },
+      {
+        id: 'nav-settings-profile',
+        label: 'Settings: Profile & Answers',
+        group: 'Navigation',
+        onSelect: () => {
+          setSettingsSubTab('profile');
+          setActiveTab('settings');
+        },
+      },
+      {
+        id: 'nav-settings-resumes',
+        label: 'Settings: Resumes',
+        group: 'Navigation',
+        onSelect: () => {
+          setSettingsSubTab('resumes');
+          setActiveTab('settings');
+        },
+      },
+      {
+        id: 'nav-settings-integrations',
+        label: 'Settings: Integrations',
+        group: 'Navigation',
+        onSelect: () => {
+          setSettingsSubTab('integrations');
+          setActiveTab('settings');
+        },
+      },
+      {
+        id: 'nav-settings-safety',
+        label: 'Settings: Safety, DNC & Data',
+        group: 'Navigation',
+        onSelect: () => {
+          setSettingsSubTab('safety');
+          setActiveTab('settings');
+        },
+      },
+      { id: 'nav-events', label: 'Go to Audit Events', group: 'Navigation', onSelect: () => setActiveTab('events') },
+      { id: 'nav-setup', label: 'Go to Setup Checklist', group: 'Navigation', onSelect: () => setActiveTab('setup') },
+      {
+        id: 'act-sync-gmail',
+        label: 'Sync Job Alerts from Gmail',
+        group: 'Actions',
+        keywords: 'alerts ingest email',
+        onSelect: () => runAction('Gmail alert sync', `${apiBase}/api/alerts/sync`),
+      },
+      {
+        id: 'act-run-pipeline',
+        label: 'Run Scoring & Routing Pipeline',
+        group: 'Actions',
+        keywords: 'llm score filter',
+        onSelect: () => runAction('Scoring pipeline', `${apiBase}/api/pipeline/run`),
+      },
+      {
+        id: 'act-poll-inbox',
+        label: 'Poll Inbox for Employer Replies',
+        group: 'Actions',
+        keywords: 'replies follow up bounce',
+        onSelect: () => runAction('Inbox poll', `${apiBase}/api/inbox/poll`),
+      },
+      {
+        id: 'act-sync-sheet',
+        label: 'Sync Applications to Google Sheet',
+        group: 'Actions',
+        keywords: 'spreadsheet export',
+        onSelect: () => runAction('Google Sheet sync', `${apiBase}/api/sync/sheet`),
+      },
+      {
+        id: 'theme-cycle',
+        label: `Cycle Theme (current: ${themePref})`,
+        group: 'Appearance',
+        keywords: 'dark light system',
+        onSelect: handleCycleTheme,
+      },
+    ];
+  }, [apiBase, handleCycleTheme, themePref, toast]);
 
   const handleToggleKillSwitch = async (activate: boolean) => {
     try {
@@ -153,10 +298,18 @@ function AppContent(): React.JSX.Element {
     );
   }
 
-  const navItems: Array<{ key: TabKey; label: string }> = [
+  const navItems: Array<{ key: TabKey; label: string; count?: number | undefined }> = [
     { key: 'overview', label: 'Overview' },
-    { key: 'review-queue', label: 'Review Queue' },
-    { key: 'manual-apply', label: 'Manual Apply' },
+    {
+      key: 'review-queue',
+      label: 'Review Queue',
+      count: reviewPendingCount > 0 ? reviewPendingCount : undefined,
+    },
+    {
+      key: 'manual-apply',
+      label: 'Manual Apply',
+      count: manualWaitingCount > 0 ? manualWaitingCount : undefined,
+    },
     { key: 'mail-jobs', label: 'Parsed Jobs' },
     { key: 'applications', label: 'Applications' },
     { key: 'sources', label: 'Sources' },
@@ -164,35 +317,45 @@ function AppContent(): React.JSX.Element {
     { key: 'events', label: 'Events' },
   ];
 
+  const ThemeIcon = themePref === 'dark' ? Moon : themePref === 'light' ? Sun : SunMoon;
+
   return (
     <div className="min-h-screen flex flex-col bg-canvas text-fg">
       {/* Top Header */}
       <header className="border-b border-border bg-surface sticky top-0 z-40">
         <div className="max-w-[1200px] mx-auto px-3 sm:px-6 flex items-center justify-between h-14">
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 lg:gap-6 min-w-0">
             <button
               onClick={() => setActiveTab('overview')}
-              className="flex items-center gap-2 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[4px]"
+              className="flex items-center gap-2 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-[4px] shrink-0"
             >
               <Bird size={18} strokeWidth={1.5} className="text-fg shrink-0" aria-hidden="true" />
               <span className="text-[16px] font-semibold tracking-tight text-fg">Pigeon</span>
             </button>
 
             {/* Navigation Tabs (Desktop: text-only, 2px underline active indicator) */}
-            <nav className="hidden md:flex items-center gap-1 h-14">
+            <nav className="hidden md:flex items-center gap-0.5 lg:gap-1 h-14 overflow-x-auto scrollbar-none">
               {navItems.map((item) => {
                 const isActive = activeTab === item.key;
                 return (
                   <button
                     key={item.key}
                     onClick={() => setActiveTab(item.key)}
-                    className={`h-full px-3 text-[13px] font-medium transition-colors cursor-pointer border-b-2 flex items-center ${
+                    className={`h-full px-2.5 lg:px-3 text-[13px] font-medium transition-colors cursor-pointer border-b-2 flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                       isActive
                         ? 'border-accent text-fg bg-surface-subtle/50'
                         : 'border-transparent text-fg-muted hover:text-fg hover:bg-surface-subtle/30'
                     }`}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
+                    {item.count !== undefined && (
+                      <span
+                        data-testid={`nav-badge-${item.key}`}
+                        className="text-[10px] font-mono font-semibold tabular-nums px-1.5 py-0.2 rounded-[4px] bg-accent/15 text-accent border border-accent/25 leading-tight"
+                      >
+                        {item.count}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -200,7 +363,29 @@ function AppContent(): React.JSX.Element {
           </div>
 
           {/* Right Header Status Indicators (Compact Dot + Label Chips) */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setCommandOpen(true)}
+              data-testid="header-command-palette-button"
+              title="Open Command Palette (Ctrl/Cmd + K)"
+              aria-label="Open command palette"
+              className="hidden lg:inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium rounded-[4px] border border-border bg-surface-subtle text-fg-muted hover:text-fg hover:bg-surface transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <Command size={11} aria-hidden="true" />
+              <span className="font-mono">K</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCycleTheme}
+              data-testid="header-theme-toggle"
+              title={`Theme: ${themePref} (click to switch)`}
+              aria-label={`Switch theme (current: ${themePref})`}
+              className="inline-flex items-center justify-center p-1 rounded-[4px] border border-border bg-surface-subtle text-fg-muted hover:text-fg hover:bg-surface transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <ThemeIcon size={13} aria-hidden="true" />
+            </button>
             {headerState === 'loading' ? (
               <>
                 <span
@@ -392,7 +577,12 @@ function AppContent(): React.JSX.Element {
             onActionComplete={() => setRefreshTrigger((prev) => prev + 1)}
           />
         )}
-        {activeTab === 'manual-apply' && <ManualQueueView apiBase={apiBase} />}
+        {activeTab === 'manual-apply' && (
+          <ManualQueueView
+            apiBase={apiBase}
+            onActionComplete={() => setRefreshTrigger((prev) => prev + 1)}
+          />
+        )}
         {activeTab === 'mail-jobs' && (
           <MailJobsView
             apiBase={apiBase}
@@ -459,7 +649,14 @@ function AppContent(): React.JSX.Element {
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
-            <Mail size={17} strokeWidth={activeTab === 'review-queue' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <div className="relative">
+              <Mail size={17} strokeWidth={activeTab === 'review-queue' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+              {reviewPendingCount > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-accent text-accent-fg text-[9px] font-mono font-semibold flex items-center justify-center">
+                  {reviewPendingCount > 99 ? '99+' : reviewPendingCount}
+                </span>
+              )}
+            </div>
             <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Review Queue</span>
           </button>
 
@@ -476,7 +673,14 @@ function AppContent(): React.JSX.Element {
                 : 'text-fg-muted hover:text-fg'
             }`}
           >
-            <Send size={17} strokeWidth={activeTab === 'manual-apply' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+            <div className="relative">
+              <Send size={17} strokeWidth={activeTab === 'manual-apply' ? 2 : 1.5} className="shrink-0" aria-hidden="true" />
+              {manualWaitingCount > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-accent text-accent-fg text-[9px] font-mono font-semibold flex items-center justify-center">
+                  {manualWaitingCount > 99 ? '99+' : manualWaitingCount}
+                </span>
+              )}
+            </div>
             <span className="text-[9px] font-medium leading-none tracking-tight mt-1 truncate max-w-full px-0.5">Manual Apply</span>
           </button>
 
@@ -679,7 +883,9 @@ function AppContent(): React.JSX.Element {
 
             {/* Footer Status Pill */}
             <div className="pt-3 border-t border-border flex items-center justify-between text-[11px] text-fg-muted">
-              <span>Pigeon Career Dispatch</span>
+              <span data-testid="mobile-version-counter" className="font-mono">
+                Pigeon {clientVersion.label}
+              </span>
               <span className="font-mono tabular-nums px-1.5 py-0.5 bg-surface-subtle border border-border rounded-[4px]">
                 {dryRun ? 'Simulation Mode' : 'Live Sending Mode'}
               </span>
@@ -687,6 +893,42 @@ function AppContent(): React.JSX.Element {
           </div>
         </div>
       )}
+
+      {/* Desktop Footer with Version Counter */}
+      <footer className="hidden md:block border-t border-border bg-surface/60">
+        <div className="max-w-[1200px] mx-auto px-6 py-2.5 flex items-center justify-between text-[11px] text-fg-muted">
+          <div className="flex items-center gap-3">
+            <span>Pigeon Job Dispatch</span>
+            <span
+              data-testid="app-version-counter"
+              className="font-mono tabular-nums px-1.5 py-0.5 rounded-[4px] border border-border bg-surface-subtle text-fg"
+              title={`UI: ${clientVersion.label}${apiVersion ? ` | API: ${apiVersion.label}` : ''}`}
+            >
+              {clientVersion.label}
+            </span>
+            {apiVersion && apiVersion.build !== clientVersion.build && (
+              <span className="font-mono text-state-warn-fg">
+                API #{apiVersion.build}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setCommandOpen(true)}
+              className="hover:text-fg transition-colors cursor-pointer font-mono"
+            >
+              Ctrl/Cmd+K Commands
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      <CommandPalette
+        isOpen={commandOpen}
+        onClose={() => setCommandOpen(false)}
+        actions={commandActions}
+      />
 
       {/* Header Kill Switch Confirmation Modal */}
       <ConfirmationModal

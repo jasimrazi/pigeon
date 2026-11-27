@@ -20,12 +20,16 @@ export function mapStatusToVariant(status?: string): StateVariant {
     case 'approved':
     case 'sent':
     case 'applied':
+    case 'manual_applied':
     case 'replied':
+    case 'interview':
+    case 'offer':
     case 'auto_email':
     case 'closed': // Circuit breaker closed is healthy
       return 'ok';
 
     case 'draft':
+    case 'sending':
     case 'needs_review':
     case 'manual_pending':
     case 'manual_portal':
@@ -45,6 +49,7 @@ export function mapStatusToVariant(status?: string): StateVariant {
 
     case 'unknown':
     case 'skipped':
+    case 'manual_skipped':
     case 'archived':
     default:
       return 'unknown';
