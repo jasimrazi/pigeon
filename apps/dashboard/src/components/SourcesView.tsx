@@ -39,6 +39,7 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
   const [sourceSearch, setSourceSearch] = useState('');
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [resettingParserSource, setResettingParserSource] = useState<string | null>(null);
   const [resetSuccess, setResetSuccess] = useState<string | null>(null);
   const [slugsBySource, setSlugsBySource] = useState<Record<string, string[]>>({});
   const [editingSlugSource, setEditingSlugSource] = useState<string | null>(null);
@@ -49,6 +50,29 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
     () => sources.filter((s) => s.circuit_state === 'open').length,
     [sources],
   );
+
+  const handleResetParserHealth = async (sourceName: string) => {
+    try {
+      setResettingParserSource(sourceName);
+      setError(null);
+      setResetSuccess(null);
+      const res = await apiFetch(`${apiBase}/api/sources/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: sourceName, reset_parser: true }),
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to reset parser warning (${res.status})`);
+      }
+      setResetSuccess(`Parser health warning cleared for ${getSourceDisplayName(sourceName)}.`);
+      await loadSources();
+      setTimeout(() => setResetSuccess(null), 4000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResettingParserSource(null);
+    }
+  };
 
   const handleResetCircuits = async () => {
     try {
@@ -434,15 +458,25 @@ export function SourcesView({ apiBase = '' }: Props): React.JSX.Element {
 
                 {/* Parser Health Warning Banner */}
                 {isSuspect && (
-                  <div className="p-2.5 bg-state-warn-bg border border-state-warn-border rounded-[4px] text-state-warn-fg text-[12px] space-y-1">
-                    <div className="font-semibold flex items-center gap-1.5">
-                      <AlertTriangle
-                        size={14}
-                        strokeWidth={1.5}
-                        className="shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span>Parser Suspect Warning</span>
+                  <div className="p-2.5 bg-state-warn-bg border border-state-warn-border rounded-[4px] text-state-warn-fg text-[12px] space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold flex items-center gap-1.5">
+                        <AlertTriangle
+                          size={14}
+                          strokeWidth={1.5}
+                          className="shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>Parser Suspect Warning</span>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        loading={resettingParserSource === src.name}
+                        onClick={() => handleResetParserHealth(src.name)}
+                      >
+                        Reset Warning
+                      </Button>
                     </div>
                     <p className="text-state-warn-fg/90">
                       {src.parser_empty_streak} consecutive emails yielded 0 jobs. Portal HTML

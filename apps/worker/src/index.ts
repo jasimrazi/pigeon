@@ -2890,14 +2890,67 @@ app.delete('/api/dnc/:value', async (c) => {
   return c.json({ ok: true, value: normalizedValue });
 });
 
-// POST /api/sources/reset: Reset tripped circuit breakers to closed
+const SourcesResetBodySchema = z.object({
+  source: z.string().trim().min(1).max(100).optional(),
+  reset_parser: z.boolean().optional(),
+});
+
+// POST /api/sources/reset: Reset tripped circuit breakers and/or parser health warnings
 app.post('/api/sources/reset', async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { source?: string };
-  if (body?.source && body.source !== 'all') {
+  const rawBody = await c.req.json().catch(() => ({}));
+  const parsed = SourcesResetBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid request body', details: parsed.error.flatten() }, 400);
+  }
+  const { source, reset_parser: resetParser } = parsed.data;
+  const nowIso = new Date().toISOString();
+
+  if (resetParser) {
+    if (source && source !== 'all') {
+      await c.env.DB.prepare(
+        `UPDATE source_state SET parser_empty_streak = 0, untrusted = 0 WHERE source = ?`,
+      )
+        .bind(source)
+        .run();
+      await c.env.DB.prepare(
+        `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          crypto.randomUUID(),
+          'source',
+          source,
+          'parser_health_reset',
+          JSON.stringify({ source }),
+          nowIso,
+        )
+        .run();
+    } else {
+      await c.env.DB.prepare(
+        `UPDATE source_state SET parser_empty_streak = 0, untrusted = 0 WHERE parser_empty_streak > 0 OR untrusted = 1`,
+      ).run();
+      await c.env.DB.prepare(
+        `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          crypto.randomUUID(),
+          'source',
+          'all',
+          'parser_health_reset',
+          JSON.stringify({ source: 'all' }),
+          nowIso,
+        )
+        .run();
+    }
+    return c.json({ ok: true, message: 'Parser health warning reset successfully' });
+  }
+
+  if (source && source !== 'all') {
     await c.env.DB.prepare(
       `UPDATE source_state SET circuit_state = 'closed', consecutive_failures = 0, opened_at = NULL, last_error = NULL WHERE source = ?`,
     )
-      .bind(body.source)
+      .bind(source)
       .run();
   } else {
     await c.env.DB.prepare(

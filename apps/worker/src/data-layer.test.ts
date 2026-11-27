@@ -716,5 +716,36 @@ describe('Pigeon Data Layer & Schema Tests', () => {
       expect(stateRow?.consecutive_failures).toBe(0);
       expect(stateRow?.last_error).toBeNull();
     });
+
+    it('resets parser suspect warning via POST /api/sources/reset with reset_parser=true', async () => {
+      const nowIso = new Date().toISOString();
+      await workerEnv.DB.prepare(
+        `INSERT OR REPLACE INTO source_state (source, consecutive_failures, circuit_state, parser_empty_streak, untrusted, last_run_at)
+         VALUES ('instahyre', 0, 'closed', 5, 1, ?)`,
+      )
+        .bind(nowIso)
+        .run();
+
+      const resReset = await app.request(
+        '/api/sources/reset',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'https://pigeon-dashboard.pages.dev',
+          },
+          body: JSON.stringify({ source: 'instahyre', reset_parser: true }),
+        },
+        workerEnv,
+      );
+      expect(resReset.status).toBe(200);
+
+      const stateRow = await workerEnv.DB.prepare(
+        `SELECT parser_empty_streak, untrusted FROM source_state WHERE source = 'instahyre'`,
+      ).first<{ parser_empty_streak: number; untrusted: number }>();
+
+      expect(stateRow?.parser_empty_streak).toBe(0);
+      expect(stateRow?.untrusted).toBe(0);
+    });
   });
 });

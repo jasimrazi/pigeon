@@ -175,6 +175,14 @@ describe('Dashboard App & Operations Components', () => {
           });
         }
 
+        if (u.includes('/api/sources/reset') && init?.method === 'POST') {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, message: 'Reset successfully' }),
+          });
+        }
+
         if (u.includes('/api/sources')) {
           return Promise.resolve({
             ok: true,
@@ -389,6 +397,23 @@ describe('Dashboard App & Operations Components', () => {
     expect(container?.textContent).toContain('greenhouse');
     expect(container?.textContent).toContain('linkedin');
     expect(container?.textContent).toContain('Parser Suspect Warning');
+
+    const resetBtn = Array.from(container?.querySelectorAll('button') || []).find((b) =>
+      b.textContent?.includes('Reset Warning'),
+    );
+    expect(resetBtn).toBeTruthy();
+
+    await act(async () => {
+      resetBtn?.click();
+    });
+
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sources/reset'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ source: 'linkedin', reset_parser: true }),
+      }),
+    );
   });
 
   it('navigates to Events view and renders searchable audit log', async () => {
