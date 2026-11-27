@@ -96,9 +96,9 @@ export function getParser(portal: PortalType): PortalParser {
   }
 }
 
-export function parseAlertEmail(portal: PortalType, html: string): ParsedAlertJob[] {
+export function parseAlertEmail(portal: PortalType, html: string, text?: string): ParsedAlertJob[] {
   const parser = getParser(portal);
-  const jobs = parser.parse(html);
+  const jobs = parser.parse(html, text);
   // If a portal-specific parser found 0 jobs, we can check if fallback finds anything,
   // or return jobs as is to detect empty digests
   return jobs;

@@ -141,9 +141,12 @@ export async function ingestAlertEmail(
   // 4. Detect portal from the original From: address
   const portal: PortalType = detectPortal(originalFromAddress);
 
-  // 5. Parse jobs from HTML (or plain text fallback)
+  // 5. Parse jobs from HTML (and optional plain-text sibling when available)
   const htmlContent = email.html || email.text || '';
-  const parsedJobs = ParsedAlertJobsSchema.parse(parseAlertEmail(portal, htmlContent));
+  const textContent = email.text || undefined;
+  const parsedJobs = ParsedAlertJobsSchema.parse(
+    parseAlertEmail(portal, htmlContent, textContent),
+  );
 
   // 6. Handle parser health and empty streak tracking
   const health = await handleParserHealth({

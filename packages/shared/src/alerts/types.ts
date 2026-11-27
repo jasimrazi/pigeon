@@ -33,7 +33,7 @@ export type ParsedAlertJob = z.infer<typeof ParsedAlertJobSchema>;
 export interface PortalParser {
   readonly portal: PortalType;
   matchesSender(fromAddress: string): boolean;
-  parse(html: string): ParsedAlertJob[];
+  parse(html: string, text?: string): ParsedAlertJob[];
 }
 
 export interface AlertIngestResult {

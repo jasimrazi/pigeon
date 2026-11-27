@@ -24,7 +24,7 @@ export interface PollGmailAlertsResult {
 }
 
 export const DEFAULT_GMAIL_ALERT_QUERY =
-  'from:(whatjobs.com OR bebee.com OR linkedin.com OR indeed.com OR naukri.com OR wellfound.com OR otta.com OR ziprecruiter.com OR dice.com OR glassdoor.com OR instahyre.com OR foundit.in OR foundit.com OR ambitionbox.com OR cutshort.io) newer_than:7d';
+  'from:(whatjobs.com OR bebee.com OR linkedin.com OR indeed.com OR naukri.com OR wellfound.com OR angel.co OR otta.com OR welcometothejungle.com OR ziprecruiter.com OR dice.com OR glassdoor.com OR instahyre.com OR foundit.in OR foundit.com OR monsterindia.com OR ambitionbox.com OR cutshort.io) newer_than:7d';
 
 /**
  * Polls Gmail for incoming job alert emails from supported portals,

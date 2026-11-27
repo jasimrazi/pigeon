@@ -51,6 +51,36 @@ export function detectPortalFromUrl(url: URL): PortalUrlType {
   return 'unknown';
 }
 
+function unwrapTrackingUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    // Unwrap Amazon SES click-tracking wrappers (e.g. https://click4.domain/CL0/<encoded-url>/1/<sig>)
+    // Runs strictly offline without issuing any network requests.
+    const sesMatch = parsed.pathname.match(/^\/(?:C?L0)\/(https?(?::|%3A)%2F%2F[^/]+)/i);
+    if (sesMatch?.[1]) {
+      const decoded = decodeURIComponent(sesMatch[1]);
+      if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+        return decoded;
+      }
+    }
+
+    // Unwrap Foundit / Monster autoLogin redirect wrappers (?return_url=<encoded-target-url>)
+    const host = parsed.hostname.toLowerCase();
+    if (
+      (host.includes('foundit.') || host.includes('monsterindia.')) &&
+      parsed.pathname.toLowerCase().includes('/autologin')
+    ) {
+      const returnUrl = parsed.searchParams.get('return_url');
+      if (returnUrl && (returnUrl.startsWith('http://') || returnUrl.startsWith('https://'))) {
+        return returnUrl;
+      }
+    }
+  } catch {
+    // Ignore unparseable URLs and fall back to the raw string
+  }
+  return rawUrl;
+}
+
 /**
  * Strips tracking parameters based on a per-portal allowlist of query parameters:
  * - Indeed: keeps only `jk`
@@ -68,15 +98,19 @@ export function cleanTrackingUrl(rawUrl: string, portalHint?: string): string {
 
   if (!trimmed) return '';
 
-  try {
-    const url = new URL(trimmed);
+  const unwrapped = unwrapTrackingUrl(trimmed);
 
-    // Determine portal type from hint or URL hostname
+  try {
+    const url = new URL(unwrapped);
+
+    // Determine portal type from URL hostname first when unwrapped URL identifies a known portal,
+    // falling back to the explicit hint.
+    const detectedFromUrl = detectPortalFromUrl(url);
     let portal: PortalUrlType = 'unknown';
-    if (portalHint && portalHint in PORTAL_PARAM_ALLOWLIST) {
+    if (detectedFromUrl !== 'unknown') {
+      portal = detectedFromUrl;
+    } else if (portalHint && portalHint in PORTAL_PARAM_ALLOWLIST) {
       portal = portalHint as Exclude<PortalUrlType, 'unknown'>;
-    } else {
-      portal = detectPortalFromUrl(url);
     }
 
     if (portal === 'unknown') {
