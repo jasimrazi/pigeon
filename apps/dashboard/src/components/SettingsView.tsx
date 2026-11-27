@@ -21,6 +21,7 @@ import { ConfirmationModal } from './ConfirmationModal.js';
 import { Button } from './ui/Button.js';
 import { IntegrationsSettings } from './IntegrationsSettings.js';
 import { ResumesSettings } from './ResumesSettings.js';
+import { DncAndDataSettings } from './DncAndDataSettings.js';
 import { getStoredTheme, setStoredTheme, type ThemePreference } from '../theme.js';
 import { apiFetch } from '../api.js';
 
@@ -80,6 +81,7 @@ export function SettingsView({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [skillsText, setSkillsText] = useState('');
+  const [experienceYears, setExperienceYears] = useState<number>(4);
   const [dailyCap, setDailyCap] = useState(20);
   const [rampBase, setRampBase] = useState(5);
   const [rampStep, setRampStep] = useState(2);
@@ -88,6 +90,18 @@ export function SettingsView({
   const [timezone, setTimezone] = useState('UTC');
   const [minScore, setMinScore] = useState(0);
   const [autoApproveScore, setAutoApproveScore] = useState(85);
+  const [maxFollowUps, setMaxFollowUps] = useState(1);
+  const [manualDailyTarget, setManualDailyTarget] = useState(10);
+  const [minSalary, setMinSalary] = useState('');
+  const [salaryCurrency, setSalaryCurrency] = useState('USD');
+  const [requireSalary, setRequireSalary] = useState(false);
+  const [expRangeMin, setExpRangeMin] = useState('');
+  const [expRangeMax, setExpRangeMax] = useState('');
+  const [noticePeriod, setNoticePeriod] = useState('Immediate');
+  const [currentCtc, setCurrentCtc] = useState('N/A');
+  const [expectedCtc, setExpectedCtc] = useState('Competitive');
+  const [workAuth, setWorkAuth] = useState('Authorized');
+  const [linksList, setLinksList] = useState<Array<{ label: string; url: string }>>([]);
   const [titleFiltersText, setTitleFiltersText] = useState('');
   const [titleExcludeText, setTitleExcludeText] = useState('');
   const [companyBlacklistText, setCompanyBlacklistText] = useState('');
@@ -199,6 +213,7 @@ export function SettingsView({
         setName(data.profile.name || '');
         setEmail(data.profile.email || '');
         setSkillsText((data.profile.skills || []).join(', '));
+        setExperienceYears(data.profile.experience_years ?? 4);
         setDailyCap(data.profile.send_settings?.daily_cap ?? 20);
         setRampBase(data.profile.send_settings?.ramp_base ?? 5);
         setRampStep(data.profile.send_settings?.ramp_step ?? 2);
@@ -207,6 +222,34 @@ export function SettingsView({
         setTimezone(data.profile.send_settings?.timezone ?? 'UTC');
         setMinScore(data.profile.filters?.min_score ?? 0);
         setAutoApproveScore(data.profile.send_settings?.auto_approve_above_score ?? 85);
+        setMaxFollowUps(data.profile.send_settings?.max_follow_ups ?? 1);
+        setManualDailyTarget(data.profile.preferences?.manual_daily_target ?? 10);
+        setMinSalary(
+          data.profile.filters?.min_salary !== null &&
+            data.profile.filters?.min_salary !== undefined
+            ? String(data.profile.filters.min_salary)
+            : '',
+        );
+        setSalaryCurrency(data.profile.filters?.salary_currency || 'USD');
+        setRequireSalary(Boolean(data.profile.filters?.require_salary));
+        setExpRangeMin(
+          data.profile.filters?.experience_range?.min !== undefined
+            ? String(data.profile.filters.experience_range.min)
+            : '',
+        );
+        setExpRangeMax(
+          data.profile.filters?.experience_range?.max !== undefined
+            ? String(data.profile.filters.experience_range.max)
+            : '',
+        );
+        setNoticePeriod(data.profile.answers?.notice_period || 'Immediate');
+        setCurrentCtc(data.profile.answers?.current_ctc || 'N/A');
+        setExpectedCtc(data.profile.answers?.expected_ctc || 'Competitive');
+        setWorkAuth(data.profile.answers?.work_authorisation || 'Authorized');
+        const linkEntries = Object.entries(data.profile.answers?.links || {}).map(
+          ([label, url]) => ({ label, url }),
+        );
+        setLinksList(linkEntries);
         setTitleFiltersText((data.profile.filters?.titles || []).join(', '));
         setTitleExcludeText((data.profile.filters?.title_exclude || []).join(', '));
         setCompanyBlacklistText((data.profile.filters?.company_blacklist || []).join(', '));
@@ -324,11 +367,21 @@ export function SettingsView({
         .map((l) => l.trim())
         .filter(Boolean);
 
+      const parsedMinSalary = minSalary.trim() ? Number(minSalary) : null;
+      const parsedExpMin = expRangeMin.trim() ? Number(expRangeMin) : undefined;
+      const parsedExpMax = expRangeMax.trim() ? Number(expRangeMax) : undefined;
+      const linksRecord: Record<string, string> = {};
+      for (const link of linksList) {
+        const k = link.label.trim();
+        const v = link.url.trim();
+        if (k && v) linksRecord[k] = v;
+      }
+
       const payload = {
         name,
         email,
         skills,
-        experience_years: profile?.experience_years ?? 4,
+        experience_years: Number(experienceYears) || 0,
         experience: experienceList,
         education: profile?.education || [],
         preferences: {
@@ -336,14 +389,16 @@ export function SettingsView({
           locations,
           workplace_type: workplaceType,
           remote: workplaceType === 'remote',
+          manual_daily_target: Math.max(1, Number(manualDailyTarget) || 10),
         },
-        answers: profile?.answers || {
-          notice_period: 'Immediate',
-          current_ctc: 'N/A',
-          expected_ctc: 'Competitive',
-          work_authorisation: 'Authorized',
-          links: {},
-          other: {},
+        answers: {
+          ...(profile?.answers || {}),
+          notice_period: noticePeriod.trim() || 'Immediate',
+          current_ctc: currentCtc.trim() || 'N/A',
+          expected_ctc: expectedCtc.trim() || 'Competitive',
+          work_authorisation: workAuth.trim() || 'Authorized',
+          links: linksRecord,
+          other: profile?.answers?.other || {},
         },
         send_settings: {
           daily_cap: Number(dailyCap),
@@ -355,6 +410,7 @@ export function SettingsView({
           },
           timezone,
           auto_approve_above_score: Number(autoApproveScore),
+          max_follow_ups: Math.min(5, Math.max(0, Number(maxFollowUps) || 0)),
         },
         filters: {
           ...(profile?.filters || {}),
@@ -365,6 +421,20 @@ export function SettingsView({
           remote: workplaceType === 'remote',
           company_blacklist: companyBlacklist,
           min_score: Number(minScore),
+          min_salary: Number.isFinite(parsedMinSalary) ? parsedMinSalary : null,
+          salary_currency: salaryCurrency.trim() || 'USD',
+          require_salary: requireSalary,
+          experience_range:
+            parsedExpMin !== undefined || parsedExpMax !== undefined
+              ? {
+                  ...(parsedExpMin !== undefined && Number.isFinite(parsedExpMin)
+                    ? { min: parsedExpMin }
+                    : {}),
+                  ...(parsedExpMax !== undefined && Number.isFinite(parsedExpMax)
+                    ? { max: parsedExpMax }
+                    : {}),
+                }
+              : undefined,
         },
       };
 
@@ -705,6 +775,251 @@ export function SettingsView({
                 onChange={(e) => setMinScore(Number(e.target.value))}
                 className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               />
+            </div>
+          </div>
+
+          {/* Compensation, Experience & Manual Queue Target */}
+          <div className="space-y-4 pt-4 border-t border-border">
+            <h4 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
+              Compensation, Experience &amp; Daily Target
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div>
+                <label
+                  htmlFor="experience-years-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Years Exp
+                </label>
+                <input
+                  id="experience-years-input"
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={experienceYears}
+                  onChange={(e) => setExperienceYears(Number(e.target.value))}
+                  className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="exp-range-min-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Filter Min Exp
+                </label>
+                <input
+                  id="exp-range-min-input"
+                  type="number"
+                  min={0}
+                  value={expRangeMin}
+                  onChange={(e) => setExpRangeMin(e.target.value)}
+                  placeholder="Any"
+                  className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="exp-range-max-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Filter Max Exp
+                </label>
+                <input
+                  id="exp-range-max-input"
+                  type="number"
+                  min={0}
+                  value={expRangeMax}
+                  onChange={(e) => setExpRangeMax(e.target.value)}
+                  placeholder="Any"
+                  className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="min-salary-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Min Salary
+                </label>
+                <input
+                  id="min-salary-input"
+                  type="number"
+                  min={0}
+                  value={minSalary}
+                  onChange={(e) => setMinSalary(e.target.value)}
+                  placeholder="Optional"
+                  className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="salary-currency-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Currency
+                </label>
+                <input
+                  id="salary-currency-input"
+                  type="text"
+                  maxLength={10}
+                  value={salaryCurrency}
+                  onChange={(e) => setSalaryCurrency(e.target.value.toUpperCase())}
+                  placeholder="USD / INR"
+                  className="w-full text-[13px] font-mono px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="manual-daily-target-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Focus Target
+                </label>
+                <input
+                  id="manual-daily-target-input"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={manualDailyTarget}
+                  onChange={(e) => setManualDailyTarget(Number(e.target.value))}
+                  className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+            </div>
+
+            <label className="inline-flex items-center gap-2 text-[12px] text-fg-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={requireSalary}
+                onChange={(e) => setRequireSalary(e.target.checked)}
+                className="rounded border-border text-accent"
+              />
+              <span>Filter out postings that do not list a salary</span>
+            </label>
+          </div>
+
+          {/* Quick-Copy Application Answers & Links */}
+          <div className="space-y-4 pt-4 border-t border-border">
+            <h4 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
+              Quick-Copy Application Answers &amp; Profile Links
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label
+                  htmlFor="answer-notice-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Notice Period
+                </label>
+                <input
+                  id="answer-notice-input"
+                  type="text"
+                  value={noticePeriod}
+                  onChange={(e) => setNoticePeriod(e.target.value)}
+                  className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="answer-current-ctc-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Current Comp / CTC
+                </label>
+                <input
+                  id="answer-current-ctc-input"
+                  type="text"
+                  value={currentCtc}
+                  onChange={(e) => setCurrentCtc(e.target.value)}
+                  className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="answer-expected-ctc-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Expected Comp / CTC
+                </label>
+                <input
+                  id="answer-expected-ctc-input"
+                  type="text"
+                  value={expectedCtc}
+                  onChange={(e) => setExpectedCtc(e.target.value)}
+                  className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="answer-work-auth-input"
+                  className="block text-[11px] font-medium uppercase tracking-wider text-fg-muted mb-1"
+                >
+                  Work Authorisation
+                </label>
+                <input
+                  id="answer-work-auth-input"
+                  type="text"
+                  value={workAuth}
+                  onChange={(e) => setWorkAuth(e.target.value)}
+                  className="w-full text-[13px] px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">
+                  Quick-Copy Links (GitHub, LinkedIn, Portfolio)
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="xs"
+                  onClick={() => setLinksList((prev) => [...prev, { label: '', url: '' }])}
+                >
+                  <Plus size={12} className="mr-1" /> Add Link
+                </Button>
+              </div>
+              {linksList.map((item, idx) => (
+                <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                  <input
+                    type="text"
+                    value={item.label}
+                    onChange={(e) =>
+                      setLinksList((prev) =>
+                        prev.map((l, i) => (i === idx ? { ...l, label: e.target.value } : l)),
+                      )
+                    }
+                    placeholder="Label (e.g. GitHub)"
+                    className="sm:col-span-3 text-[12px] px-2.5 py-1.5 rounded-[6px] border border-border bg-surface text-fg"
+                  />
+                  <input
+                    type="url"
+                    value={item.url}
+                    onChange={(e) =>
+                      setLinksList((prev) =>
+                        prev.map((l, i) => (i === idx ? { ...l, url: e.target.value } : l)),
+                      )
+                    }
+                    placeholder="https://..."
+                    className="sm:col-span-8 text-[12px] font-mono px-2.5 py-1.5 rounded-[6px] border border-border bg-surface text-fg"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLinksList((prev) => prev.filter((_, i) => i !== idx))}
+                    aria-label="Remove link"
+                    className="sm:col-span-1 text-fg-muted hover:text-state-danger-fg cursor-pointer justify-self-end p-1"
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1096,7 +1411,7 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label
                   htmlFor="safety-min-score-input"
@@ -1137,6 +1452,27 @@ export function SettingsView({
                 <p className="text-[11px] text-fg-muted mt-1">
                   Applications with match score above this threshold and trusted contact are
                   eligible for safe bulk approval.
+                </p>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="max-follow-ups-input"
+                  className="block text-[12px] font-medium uppercase tracking-wider text-fg-muted mb-1.5"
+                >
+                  Max Follow-ups (0 - 5)
+                </label>
+                <input
+                  id="max-follow-ups-input"
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={maxFollowUps}
+                  onChange={(e) => setMaxFollowUps(Number(e.target.value))}
+                  className="w-full text-[13px] font-mono tabular-nums px-3 py-1.5 rounded-[6px] border border-border bg-surface text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+                <p className="text-[11px] text-fg-muted mt-1">
+                  Follow-up email drafts created after 6 business days with no reply.
                 </p>
               </div>
             </div>
@@ -1200,6 +1536,8 @@ export function SettingsView({
               </button>
             </div>
           </div>
+
+          <DncAndDataSettings apiBase={apiBase} onRefresh={onRefresh} />
         </div>
       )}
 
