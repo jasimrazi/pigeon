@@ -253,6 +253,100 @@ export function canBulkApprove(
 }
 
 /**
+ * Collects all reasons why an application cannot be bulk-approved.
+ * Returns an empty array if the item passes every bulk-approval guardrail.
+ */
+export function getBulkApprovalBlockers(
+  app: CanBulkApproveCandidate & { profile?: Profile | undefined },
+  options?: CanBulkApproveOptions,
+): string[] {
+  const reasons: string[] = [];
+
+  if (app.status !== 'draft') {
+    reasons.push(
+      app.status === 'needs_review'
+        ? 'Flagged for manual review (needs_review)'
+        : `Status is ${app.status || 'unknown'} (must be draft)`,
+    );
+  }
+
+  if (app.apply_route !== 'auto_email') {
+    reasons.push(`Route is ${app.apply_route || 'unknown'} (must be auto_email)`);
+  }
+
+  if (app.contact_source === 'guessed' || app.route_reason === 'GUESSED_EMAIL') {
+    reasons.push('Guessed contact email requires individual approval');
+  } else if (app.contact_source !== 'posting' && app.contact_source !== 'finder') {
+    reasons.push(`Contact source (${app.contact_source || 'none'}) is unverified`);
+  }
+
+  if (
+    app.route_reason === 'FREEMAIL_CONTACT' ||
+    (app.contact_email && isFreemailContact(app.contact_email, app.company || ''))
+  ) {
+    reasons.push('Freemail contact address requires individual approval');
+  }
+
+  let redFlagsList: string[] = [];
+  if (Array.isArray(app.red_flags)) {
+    redFlagsList = app.red_flags;
+  } else if (typeof app.red_flags === 'string' && app.red_flags.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(app.red_flags);
+      redFlagsList = Array.isArray(parsed) ? parsed : [app.red_flags];
+    } catch {
+      redFlagsList = [app.red_flags];
+    }
+  }
+  if (redFlagsList.length > 0) {
+    reasons.push(`Red flags: ${redFlagsList.join(', ')}`);
+  }
+
+  if (app.untrusted) {
+    reasons.push('Untrusted job source');
+  }
+
+  const profile = options?.profile ?? app.profile;
+  const minScore = options?.minScore ?? profile?.filters?.min_score ?? 70;
+  if (typeof app.match_score !== 'number' || app.match_score < minScore) {
+    reasons.push(`Match score (${app.match_score ?? 'none'}) below threshold (${minScore})`);
+  }
+
+  let isOnDnc = Boolean(app.is_on_dnc || options?.isDoNotContact);
+  if (!isOnDnc && app.contact_email && options?.doNotContact) {
+    const emailLower = app.contact_email.toLowerCase().trim();
+    const domainLower = emailLower.split('@')[1] ?? '';
+    if (options.doNotContact instanceof Set) {
+      isOnDnc = options.doNotContact.has(emailLower) || options.doNotContact.has(domainLower);
+    } else if (Array.isArray(options.doNotContact)) {
+      isOnDnc = options.doNotContact.some((item) => {
+        const val = (typeof item === 'string' ? item : item.value).toLowerCase().trim();
+        return val === emailLower || val === domainLower;
+      });
+    }
+  }
+  if (isOnDnc) {
+    reasons.push(`Contact '${app.contact_email || ''}' is on Do-Not-Contact list`);
+  }
+
+  if (!app.cover_letter || !app.cover_letter.trim()) {
+    reasons.push('Cover letter is empty');
+  } else if (!app.subject || !app.subject.trim()) {
+    reasons.push('Subject line is empty');
+  } else if (profile) {
+    const letterErrors = validateCoverLetter(app.cover_letter || '', app.subject || '', profile, {
+      title: app.title || '',
+      company: app.company || '',
+    });
+    if (letterErrors.length > 0) {
+      reasons.push(`Letter validation: ${letterErrors.join('; ')}`);
+    }
+  }
+
+  return reasons;
+}
+
+/**
  * Bulk approves multiple applications with strict constraints:
  * - Only route=auto_email and contact_source in (posting, finder)
  * - Guessed, freemail, manual_review routes and needs_review status are rejected

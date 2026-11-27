@@ -53,6 +53,7 @@ export interface OutcomeParams {
   db: D1LikeDatabase;
   applicationId: string;
   status: 'replied' | 'interview' | 'rejected' | 'offer';
+  notes?: string | undefined;
   nowMs?: number | undefined;
 }
 
@@ -364,12 +365,39 @@ export async function bulkManualAction(params: BulkManualActionParams): Promise<
 }
 
 /**
- * Records outcome for a manually applied application.
+ * Records outcome for an application (replied, interview, rejected, offer)
+ * and optionally updates notes.
  */
 export async function recordOutcome(params: OutcomeParams): Promise<{ success: boolean }> {
-  const { db, applicationId, status } = params;
+  const { db, applicationId, status, notes, nowMs } = params;
+  const nowIso = new Date(nowMs ?? Date.now()).toISOString();
 
-  await transition(db, 'application', applicationId, status, 'OUTCOME_RECORDED');
+  const existing = await db
+    .prepare(`SELECT status, notes FROM applications WHERE id = ?`)
+    .bind(applicationId)
+    .first<{ status: string; notes: string | null }>();
+
+  if (!existing) {
+    throw new Error(`Application with id '${applicationId}' not found`);
+  }
+
+  // Sent email applications must transition sent -> replied before interview/rejected/offer
+  if (existing.status === 'sent' && status !== 'replied') {
+    await transition(db, 'application', applicationId, 'replied', 'OUTCOME_IMPLIED_REPLY');
+  }
+
+  if (existing.status !== status) {
+    await transition(db, 'application', applicationId, status, 'OUTCOME_RECORDED');
+  }
+
+  if (notes !== undefined) {
+    const trimmed = notes.trim();
+    const nextNotes = trimmed.length > 0 ? trimmed : null;
+    await db
+      .prepare(`UPDATE applications SET notes = ?, synced_at = NULL, updated_at = ? WHERE id = ?`)
+      .bind(nextNotes, nowIso, applicationId)
+      .run();
+  }
 
   return { success: true };
 }

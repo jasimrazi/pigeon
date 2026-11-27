@@ -755,4 +755,188 @@ Alex Mercer`;
       expect(res.status).toBe(404);
     });
   });
+
+  describe('Applications Detail, Outcome Notes & DNC CRUD', () => {
+    it('supports GET /api/applications, GET /api/applications/:id, PATCH notes, and outcome with notes', async () => {
+      const nowIso = new Date().toISOString();
+      await workerEnv.DB.prepare(
+        `INSERT OR REPLACE INTO jobs (
+          id, dedupe_key, source, source_kind, title, company, company_normalized,
+          description, apply_url, fetched_at, status, match_score, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          'job-detail-1',
+          'dedupe-detail-1',
+          'greenhouse',
+          'ats',
+          'Principal Engineer',
+          'Cloudflare',
+          'cloudflare',
+          'Build edge systems.',
+          'https://cloudflare.com/jobs/1',
+          nowIso,
+          'routed',
+          94,
+          nowIso,
+        )
+        .run();
+
+      await workerEnv.DB.prepare(
+        `INSERT OR REPLACE INTO applications (
+          id, job_id, kind, channel, status, cover_letter, subject, sent_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          'app-detail-1',
+          'job-detail-1',
+          'initial',
+          'email',
+          'sent',
+          'Dear Cloudflare team...',
+          'Application for Principal Engineer',
+          nowIso,
+          nowIso,
+        )
+        .run();
+
+      // 1. GET /api/applications returns both items and applications + apply_url
+      const listRes = await app.fetch(
+        new Request('http://localhost/api/applications?search=Cloudflare'),
+        workerEnv,
+      );
+      expect(listRes.status).toBe(200);
+      const listBody = (await listRes.json()) as {
+        ok: boolean;
+        items: Array<{ id: string; apply_url: string }>;
+        applications: Array<{ id: string }>;
+      };
+      expect(listBody.ok).toBe(true);
+      expect(listBody.items.some((a) => a.id === 'app-detail-1' && a.apply_url === 'https://cloudflare.com/jobs/1')).toBe(true);
+      expect(listBody.applications.length).toBe(listBody.items.length);
+
+      // 2. PATCH /api/applications/:id/notes
+      const notesRes = await app.fetch(
+        new Request('http://localhost/api/applications/app-detail-1/notes', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+          body: JSON.stringify({ notes: 'Referred by staff engineer' }),
+        }),
+        workerEnv,
+      );
+      expect(notesRes.status).toBe(200);
+
+      // 3. POST /api/applications/:id/outcome with { outcome, notes } on 'sent' transitions sent -> replied -> interview
+      const outcomeRes = await app.fetch(
+        new Request('http://localhost/api/applications/app-detail-1/outcome', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+          body: JSON.stringify({ outcome: 'interview', notes: 'Panel next Tuesday' }),
+        }),
+        workerEnv,
+      );
+      expect(outcomeRes.status).toBe(200);
+
+      // 4. GET /api/applications/:id returns updated notes, status, and timeline events
+      const detailRes = await app.fetch(
+        new Request('http://localhost/api/applications/app-detail-1'),
+        workerEnv,
+      );
+      expect(detailRes.status).toBe(200);
+      const detailBody = (await detailRes.json()) as {
+        ok: boolean;
+        application: { status: string; notes: string; description: string };
+        events: Array<{ type: string }>;
+      };
+      expect(detailBody.application.status).toBe('interview');
+      expect(detailBody.application.notes).toBe('Panel next Tuesday');
+      expect(detailBody.application.description).toBe('Build edge systems.');
+      expect(detailBody.events.some((e) => e.type === 'application_notes_updated')).toBe(true);
+    });
+
+    it('supports GET/POST/DELETE /api/dnc with optional pending dismissal', async () => {
+      const nowIso = new Date().toISOString();
+      await workerEnv.DB.prepare(
+        `INSERT OR REPLACE INTO jobs (
+          id, dedupe_key, source, source_kind, title, company, company_normalized,
+          description, fetched_at, status, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          'job-dnc-ui-1',
+          'dedupe-dnc-ui-1',
+          'greenhouse',
+          'ats',
+          'Backend Eng',
+          'BlockedCorp',
+          'blockedcorp',
+          'Role desc',
+          nowIso,
+          'routed',
+          nowIso,
+        )
+        .run();
+
+      await workerEnv.DB.prepare(
+        `INSERT OR REPLACE INTO applications (
+          id, job_id, kind, channel, status, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind('app-dnc-ui-1', 'job-dnc-ui-1', 'initial', 'manual', 'manual_pending', nowIso)
+        .run();
+
+      const addRes = await app.fetch(
+        new Request('http://localhost/api/dnc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+          body: JSON.stringify({
+            value: 'BlockedCorp',
+            reason: 'USER_BLOCKED',
+            dismiss_pending: true,
+          }),
+        }),
+        workerEnv,
+      );
+      expect(addRes.status).toBe(200);
+      const addBody = (await addRes.json()) as { ok: boolean; dismissedCount: number };
+      expect(addBody.ok).toBe(true);
+      expect(addBody.dismissedCount).toBe(1);
+
+      const listRes = await app.fetch(new Request('http://localhost/api/dnc'), workerEnv);
+      expect(listRes.status).toBe(200);
+      const listBody = (await listRes.json()) as {
+        entries: Array<{ value: string }>;
+      };
+      expect(listBody.entries.some((e) => e.value === 'blockedcorp')).toBe(true);
+
+      const delRes = await app.fetch(
+        new Request('http://localhost/api/dnc/blockedcorp', {
+          method: 'DELETE',
+          headers: { Origin: 'http://localhost:5173' },
+        }),
+        workerEnv,
+      );
+      expect(delRes.status).toBe(200);
+    });
+
+    it('includes version counter in GET /api/overview and 7d yield in GET /api/sources', async () => {
+      const ovRes = await app.fetch(new Request('http://localhost/api/overview'), workerEnv);
+      expect(ovRes.status).toBe(200);
+      const ov = (await ovRes.json()) as {
+        version?: { version: string; build: number };
+        reviewPendingCount?: number;
+      };
+      expect(ov.version?.version).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(ov.version?.build).toBeGreaterThan(0);
+      expect(typeof ov.reviewPendingCount).toBe('number');
+
+      const srcRes = await app.fetch(new Request('http://localhost/api/sources'), workerEnv);
+      expect(srcRes.status).toBe(200);
+      const srcBody = (await srcRes.json()) as {
+        sources: Array<{ name: string; jobs_7d?: number; high_match_7d?: number }>;
+      };
+      expect(srcBody.sources.length).toBeGreaterThan(0);
+      expect(typeof srcBody.sources[0]?.jobs_7d).toBe('number');
+    });
+  });
 });

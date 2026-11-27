@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import worker, { app } from './index.js';
 import { validateWorkerEnv, type Bindings } from './env.js';
 import { server } from '../fixtures/server.js';
-import type { HealthResponse, ErrorResponse } from '@pigeon/shared';
+import { getAppVersionInfo, type HealthResponse, type ErrorResponse } from '@pigeon/shared';
 
 const workerEnv = env as unknown as Bindings;
 
@@ -18,11 +18,21 @@ describe('Pigeon Worker', () => {
       };
       const res = await app.request('/health', {}, testEnv);
       expect(res.status).toBe(200);
-      const json = (await res.json()) as HealthResponse;
+      const json = (await res.json()) as HealthResponse & {
+        version?: string;
+        build?: number;
+        commit?: string;
+        versionLabel?: string;
+      };
+      const expectedVersion = getAppVersionInfo();
       expect(json).toEqual({
         ok: true,
         dryRun: true,
         env: 'dev',
+        version: expectedVersion.version,
+        build: expectedVersion.build,
+        commit: expectedVersion.commit,
+        versionLabel: expectedVersion.label,
       });
     });
 
@@ -34,11 +44,21 @@ describe('Pigeon Worker', () => {
       };
       const res = await app.request('/health', {}, testEnv);
       expect(res.status).toBe(200);
-      const json = (await res.json()) as HealthResponse;
+      const json = (await res.json()) as HealthResponse & {
+        version?: string;
+        build?: number;
+        commit?: string;
+        versionLabel?: string;
+      };
+      const expectedVersion = getAppVersionInfo();
       expect(json).toEqual({
         ok: true,
         dryRun: false,
         env: 'staging',
+        version: expectedVersion.version,
+        build: expectedVersion.build,
+        commit: expectedVersion.commit,
+        versionLabel: expectedVersion.label,
       });
     });
   });

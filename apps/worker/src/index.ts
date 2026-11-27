@@ -32,6 +32,7 @@ import {
   approveApplication,
   bulkApproveApplications,
   canBulkApprove,
+  getBulkApprovalBlockers,
   getTokenKey,
   sendApplicationEmail,
   RestGmailSender,
@@ -43,7 +44,9 @@ import {
   calculateFailureRate,
   checkFailureRateAlert,
   transition,
+  canTransition,
   TelegramNotifier,
+  getAppVersionInfo,
   KILL_SWITCH_KV_KEY,
   DRY_RUN_KV_KEY,
   isKillSwitchActive,
@@ -367,13 +370,18 @@ export async function createWorkerNotifier(env: Bindings, config?: AppConfig): P
   return eventsNotifier;
 }
 
-// GET /health returns {ok:true, dryRun:boolean, env:string}
+// GET /health returns {ok:true, dryRun:boolean, env:string, version:string, build:number, commit:string}
 app.get('/health', (c) => {
   const env = c.get('validatedEnv');
+  const versionInfo = getAppVersionInfo();
   return c.json({
     ok: true,
     dryRun: env.DRY_RUN,
     env: env.ENV,
+    version: versionInfo.version,
+    build: versionInfo.build,
+    commit: versionInfo.commit,
+    versionLabel: versionInfo.label,
   });
 });
 
@@ -1358,22 +1366,123 @@ app.post('/api/manual/bulk', async (c) => {
   return c.json({ ok: true, ...result });
 });
 
+const OutcomeBodySchema = z
+  .object({
+    status: z.enum(['replied', 'interview', 'rejected', 'offer']).optional(),
+    outcome: z.enum(['replied', 'interview', 'rejected', 'offer']).optional(),
+    notes: z.string().max(4000).optional(),
+  })
+  .refine((data) => Boolean(data.status || data.outcome), {
+    message: 'Invalid outcome status: must be one of replied, interview, rejected, offer',
+  });
+
 // POST /api/applications/:id/outcome: Record interview/offer/rejection/replied outcome
 app.post('/api/applications/:id/outcome', async (c) => {
   const id = c.req.param('id');
-  const body = await c.req
-    .json<{ status?: 'replied' | 'interview' | 'rejected' | 'offer' }>()
-    .catch(() => ({}) as { status?: 'replied' | 'interview' | 'rejected' | 'offer' });
-  const allowed = ['replied', 'interview', 'rejected', 'offer'];
-  if (!body.status || !allowed.includes(body.status)) {
-    return c.json({ error: `Invalid outcome status: must be one of ${allowed.join(', ')}` }, 400);
+  const rawBody = await c.req.json().catch(() => ({}));
+  const parsed = OutcomeBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json(
+      { error: parsed.error.issues[0]?.message || 'Invalid outcome status' },
+      400,
+    );
+  }
+  const targetStatus = parsed.data.status ?? parsed.data.outcome;
+  if (!targetStatus) {
+    return c.json({ error: 'Invalid outcome status' }, 400);
   }
   const result = await recordOutcome({
     db: c.env.DB,
     applicationId: id,
-    status: body.status,
+    status: targetStatus,
+    notes: parsed.data.notes,
   });
   return c.json({ ok: true, ...result });
+});
+
+// PATCH /api/applications/:id/notes: Update personal notes on an application
+app.patch('/api/applications/:id/notes', async (c) => {
+  const id = c.req.param('id');
+  const rawBody = await c.req.json().catch(() => ({}));
+  const parsed = z.object({ notes: z.string().max(4000) }).safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid notes payload' }, 400);
+  }
+  const existing = await c.env.DB.prepare('SELECT id FROM applications WHERE id = ?')
+    .bind(id)
+    .first<{ id: string }>();
+  if (!existing) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+  const nowIso = new Date().toISOString();
+  const trimmed = parsed.data.notes.trim();
+  await c.env.DB.prepare(
+    'UPDATE applications SET notes = ?, synced_at = NULL, updated_at = ? WHERE id = ?',
+  )
+    .bind(trimmed || null, nowIso, id)
+    .run();
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'application', ?, 'application_notes_updated', ?, ?)`,
+  )
+    .bind(crypto.randomUUID(), id, JSON.stringify({ has_notes: Boolean(trimmed) }), nowIso)
+    .run();
+  return c.json({ ok: true, notes: trimmed || null });
+});
+
+// GET /api/applications/:id: Full detail + events timeline for an application
+app.get('/api/applications/:id', async (c) => {
+  const id = c.req.param('id');
+  const row = await c.env.DB.prepare(
+    `SELECT
+       a.id, a.job_id, a.kind, a.channel, a.status, a.resume_id, a.cover_letter, a.subject,
+       a.scheduled_at, a.sent_at, a.applied_at, a.error, a.retry_count, a.follow_up_count,
+       a.notes, a.validator_errors, a.snoozed_until, a.bookmarked_at, a.synced_at, a.updated_at,
+       j.title, j.company, j.location, j.remote, j.salary_raw, j.description, j.apply_url,
+       j.source, j.source_kind, j.contact_email, j.contact_source, j.match_score,
+       j.match_reasons, j.red_flags, j.apply_route, j.route_reason,
+       r.label AS resume_label
+     FROM applications a
+     JOIN jobs j ON a.job_id = j.id
+     LEFT JOIN resumes r ON a.resume_id = r.id
+     WHERE a.id = ?`,
+  )
+    .bind(id)
+    .first<Record<string, unknown>>();
+
+  if (!row) {
+    return c.json({ error: `Application '${id}' not found` }, 404);
+  }
+
+  const jobId = typeof row.job_id === 'string' ? row.job_id : '';
+  const { results: eventRows } = await c.env.DB.prepare(
+    `SELECT id, entity, entity_id, type, payload, created_at
+     FROM events
+     WHERE (entity = 'application' AND entity_id = ?) OR (entity = 'job' AND entity_id = ?)
+     ORDER BY created_at DESC
+     LIMIT 100`,
+  )
+    .bind(id, jobId)
+    .all<{
+      id: string;
+      entity: string;
+      entity_id: string;
+      type: string;
+      payload: string;
+      created_at: string;
+    }>();
+
+  const events = (eventRows || []).map((ev) => {
+    let parsedPayload: unknown = ev.payload;
+    try {
+      parsedPayload = JSON.parse(ev.payload);
+    } catch {
+      // keep raw string
+    }
+    return { ...ev, payload: parsedPayload };
+  });
+
+  return c.json({ ok: true, application: row, events });
 });
 
 // GET /api/resumes/:id/download: Streams the resume PDF from D1 storage
@@ -1944,6 +2053,22 @@ app.get('/api/overview', async (c) => {
   ).first<{ count: number }>();
   const manualWaitingCount = manualWaitingRow?.count ?? 0;
 
+  // Email review queue waiting & follow-ups
+  const reviewPendingRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM applications WHERE channel = 'email' AND status IN ('draft', 'needs_review')`,
+  ).first<{ count: number }>();
+  const reviewPendingCount = reviewPendingRow?.count ?? 0;
+
+  const followUpDraftRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM applications WHERE kind = 'follow_up' AND status IN ('draft', 'needs_review')`,
+  ).first<{ count: number }>();
+  const followUpDraftCount = followUpDraftRow?.count ?? 0;
+
+  const approvedOutboxRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count FROM applications WHERE channel = 'email' AND status IN ('approved', 'sending')`,
+  ).first<{ count: number }>();
+  const approvedOutboxCount = approvedOutboxRow?.count ?? 0;
+
   // Auth health
   const authHealth = await getGoogleAuthHealth(c.env.CONFIG);
 
@@ -2030,14 +2155,18 @@ app.get('/api/overview', async (c) => {
     jobsByStatus,
     jobsByRoute,
     manualWaitingCount,
+    reviewPendingCount,
+    followUpDraftCount,
+    approvedOutboxCount,
     authHealth,
     dryRun,
     killSwitch,
     cronJobs,
+    version: getAppVersionInfo(),
   });
 });
 
-// 2. GET /api/review-queue: Email drafts waiting for approval
+// 2. GET /api/review-queue: Email drafts waiting for approval (plus approved/sending outbox)
 app.get('/api/review-queue', async (c) => {
   const profileRow = await c.env.DB.prepare('SELECT data FROM profile WHERE id = ?')
     .bind('default')
@@ -2061,15 +2190,21 @@ app.get('/api/review-queue', async (c) => {
   interface ReviewQueueDbRow {
     id: string;
     job_id: string;
+    kind: string;
     status: string;
     cover_letter: string;
     subject: string;
     resume_id: string | null;
     validator_errors: string | null;
+    scheduled_at: string | null;
+    sent_at: string | null;
+    error: string | null;
+    follow_up_count: number;
     updated_at: string;
     title: string;
     company: string;
     location: string | null;
+    remote: number | boolean | null;
     salary_raw: string | null;
     description: string;
     apply_url: string | null;
@@ -2086,9 +2221,10 @@ app.get('/api/review-queue', async (c) => {
 
   const { results: rawRows } = await c.env.DB.prepare(
     `SELECT
-       a.id, a.job_id, a.status, a.cover_letter, a.subject, a.resume_id, a.validator_errors, a.updated_at,
-       j.title, j.company, j.location, j.salary_raw, j.description, j.apply_url, j.apply_route, j.contact_email, j.contact_source,
-       j.match_score, j.match_reasons, j.red_flags, j.untrusted, j.route_reason,
+       a.id, a.job_id, a.kind, a.status, a.cover_letter, a.subject, a.resume_id, a.validator_errors,
+       a.scheduled_at, a.sent_at, a.error, a.follow_up_count, a.updated_at,
+       j.title, j.company, j.location, j.remote, j.salary_raw, j.description, j.apply_url, j.apply_route,
+       j.contact_email, j.contact_source, j.match_score, j.match_reasons, j.red_flags, j.untrusted, j.route_reason,
        r.label AS resume_label
      FROM applications a
      JOIN jobs j ON a.job_id = j.id
@@ -2109,15 +2245,52 @@ app.get('/api/review-queue', async (c) => {
       profile,
       doNotContact: dncSet,
     });
+    const bulkBlockReasons = bulkCheck.allowed
+      ? []
+      : getBulkApprovalBlockers(row, {
+          profile,
+          doNotContact: dncSet,
+        });
 
     return {
       ...row,
       red_flags: redFlagsList,
       is_safe_for_bulk: bulkCheck.allowed,
+      bulk_block_reasons: bulkBlockReasons,
     };
   });
 
-  return c.json({ items });
+  const { results: outboxRows } = await c.env.DB.prepare(
+    `SELECT
+       a.id, a.job_id, a.kind, a.status, a.cover_letter, a.subject, a.resume_id, a.validator_errors,
+       a.scheduled_at, a.sent_at, a.error, a.follow_up_count, a.updated_at,
+       j.title, j.company, j.location, j.remote, j.salary_raw, j.description, j.apply_url, j.apply_route,
+       j.contact_email, j.contact_source, j.match_score, j.match_reasons, j.red_flags, j.untrusted, j.route_reason,
+       r.label AS resume_label
+     FROM applications a
+     JOIN jobs j ON a.job_id = j.id
+     LEFT JOIN resumes r ON a.resume_id = r.id
+     WHERE a.channel = 'email' AND a.status IN ('approved', 'sending', 'failed')
+     ORDER BY a.updated_at DESC
+     LIMIT 50`,
+  ).all();
+
+  const outbox = ((outboxRows || []) as unknown as ReviewQueueDbRow[]).map((row) => {
+    let redFlagsList: string[] = [];
+    try {
+      if (row.red_flags) redFlagsList = JSON.parse(row.red_flags);
+    } catch {
+      // fallback
+    }
+    return {
+      ...row,
+      red_flags: redFlagsList,
+      is_safe_for_bulk: false,
+      bulk_block_reasons: [],
+    };
+  });
+
+  return c.json({ ok: true, items, outbox });
 });
 
 // 4. PATCH /api/applications/:id/resume: Updates resume assignment
@@ -2147,7 +2320,7 @@ app.patch('/api/applications/:id/resume', async (c) => {
   return c.json({ ok: true });
 });
 
-// 5. POST /api/applications/:id/reject: Rejects application
+// 5. POST /api/applications/:id/reject: Rejects/dismisses application via valid state transition
 app.post('/api/applications/:id/reject', async (c) => {
   const id = c.req.param('id');
   const appRow = await c.env.DB.prepare('SELECT status FROM applications WHERE id = ?')
@@ -2158,9 +2331,21 @@ app.post('/api/applications/:id/reject', async (c) => {
     return c.json({ error: `Application '${id}' not found` }, 404);
   }
 
-  await transition(c.env.DB, 'application', id, 'rejected', 'Rejected during review');
+  let targetStatus: 'skipped' | 'manual_skipped' | 'rejected' = 'rejected';
+  if (appRow.status === 'draft' || appRow.status === 'failed') {
+    targetStatus = 'skipped';
+  } else if (appRow.status === 'needs_review' || appRow.status === 'manual_pending') {
+    targetStatus = 'manual_skipped';
+  } else if (!canTransition('application', appRow.status, 'rejected')) {
+    return c.json(
+      { error: `Cannot reject application in status '${appRow.status}'` },
+      400,
+    );
+  }
 
-  return c.json({ ok: true });
+  await transition(c.env.DB, 'application', id, targetStatus, 'Rejected during review');
+
+  return c.json({ ok: true, status: targetStatus });
 });
 
 // 6. GET /api/applications: Search and filter applications
@@ -2170,18 +2355,24 @@ app.get('/api/applications', async (c) => {
   const source = c.req.query('source') || null;
   const company = c.req.query('company') || null;
   const search = c.req.query('search') || null;
-  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 200);
+  const sort = c.req.query('sort') === 'score_desc' ? 'score_desc' : 'updated_desc';
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '100', 10), 200);
   const offset = Math.max(Number.parseInt(c.req.query('offset') || '0', 10), 0);
 
   const searchPattern = search ? `%${search.toLowerCase()}%` : null;
   const companyPattern = company ? `%${company.toLowerCase()}%` : null;
+  const orderClause =
+    sort === 'score_desc'
+      ? 'COALESCE(j.match_score, -1) DESC, a.updated_at DESC'
+      : 'a.updated_at DESC';
 
   const { results: rawRows } = await c.env.DB.prepare(
     `SELECT
        a.id, a.job_id, a.kind, a.channel, a.status, a.scheduled_at, a.sent_at, a.applied_at,
-       a.resume_id, a.cover_letter, a.subject, a.retry_count, a.follow_up_count, a.notes,
-       a.validator_errors, a.synced_at, a.updated_at,
-       j.title, j.company, j.location, j.remote, j.source, j.source_kind, j.contact_email, j.match_score, j.apply_route
+       a.resume_id, a.cover_letter, a.subject, a.error, a.retry_count, a.follow_up_count, a.notes,
+       a.validator_errors, a.snoozed_until, a.synced_at, a.updated_at,
+       j.title, j.company, j.location, j.remote, j.salary_raw, j.source, j.source_kind,
+       j.apply_url, j.contact_email, j.match_score, j.red_flags, j.apply_route
      FROM applications a
      JOIN jobs j ON a.job_id = j.id
      WHERE (? IS NULL OR a.status = ?)
@@ -2189,7 +2380,7 @@ app.get('/api/applications', async (c) => {
        AND (? IS NULL OR j.source = ?)
        AND (? IS NULL OR LOWER(j.company) LIKE ?)
        AND (? IS NULL OR (LOWER(j.title) LIKE ? OR LOWER(j.company) LIKE ?))
-     ORDER BY a.updated_at DESC
+     ORDER BY ${orderClause}
      LIMIT ? OFFSET ?`,
   )
     .bind(
@@ -2209,7 +2400,38 @@ app.get('/api/applications', async (c) => {
     )
     .all();
 
-  return c.json({ items: rawRows || [] });
+  const countRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS total
+     FROM applications a
+     JOIN jobs j ON a.job_id = j.id
+     WHERE (? IS NULL OR a.status = ?)
+       AND (? IS NULL OR a.channel = ?)
+       AND (? IS NULL OR j.source = ?)
+       AND (? IS NULL OR LOWER(j.company) LIKE ?)
+       AND (? IS NULL OR (LOWER(j.title) LIKE ? OR LOWER(j.company) LIKE ?))`,
+  )
+    .bind(
+      status,
+      status,
+      channel,
+      channel,
+      source,
+      source,
+      companyPattern,
+      companyPattern,
+      searchPattern,
+      searchPattern,
+      searchPattern,
+    )
+    .first<{ total: number }>();
+
+  const rows = rawRows || [];
+  return c.json({
+    ok: true,
+    items: rows,
+    applications: rows,
+    total: countRow?.total ?? rows.length,
+  });
 });
 
 // GET /api/jobs: Ingested jobs with match scores, reasons, and filters
@@ -2218,10 +2440,20 @@ app.get('/api/jobs', async (c) => {
   const source = c.req.query('source') || null;
   const status = c.req.query('status') || null;
   const search = c.req.query('search') || null;
+  const minScoreRaw = c.req.query('min_score');
+  const minScore =
+    minScoreRaw !== undefined && minScoreRaw !== '' && Number.isFinite(Number(minScoreRaw))
+      ? Number(minScoreRaw)
+      : null;
+  const sort = c.req.query('sort') === 'score_desc' ? 'score_desc' : 'newest';
   const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 200);
   const offset = Math.max(Number.parseInt(c.req.query('offset') || '0', 10), 0);
 
   const searchPattern = search ? `%${search.toLowerCase()}%` : null;
+  const orderClause =
+    sort === 'score_desc'
+      ? 'COALESCE(j.match_score, -1) DESC, j.updated_at DESC'
+      : 'j.updated_at DESC';
 
   const { results: rawRows } = await c.env.DB.prepare(
     `SELECT
@@ -2234,8 +2466,9 @@ app.get('/api/jobs', async (c) => {
      WHERE (? IS NULL OR j.source_kind = ?)
        AND (? IS NULL OR j.source = ?)
        AND (? IS NULL OR j.status = ?)
+       AND (? IS NULL OR (j.match_score IS NOT NULL AND j.match_score >= ?))
        AND (? IS NULL OR (LOWER(j.title) LIKE ? OR LOWER(j.company) LIKE ?))
-     ORDER BY j.updated_at DESC
+     ORDER BY ${orderClause}
      LIMIT ? OFFSET ?`,
   )
     .bind(
@@ -2245,6 +2478,8 @@ app.get('/api/jobs', async (c) => {
       source,
       status,
       status,
+      minScore,
+      minScore,
       searchPattern,
       searchPattern,
       searchPattern,
@@ -2259,6 +2494,7 @@ app.get('/api/jobs', async (c) => {
      WHERE (? IS NULL OR j.source_kind = ?)
        AND (? IS NULL OR j.source = ?)
        AND (? IS NULL OR j.status = ?)
+       AND (? IS NULL OR (j.match_score IS NOT NULL AND j.match_score >= ?))
        AND (? IS NULL OR (LOWER(j.title) LIKE ? OR LOWER(j.company) LIKE ?))`,
   )
     .bind(
@@ -2268,6 +2504,8 @@ app.get('/api/jobs', async (c) => {
       source,
       status,
       status,
+      minScore,
+      minScore,
       searchPattern,
       searchPattern,
       searchPattern,
@@ -2415,6 +2653,26 @@ app.get('/api/sources', async (c) => {
     }
   }
 
+  const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { results: jobYieldRows } = await c.env.DB.prepare(
+    `SELECT source,
+            COUNT(*) AS jobs_7d,
+            SUM(CASE WHEN match_score IS NOT NULL AND match_score >= 65 THEN 1 ELSE 0 END) AS high_match_7d
+     FROM jobs
+     WHERE fetched_at >= ?
+     GROUP BY source`,
+  )
+    .bind(sevenDaysAgoIso)
+    .all<{ source: string; jobs_7d: number; high_match_7d: number | null }>();
+
+  const yieldBySource = new Map<string, { jobs_7d: number; high_match_7d: number }>();
+  for (const r of jobYieldRows || []) {
+    yieldBySource.set(r.source, {
+      jobs_7d: Number(r.jobs_7d || 0),
+      high_match_7d: Number(r.high_match_7d || 0),
+    });
+  }
+
   const dbRowsBySource = new Map<string, SourceStateDbRow>();
   for (const row of (rawRows || []) as unknown as SourceStateDbRow[]) {
     dbRowsBySource.set(row.source, row);
@@ -2464,6 +2722,7 @@ app.get('/api/sources', async (c) => {
     handledSources.add(known.name);
     const dbRow = dbRowsBySource.get(known.name);
     const slugStats = latestStatsBySource.get(known.name);
+    const yieldStats = yieldBySource.get(known.name);
     const parserEmptyStreak = dbRow?.parser_empty_streak ?? 0;
     const isSuspect = parserEmptyStreak >= 3 || Boolean(dbRow?.untrusted);
 
@@ -2484,6 +2743,8 @@ app.get('/api/sources', async (c) => {
       untrusted: Boolean(dbRow?.untrusted),
       boards_total: slugStats?.boards_total ?? null,
       boards_failed: slugStats?.boards_failed ?? null,
+      jobs_7d: yieldStats?.jobs_7d ?? 0,
+      high_match_7d: yieldStats?.high_match_7d ?? 0,
     });
   }
 
@@ -2491,6 +2752,7 @@ app.get('/api/sources', async (c) => {
   for (const [sourceName, dbRow] of dbRowsBySource.entries()) {
     if (!handledSources.has(sourceName)) {
       const slugStats = latestStatsBySource.get(sourceName);
+      const yieldStats = yieldBySource.get(sourceName);
       const parserEmptyStreak = dbRow.parser_empty_streak ?? 0;
       const isSuspect = parserEmptyStreak >= 3 || Boolean(dbRow.untrusted);
       sourceItems.push({
@@ -2510,11 +2772,122 @@ app.get('/api/sources', async (c) => {
         untrusted: Boolean(dbRow.untrusted),
         boards_total: slugStats?.boards_total ?? null,
         boards_failed: slugStats?.boards_failed ?? null,
+        jobs_7d: yieldStats?.jobs_7d ?? 0,
+        high_match_7d: yieldStats?.high_match_7d ?? 0,
       });
     }
   }
 
   return c.json({ sources: sourceItems });
+});
+
+// -------------------------------------------------------------
+// Do-Not-Contact (DNC) & Cooldown Routes
+// -------------------------------------------------------------
+
+const DncCreateSchema = z.object({
+  value: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(500).default('USER_BLOCKED'),
+  dismiss_pending: z.boolean().optional(),
+});
+
+app.get('/api/dnc', async (c) => {
+  const { results: entries } = await c.env.DB.prepare(
+    `SELECT value, reason, created_at FROM do_not_contact ORDER BY created_at DESC`,
+  ).all<{ value: string; reason: string; created_at: string }>();
+
+  const { results: recentContacted } = await c.env.DB.prepare(
+    `SELECT company_normalized, last_contacted_at, last_channel
+     FROM companies_contacted
+     ORDER BY last_contacted_at DESC
+     LIMIT 50`,
+  ).all<{ company_normalized: string; last_contacted_at: string; last_channel: string }>();
+
+  return c.json({
+    ok: true,
+    entries: entries || [],
+    recentContacted: recentContacted || [],
+  });
+});
+
+app.post('/api/dnc', async (c) => {
+  const rawBody = await c.req.json().catch(() => ({}));
+  const parsed = DncCreateSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues[0]?.message || 'Invalid DNC entry' }, 400);
+  }
+
+  const normalizedValue = parsed.data.value.toLowerCase().trim();
+  const nowIso = new Date().toISOString();
+
+  await c.env.DB.prepare(
+    `INSERT INTO do_not_contact (value, reason, created_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(value) DO UPDATE SET reason = excluded.reason`,
+  )
+    .bind(normalizedValue, parsed.data.reason, nowIso)
+    .run();
+
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'settings', ?, 'dnc_added', ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      normalizedValue,
+      JSON.stringify({ value: normalizedValue, reason: parsed.data.reason }),
+      nowIso,
+    )
+    .run();
+
+  let dismissedCount = 0;
+  if (parsed.data.dismiss_pending) {
+    const domainSuffix = `%@${normalizedValue}`;
+    const { results: pendingRows } = await c.env.DB.prepare(
+      `SELECT a.id, a.status
+       FROM applications a
+       JOIN jobs j ON a.job_id = j.id
+       WHERE a.status IN ('draft', 'needs_review', 'manual_pending')
+         AND (
+           LOWER(j.company_normalized) = ?
+           OR LOWER(j.company) = ?
+           OR LOWER(COALESCE(j.contact_email, '')) = ?
+           OR LOWER(COALESCE(j.contact_email, '')) LIKE ?
+         )`,
+    )
+      .bind(normalizedValue, normalizedValue, normalizedValue, domainSuffix)
+      .all<{ id: string; status: string }>();
+
+    for (const row of pendingRows || []) {
+      const target = row.status === 'draft' ? 'skipped' : 'manual_skipped';
+      await transition(c.env.DB, 'application', row.id, target, `DNC_BLOCKED:${normalizedValue}`);
+      dismissedCount++;
+    }
+  }
+
+  return c.json({ ok: true, value: normalizedValue, dismissedCount });
+});
+
+app.delete('/api/dnc/:value', async (c) => {
+  const rawValue = c.req.param('value');
+  const normalizedValue = decodeURIComponent(rawValue).toLowerCase().trim();
+  if (!normalizedValue) {
+    return c.json({ error: 'Missing DNC value' }, 400);
+  }
+
+  await c.env.DB.prepare('DELETE FROM do_not_contact WHERE LOWER(value) = ?')
+    .bind(normalizedValue)
+    .run();
+
+  const nowIso = new Date().toISOString();
+  await c.env.DB.prepare(
+    `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+     VALUES (?, 'settings', ?, 'dnc_removed', ?, ?)`,
+  )
+    .bind(crypto.randomUUID(), normalizedValue, JSON.stringify({ value: normalizedValue }), nowIso)
+    .run();
+
+  return c.json({ ok: true, value: normalizedValue });
 });
 
 // POST /api/sources/reset: Reset tripped circuit breakers to closed
