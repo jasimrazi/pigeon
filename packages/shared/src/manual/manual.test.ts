@@ -6,6 +6,7 @@ import {
   markApplied,
   skipManualApplication,
   snoozeManualApplication,
+  bookmarkManualApplication,
   sendByEmail,
   bulkManualAction,
   recordOutcome,
@@ -105,6 +106,7 @@ function createMockDb() {
               notes: a['notes'],
               validator_errors: a['validator_errors'],
               snoozed_until: a['snoozed_until'],
+              bookmarked_at: a['bookmarked_at'] ?? null,
               title: j['title'],
               company: j['company'],
               company_normalized: j['company_normalized'],
@@ -187,6 +189,7 @@ function createMockDb() {
                   notes: a['notes'],
                   validator_errors: a['validator_errors'],
                   snoozed_until: a['snoozed_until'],
+                  bookmarked_at: a['bookmarked_at'] ?? null,
                   title: j['title'],
                   company: j['company'],
                   company_normalized: j['company_normalized'],
@@ -260,6 +263,13 @@ function createMockDb() {
               const a = applications.get(id);
               if (a) {
                 a['snoozed_until'] = snoozedUntil;
+                a['updated_at'] = nowIso;
+              }
+            } else if (query.includes('bookmarked_at = ?, updated_at = ? WHERE id = ?')) {
+              const [bookmarkedAt, nowIso, id] = boundParams as [string | null, string, string];
+              const a = applications.get(id);
+              if (a) {
+                a['bookmarked_at'] = bookmarkedAt;
                 a['updated_at'] = nowIso;
               }
             } else if (query.includes("channel = 'email'")) {
@@ -849,5 +859,72 @@ describe('Phase 6: Manual Apply Workflow (Queue, Kit, Actions & Housekeeping)', 
       key: expect.stringContaining('manual_queue_digest'),
       message: expect.stringContaining('Total active applications waiting: 1'),
     });
+  });
+
+  it('bookmarks applications to dedicated list and excludes them from todays_focus', async () => {
+    const { db, jobs, applications, events } = createMockDb();
+    const nowMs = Date.now();
+
+    // 3 jobs: scores 95, 88, 75 with manual_daily_target = 2
+    [95, 88, 75].forEach((score, idx) => {
+      const jobId = `job-bm-${idx}`;
+      const appId = `app-bm-${idx}`;
+      jobs.set(jobId, {
+        id: jobId,
+        title: `Systems Role ${idx}`,
+        company: `Company ${idx}`,
+        company_normalized: `company ${idx}`,
+        match_score: score,
+        posted_at: new Date(nowMs).toISOString(),
+        fetched_at: new Date(nowMs).toISOString(),
+      });
+      applications.set(appId, {
+        id: appId,
+        job_id: jobId,
+        channel: 'manual',
+        status: 'manual_pending',
+        updated_at: new Date(nowMs).toISOString(),
+      });
+    });
+
+    // Bookmark the highest-scoring job (score 95)
+    const bmRes = await bookmarkManualApplication({
+      db,
+      applicationId: 'app-bm-0',
+      bookmarked: true,
+      nowMs,
+    });
+    expect(bmRes.success).toBe(true);
+    expect(bmRes.bookmarked).toBe(true);
+    expect(bmRes.bookmarked_at).toBeTruthy();
+
+    const queue = await getManualQueue(db, { profile: mockProfile, nowMs });
+    expect(queue.bookmarked?.map((i) => i.application_id)).toEqual(['app-bm-0']);
+    expect(queue.counts.bookmarked).toBe(1);
+    expect(queue.counts.total).toBe(2);
+    // Today's focus now skips app-bm-0 and promotes 88 and 75
+    expect(queue.todays_focus.map((i) => i.application_id)).toEqual(['app-bm-1', 'app-bm-2']);
+    expect(queue.items.map((i) => i.application_id)).toEqual(['app-bm-1', 'app-bm-2']);
+
+    // Verify kit reflects bookmarked_at
+    const kit = await getManualKit(db, 'app-bm-0', mockProfile);
+    expect(kit?.bookmarked_at).toBeTruthy();
+
+    // Unbookmark returns it to Today's Focus
+    const unbmRes = await bookmarkManualApplication({
+      db,
+      applicationId: 'app-bm-0',
+      bookmarked: false,
+      nowMs: nowMs + 1000,
+    });
+    expect(unbmRes.bookmarked).toBe(false);
+    expect(unbmRes.bookmarked_at).toBeNull();
+
+    const refreshed = await getManualQueue(db, { profile: mockProfile, nowMs: nowMs + 1000 });
+    expect(refreshed.bookmarked).toEqual([]);
+    expect(refreshed.counts.bookmarked).toBe(0);
+    expect(refreshed.todays_focus.map((i) => i.application_id)).toEqual(['app-bm-0', 'app-bm-1']);
+    expect(events.some((e) => e['type'] === 'application_bookmarked')).toBe(true);
+    expect(events.some((e) => e['type'] === 'application_unbookmarked')).toBe(true);
   });
 });

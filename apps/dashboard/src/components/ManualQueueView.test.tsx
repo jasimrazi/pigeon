@@ -473,4 +473,114 @@ describe('ManualQueueView Component', () => {
       body: JSON.stringify({ reason: 'LOW_PAY' }),
     });
   });
+
+  it('shows Bookmarked tab and toggles bookmark via card button and keyboard shortcut', async () => {
+    const queueWithBookmark: ManualQueueResponse & { ok: boolean } = {
+      ...mockQueueResponse,
+      bookmarked: [
+        {
+          application_id: 'app-bm-3',
+          job_id: 'job-3',
+          channel: 'manual',
+          status: 'manual_pending',
+          title: 'Principal Platform Engineer',
+          company: 'Fly.io',
+          company_normalized: 'fly.io',
+          source: 'greenhouse',
+          location: 'Remote',
+          remote: true,
+          salary_raw: null,
+          salary_min: null,
+          salary_max: null,
+          currency: null,
+          match_score: 91,
+          apply_route: 'manual_portal',
+          route_reason: 'NO_EMAIL_FORM',
+          route_reason_explained: 'No contact email in posting; apply via portal form',
+          posted_at: new Date().toISOString(),
+          fetched_at: new Date().toISOString(),
+          snoozed_until: null,
+          bookmarked_at: '2026-11-27T10:00:00.000Z',
+          may_be_closed: false,
+          applied_before_warning: false,
+          untrusted: false,
+          needs_attention: false,
+          notes: null,
+          validator_errors: null,
+        },
+      ],
+      counts: {
+        ...mockQueueResponse.counts,
+        bookmarked: 1,
+      },
+    };
+
+    const postCalls: Array<{ url: string; body: string }> = [];
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/manual')) {
+        return Promise.resolve(new Response(JSON.stringify(queueWithBookmark)));
+      }
+      if (url.includes('/kit')) {
+        return Promise.resolve(new Response(JSON.stringify(mockKitResponse)));
+      }
+      if (init?.method === 'POST') {
+        postCalls.push({ url, body: String(init.body || '') });
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ ok: true, bookmarked: true, bookmarked_at: '2026-11-27T10:30:00.000Z' }),
+          ),
+        );
+      }
+      return Promise.resolve(new Response('{}', { status: 404 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await act(async () => {
+      root?.render(<ManualQueueView />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container?.textContent).toContain('Bookmarked (1)');
+
+    // Click Bookmarked tab and verify saved item renders outside Today's Focus
+    const bookmarkedTab = Array.from(container?.querySelectorAll('button') ?? []).find((b) =>
+      b.textContent?.includes('Bookmarked (1)'),
+    );
+    expect(bookmarkedTab).toBeDefined();
+    await act(async () => {
+      bookmarkedTab?.click();
+    });
+    expect(container?.textContent).toContain('Principal Platform Engineer');
+    expect(container?.textContent).toContain('Fly.io');
+
+    // Click Unbookmark button on card and verify POST payload
+    const removeBmBtn = container?.querySelector(
+      'button[aria-label="Remove bookmark"]',
+    ) as HTMLButtonElement | null;
+    expect(removeBmBtn).not.toBeNull();
+    await act(async () => {
+      removeBmBtn?.click();
+    });
+    expect(postCalls).toContainEqual({
+      url: '/api/manual/app-bm-3/bookmark',
+      body: JSON.stringify({ bookmarked: false }),
+    });
+
+    // Switch back to Today's Focus and press 'b' to bookmark the active item
+    const focusTab = Array.from(container?.querySelectorAll('button') ?? []).find((b) =>
+      b.textContent?.includes("Today's Focus"),
+    );
+    await act(async () => {
+      focusTab?.click();
+    });
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+    });
+    expect(postCalls).toContainEqual({
+      url: '/api/manual/app-focus-1/bookmark',
+      body: JSON.stringify({ bookmarked: true }),
+    });
+  });
 });

@@ -26,6 +26,13 @@ export interface SnoozeParams {
   nowMs?: number | undefined;
 }
 
+export interface BookmarkParams {
+  db: D1LikeDatabase;
+  applicationId: string;
+  bookmarked?: boolean | undefined;
+  nowMs?: number | undefined;
+}
+
 export interface SendByEmailParams {
   db: D1LikeDatabase;
   applicationId: string;
@@ -184,6 +191,59 @@ export async function snoozeManualApplication(params: SnoozeParams): Promise<{
   await eventStmt.run();
 
   return { success: true, snoozed_until: snoozedUntil };
+}
+
+/**
+ * Bookmarks or unbookmarks an active manual/needs_review application so it moves
+ * between the Today's Focus queue and the Bookmarked list.
+ */
+export async function bookmarkManualApplication(params: BookmarkParams): Promise<{
+  success: boolean;
+  bookmarked: boolean;
+  bookmarked_at: string | null;
+}> {
+  const { db, applicationId, bookmarked, nowMs } = params;
+  const nowIso = new Date(nowMs ?? Date.now()).toISOString();
+
+  const app = await db
+    .prepare(`SELECT id, status, bookmarked_at FROM applications WHERE id = ?`)
+    .bind(applicationId)
+    .first<{ id: string; status: string; bookmarked_at: string | null }>();
+
+  if (!app) {
+    throw new Error(`Application with id '${applicationId}' not found`);
+  }
+
+  if (app.status !== 'manual_pending' && app.status !== 'needs_review') {
+    throw new Error(
+      `Cannot bookmark: application status is '${app.status}', expected 'manual_pending' or 'needs_review'`,
+    );
+  }
+
+  const nextBookmarked = bookmarked !== undefined ? bookmarked : !app.bookmarked_at;
+  const bookmarkedAt = nextBookmarked ? nowIso : null;
+
+  await db
+    .prepare(`UPDATE applications SET bookmarked_at = ?, updated_at = ? WHERE id = ?`)
+    .bind(bookmarkedAt, nowIso, applicationId)
+    .run();
+
+  await db
+    .prepare(
+      `INSERT INTO events (id, entity, entity_id, type, payload, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      'application',
+      applicationId,
+      nextBookmarked ? 'application_bookmarked' : 'application_unbookmarked',
+      JSON.stringify({ bookmarked: nextBookmarked, bookmarked_at: bookmarkedAt }),
+      nowIso,
+    )
+    .run();
+
+  return { success: true, bookmarked: nextBookmarked, bookmarked_at: bookmarkedAt };
 }
 
 /**

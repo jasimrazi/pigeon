@@ -3,6 +3,7 @@ import type { ManualQueueResponse, ManualKit } from '@pigeon/shared';
 import {
   AlertTriangle,
   ArrowLeft,
+  Bookmark,
   Check,
   Clock,
   Copy,
@@ -32,7 +33,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [kit, setKit] = useState<ManualKit | null>(null);
   const [kitLoading, setKitLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'focus' | 'needs_attention' | 'all'>('focus');
+  const [activeTab, setActiveTab] = useState<'focus' | 'bookmarked' | 'needs_attention' | 'all'>('focus');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [editedLetter, setEditedLetter] = useState<string>('');
@@ -113,6 +114,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     if (!data) return [];
     let list = data.items;
     if (activeTab === 'focus') list = data.todays_focus;
+    else if (activeTab === 'bookmarked') list = data.bookmarked ?? [];
     else if (activeTab === 'needs_attention') list = data.needs_attention;
 
     if (workplaceFilter === 'all') return list;
@@ -214,6 +216,63 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     [apiBase, selectedId, loadQueue],
   );
 
+  const handleToggleBookmark = useCallback(
+    async (targetId?: string, explicitBookmarked?: boolean) => {
+      const id = targetId ?? selectedId;
+      if (!id) return;
+      const currentItem =
+        data?.items.find((i) => i.application_id === id) ??
+        data?.bookmarked?.find((i) => i.application_id === id) ??
+        data?.needs_attention.find((i) => i.application_id === id);
+      const currentlyBookmarked = Boolean(
+        currentItem?.bookmarked_at ?? (kit?.id === id ? kit.bookmarked_at : null),
+      );
+      const nextBookmarked =
+        explicitBookmarked !== undefined ? explicitBookmarked : !currentlyBookmarked;
+
+      try {
+        const res = await apiFetch(`${apiBase}/api/manual/${id}/bookmark`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bookmarked: nextBookmarked }),
+        });
+        if (res.ok) {
+          const json = (await res.json().catch(() => ({}))) as {
+            bookmarked?: boolean;
+            bookmarked_at?: string | null;
+          };
+          const resolvedAt =
+            json.bookmarked_at !== undefined
+              ? json.bookmarked_at
+              : nextBookmarked
+                ? new Date().toISOString()
+                : null;
+          setKit((prev) =>
+            prev && prev.id === id ? { ...prev, bookmarked_at: resolvedAt } : prev,
+          );
+          setActionFeedback(
+            nextBookmarked
+              ? 'Application moved to Bookmarked.'
+              : 'Application removed from Bookmarked.',
+          );
+          setTimeout(() => setActionFeedback(null), 3000);
+          void loadQueue();
+        } else {
+          setAlertState({
+            title: 'Bookmark Failed',
+            message: `Failed to update bookmark (${res.status}).`,
+          });
+        }
+      } catch (err) {
+        setAlertState({
+          title: 'Bookmark Failed',
+          message: err instanceof Error ? err.message : 'Failed to update bookmark.',
+        });
+      }
+    },
+    [apiBase, selectedId, data, kit, loadQueue],
+  );
+
   const handleCopyText = useCallback((text: string, label: string) => {
     void navigator.clipboard.writeText(text);
     setCopyFeedback(`Copied ${label}!`);
@@ -290,6 +349,9 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       } else if (e.key === 'z') {
         e.preventDefault();
         void handleSnooze(3);
+      } else if (e.key === 'b') {
+        e.preventDefault();
+        void handleToggleBookmark();
       }
     }
 
@@ -304,6 +366,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     handleMarkApplied,
     handleSkip,
     handleSnooze,
+    handleToggleBookmark,
     showSkipModal,
     alertState,
   ]);
@@ -345,7 +408,11 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
               z
             </kbd>{' '}
-            snooze
+            snooze,{' '}
+            <kbd className="px-1 py-0.5 border border-border rounded-[4px] bg-surface-subtle text-[11px] font-mono">
+              b
+            </kbd>{' '}
+            bookmark
           </p>
           <p className="sm:hidden text-[12px] text-fg-muted mt-0.5 truncate">
             Portal applications & manual reviews
@@ -365,8 +432,8 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         </Button>
       </div>
 
-      {/* Queue Status Metrics: Waiting, Needs Review, Snoozed */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      {/* Queue Status Metrics: Waiting, Bookmarked, Needs Review, Snoozed */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {/* Waiting Card */}
         <div
           role="button"
@@ -395,6 +462,37 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
               {data?.counts.total ?? 0}
             </span>
             <span className="text-[11px] text-fg-muted hidden sm:inline">total</span>
+          </div>
+        </div>
+
+        {/* Bookmarked Card */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('bookmarked')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('bookmarked');
+            }
+          }}
+          className={`p-2.5 sm:p-3 rounded-[6px] border text-left transition-all cursor-pointer select-none ${
+            activeTab === 'bookmarked'
+              ? 'bg-surface-subtle border-accent ring-1 ring-accent'
+              : 'bg-surface border-border hover:bg-surface-subtle/60'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
+              Bookmarked
+            </span>
+            <Bookmark size={12} strokeWidth={1.5} className="text-fg-muted shrink-0 hidden sm:block" aria-hidden="true" />
+          </div>
+          <div className="mt-1 sm:mt-1.5 flex items-baseline gap-1">
+            <span className="text-[18px] sm:text-[22px] font-semibold font-mono tabular-nums text-fg leading-none">
+              {data?.bookmarked?.length ?? data?.counts.bookmarked ?? 0}
+            </span>
+            <span className="text-[11px] text-fg-muted hidden sm:inline">saved</span>
           </div>
         </div>
 
@@ -502,6 +600,16 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             Today's Focus ({data?.todays_focus.length ?? 0})
           </button>
           <button
+            onClick={() => setActiveTab('bookmarked')}
+            className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
+              activeTab === 'bookmarked'
+                ? 'border-accent text-fg font-semibold'
+                : 'border-transparent text-fg-muted hover:text-fg'
+            }`}
+          >
+            Bookmarked ({data?.bookmarked?.length ?? data?.counts.bookmarked ?? 0})
+          </button>
+          <button
             onClick={() => setActiveTab('needs_attention')}
             className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
               activeTab === 'needs_attention'
@@ -571,11 +679,38 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                       <h4 className="font-semibold text-fg text-[14px] truncate">{item.title}</h4>
                       <p className="text-[13px] text-fg-muted truncate">{item.company}</p>
                     </div>
-                    {item.match_score !== null && (
-                      <span className="text-[12px] font-mono font-semibold tabular-nums px-2 py-0.5 rounded-[4px] bg-surface-subtle border border-border text-fg">
-                        {item.match_score}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleToggleBookmark(item.application_id, !item.bookmarked_at);
+                        }}
+                        aria-label={item.bookmarked_at ? 'Remove bookmark' : 'Bookmark application'}
+                        title={
+                          item.bookmarked_at
+                            ? 'Remove from Bookmarked'
+                            : 'Bookmark (move out of Today\'s Focus)'
+                        }
+                        className={`p-1 rounded-[4px] border transition-colors cursor-pointer ${
+                          item.bookmarked_at
+                            ? 'bg-surface-subtle border-accent text-accent'
+                            : 'bg-surface border-border text-fg-muted hover:text-fg hover:bg-surface-subtle'
+                        }`}
+                      >
+                        <Bookmark
+                          size={13}
+                          strokeWidth={1.75}
+                          fill={item.bookmarked_at ? 'currentColor' : 'none'}
+                          aria-hidden="true"
+                        />
+                      </button>
+                      {item.match_score !== null && (
+                        <span className="text-[12px] font-mono font-semibold tabular-nums px-2 py-0.5 rounded-[4px] bg-surface-subtle border border-border text-fg">
+                          {item.match_score}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Badges / Warnings */}
@@ -719,6 +854,16 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                   </Button>
                   <Button variant="secondary" size="sm" onClick={() => void handleSnooze(3)}>
                     Snooze (3d) <span className="hidden sm:inline">[z]</span>
+                  </Button>
+                  <Button
+                    variant={kit.bookmarked_at ? 'primary' : 'secondary'}
+                    size="sm"
+                    icon={Bookmark}
+                    aria-pressed={Boolean(kit.bookmarked_at)}
+                    onClick={() => void handleToggleBookmark(kit.id, !kit.bookmarked_at)}
+                  >
+                    {kit.bookmarked_at ? 'Unbookmark' : 'Bookmark'}{' '}
+                    <span className="hidden sm:inline">[b]</span>
                   </Button>
                 </div>
               </div>

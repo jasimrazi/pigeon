@@ -103,6 +103,7 @@ export const applications = sqliteTable(
     notes: text('notes'),
     validator_errors: text('validator_errors'),
     snoozed_until: text('snoozed_until'),
+    bookmarked_at: text('bookmarked_at'),
     synced_at: text('synced_at'),
     updated_at: text('updated_at').notNull(),
   },

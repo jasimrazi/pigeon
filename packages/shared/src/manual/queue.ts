@@ -17,6 +17,7 @@ interface RawQueueRow {
   notes: string | null;
   validator_errors: string | null;
   snoozed_until: string | null;
+  bookmarked_at?: string | null;
   title: string;
   company: string;
   company_normalized: string;
@@ -77,6 +78,7 @@ export async function getManualQueue(
       a.notes,
       a.validator_errors,
       a.snoozed_until,
+      a.bookmarked_at,
       j.title,
       j.company,
       j.company_normalized,
@@ -155,6 +157,7 @@ export async function getManualQueue(
       posted_at: row.posted_at,
       fetched_at: row.fetched_at,
       snoozed_until: row.snoozed_until,
+      bookmarked_at: row.bookmarked_at ?? null,
       may_be_closed: mayBeClosed,
       applied_before_warning: Number(row.applied_count) > 0,
       untrusted: Boolean(row.untrusted),
@@ -212,21 +215,27 @@ export async function getManualQueue(
     ? allItems
     : allItems.filter((i) => !i.snoozed_until || new Date(i.snoozed_until).getTime() <= nowMs);
 
-  // Today's focus: top N non-snoozed items by match score
-  const todaysFocus = activeItems.slice(0, dailyTarget);
+  // Partition active items into unbookmarked queue and dedicated bookmarked list
+  const bookmarkedItems = activeItems.filter((i) => Boolean(i.bookmarked_at));
+  const unbookmarkedItems = activeItems.filter((i) => !i.bookmarked_at);
+
+  // Today's focus: top N non-snoozed, unbookmarked items by match score
+  const todaysFocus = unbookmarkedItems.slice(0, dailyTarget);
 
   // Needs attention: items with needs_review
   const needsAttention = activeItems.filter((i) => i.needs_attention);
 
   return {
-    items: activeItems,
+    items: unbookmarkedItems,
     todays_focus: todaysFocus,
     needs_attention: needsAttention,
+    bookmarked: bookmarkedItems,
     counts: {
-      total: activeItems.length,
+      total: unbookmarkedItems.length,
       manual_pending: manualPendingCount,
       needs_review: needsReviewCount,
       snoozed: snoozedCount,
+      bookmarked: bookmarkedItems.length,
     },
   };
 }
@@ -241,6 +250,7 @@ interface RawKitRow {
   subject: string | null;
   notes: string | null;
   validator_errors: string | null;
+  bookmarked_at?: string | null;
   title: string;
   company: string;
   source: string;
@@ -277,6 +287,7 @@ export async function getManualKit(
       a.subject,
       a.notes,
       a.validator_errors,
+      a.bookmarked_at,
       j.title,
       j.company,
       j.source,
@@ -440,6 +451,7 @@ export async function getManualKit(
     answers: loadedProfile?.answers ?? {},
     description: row.description,
     notes: row.notes,
+    bookmarked_at: row.bookmarked_at ?? null,
     contact_email: row.contact_email,
     contact_source: row.contact_source,
   };

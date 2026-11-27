@@ -355,4 +355,64 @@ describe('Worker Manual Apply Workflow API', () => {
     expect(updated?.status).toBe('manual_skipped');
     expect(updated?.notes).toBe('Not interested');
   });
+
+  it('POST /api/manual/:id/bookmark moves application between todays_focus and bookmarked list', async () => {
+    const nowIso = new Date().toISOString();
+    await workerEnv.DB.prepare(
+      `INSERT OR REPLACE INTO applications (id, job_id, kind, channel, status, snoozed_until, bookmarked_at, updated_at)
+       VALUES ('app-bm-e2e', 'job-manual-1', 'initial', 'manual', 'manual_pending', NULL, NULL, ?)`,
+    )
+      .bind(nowIso)
+      .run();
+
+    // Bookmark the application
+    const bmRes = await app.fetch(
+      new Request('http://localhost/api/manual/app-bm-e2e/bookmark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({ bookmarked: true }),
+      }),
+      workerEnv,
+    );
+    expect(bmRes.status).toBe(200);
+    const bmJson = (await bmRes.json()) as {
+      ok: boolean;
+      bookmarked: boolean;
+      bookmarked_at: string | null;
+    };
+    expect(bmJson.ok).toBe(true);
+    expect(bmJson.bookmarked).toBe(true);
+    expect(bmJson.bookmarked_at).toBeTruthy();
+
+    // Verify GET /api/manual excludes it from todays_focus and lists it in bookmarked
+    const queueRes = await app.fetch(new Request('http://localhost/api/manual'), workerEnv);
+    expect(queueRes.status).toBe(200);
+    const queueJson = (await queueRes.json()) as {
+      todays_focus: Array<{ application_id: string }>;
+      bookmarked: Array<{ application_id: string }>;
+      counts: { bookmarked: number };
+    };
+    expect(queueJson.todays_focus.some((i) => i.application_id === 'app-bm-e2e')).toBe(false);
+    expect(queueJson.bookmarked.some((i) => i.application_id === 'app-bm-e2e')).toBe(true);
+    expect(queueJson.counts.bookmarked).toBe(1);
+
+    // Unbookmark via POST
+    const unbmRes = await app.fetch(
+      new Request('http://localhost/api/manual/app-bm-e2e/bookmark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+        body: JSON.stringify({ bookmarked: false }),
+      }),
+      workerEnv,
+    );
+    expect(unbmRes.status).toBe(200);
+    const unbmJson = (await unbmRes.json()) as {
+      ok: boolean;
+      bookmarked: boolean;
+      bookmarked_at: string | null;
+    };
+    expect(unbmJson.ok).toBe(true);
+    expect(unbmJson.bookmarked).toBe(false);
+    expect(unbmJson.bookmarked_at).toBeNull();
+  });
 });

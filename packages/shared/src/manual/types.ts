@@ -22,6 +22,7 @@ export interface ManualQueueItem {
   posted_at: string | null;
   fetched_at: string;
   snoozed_until: string | null;
+  bookmarked_at?: string | null | undefined;
   may_be_closed: boolean;
   applied_before_warning: boolean;
   untrusted: boolean;
@@ -44,11 +45,13 @@ export interface ManualQueueResponse {
   items: ManualQueueItem[];
   todays_focus: ManualQueueItem[];
   needs_attention: ManualQueueItem[];
+  bookmarked?: ManualQueueItem[] | undefined;
   counts: {
     total: number;
     manual_pending: number;
     needs_review: number;
     snoozed: number;
+    bookmarked?: number | undefined;
   };
 }
 
@@ -88,6 +91,7 @@ export interface ManualKit {
   };
   description: string;
   notes: string | null;
+  bookmarked_at?: string | null | undefined;
   contact_email: string | null;
   contact_source: string | null;
 }

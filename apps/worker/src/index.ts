@@ -18,6 +18,7 @@ import {
   markApplied,
   skipManualApplication,
   snoozeManualApplication,
+  bookmarkManualApplication,
   sendByEmail,
   bulkManualAction,
   recordOutcome,
@@ -1297,6 +1298,26 @@ app.post('/api/manual/:id/snooze', async (c) => {
     db: c.env.DB,
     applicationId: id,
     days,
+  });
+  return c.json({ ok: true, ...result });
+});
+
+const ManualBookmarkRequestSchema = z.object({
+  bookmarked: z.boolean().optional(),
+});
+
+// POST /api/manual/:id/bookmark: Bookmarks or unbookmarks a manual application
+app.post('/api/manual/:id/bookmark', async (c) => {
+  const id = c.req.param('id');
+  const rawBody = await c.req.json().catch(() => ({}));
+  const parsed = ManualBookmarkRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid bookmark request: 'bookmarked' must be a boolean" }, 400);
+  }
+  const result = await bookmarkManualApplication({
+    db: c.env.DB,
+    applicationId: id,
+    bookmarked: parsed.data.bookmarked,
   });
   return c.json({ ok: true, ...result });
 });
