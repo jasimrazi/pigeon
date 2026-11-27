@@ -260,6 +260,10 @@ describe('SettingsView & SetupView Sub-Navigation & Integrations', () => {
     expect(container?.textContent).toContain('LLM Provider & Model');
     expect(container?.textContent).toContain('Notifications & Alerts (Telegram)');
     expect(container?.textContent).toContain('Sending Identity & Headers');
+    expect(container?.textContent).toContain('Job Search API (Adzuna)');
+    expect(container?.textContent).toContain('Adzuna App ID');
+    expect(container?.textContent).toContain('Adzuna App Key');
+    expect(container?.textContent).toContain('Test Adzuna API');
 
     // Switch to Safety
     await act(async () => {

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { applyD1Migrations, env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
 import { app } from './index.js';
 import type { Bindings } from './env.js';
+import { server } from '../fixtures/server.js';
 import {
   setAppSetting,
   invalidateConfigCache,
@@ -334,6 +336,48 @@ describe('Settings API Endpoints (Stage 3)', () => {
       expect(body.ok).toBe(false);
       expect(typeof body.code).toBe('string');
       expect(typeof body.message).toBe('string');
+    });
+
+    it('POST /api/settings/test/adzuna validates missing credentials and tests Adzuna API via MSW', async () => {
+      const missingRes = await app.fetch(
+        new Request('http://localhost/api/settings/test/adzuna', {
+          method: 'POST',
+          headers: { Origin: allowedOrigin },
+        }),
+        workerEnv,
+      );
+      expect(missingRes.status).toBe(400);
+      const missingBody = (await missingRes.json()) as { ok: boolean; code: string };
+      expect(missingBody.ok).toBe(false);
+      expect(missingBody.code).toBe('unconfigured');
+
+      await setAppSetting(workerEnv.DB, masterKey, 'ADZUNA_APP_ID', 'adzuna-test-id-99');
+      await setAppSetting(workerEnv.DB, masterKey, 'ADZUNA_APP_KEY', 'adzuna-test-key-secret');
+      invalidateConfigCache();
+
+      server.use(
+        http.get('https://api.adzuna.com/v1/api/jobs/in/search/1', ({ request }) => {
+          const url = new URL(request.url);
+          expect(url.searchParams.get('app_id')).toBe('adzuna-test-id-99');
+          expect(url.searchParams.get('app_key')).toBe('adzuna-test-key-secret');
+          return HttpResponse.json({ count: 42, results: [] });
+        }),
+      );
+
+      const okRes = await app.fetch(
+        new Request('http://localhost/api/settings/test/adzuna', {
+          method: 'POST',
+          headers: { Origin: allowedOrigin },
+        }),
+        workerEnv,
+      );
+      expect(okRes.status).toBe(200);
+      const rawText = await okRes.text();
+      expect(rawText).not.toContain('adzuna-test-id-99');
+      expect(rawText).not.toContain('adzuna-test-key-secret');
+      const okBody = JSON.parse(rawText) as { ok: boolean; message: string };
+      expect(okBody.ok).toBe(true);
+      expect(okBody.message).toContain('42 jobs available');
     });
   });
 

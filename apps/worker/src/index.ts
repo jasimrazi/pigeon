@@ -3399,7 +3399,7 @@ app.delete('/api/settings/:key', async (c) => {
 // POST /api/settings/test/:target: Test an integration target
 app.post('/api/settings/test/:target', async (c) => {
   const target = c.req.param('target');
-  const validTargets = ['google-oauth-config', 'sheets', 'llm', 'telegram'];
+  const validTargets = ['google-oauth-config', 'sheets', 'llm', 'telegram', 'adzuna'];
   if (!validTargets.includes(target)) {
     return c.json({ ok: false, code: 'invalid_target', message: 'Unknown test target' }, 400);
   }
@@ -3649,6 +3649,71 @@ app.post('/api/settings/test/:target', async (c) => {
           ok: false,
           code: 'telegram_error',
           message: `Failed to send Telegram test message: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+  } else if (target === 'adzuna') {
+    let testBody: { appId?: string; appKey?: string } = {};
+    try {
+      const raw = await c.req.json();
+      if (raw && typeof raw === 'object') {
+        testBody = raw as { appId?: string; appKey?: string };
+      }
+    } catch {
+      testBody = {};
+    }
+
+    const appId =
+      typeof testBody.appId === 'string' && testBody.appId.trim().length > 0
+        ? testBody.appId.trim()
+        : appConfig.getRawValue('ADZUNA_APP_ID');
+    const appKey =
+      typeof testBody.appKey === 'string' && testBody.appKey.trim().length > 0
+        ? testBody.appKey.trim()
+        : appConfig.getRawValue('ADZUNA_APP_KEY');
+
+    if (!appId || !appKey) {
+      result = {
+        ok: false,
+        code: 'unconfigured',
+        message: 'ADZUNA_APP_ID and ADZUNA_APP_KEY must be configured',
+      };
+    } else {
+      try {
+        const userAgent =
+          appConfig.getRawValue('USER_AGENT_CONTACT_EMAIL') ||
+          'Pigeon/1.0 (+https://github.com/pigeon)';
+        const testUrl = `https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${encodeURIComponent(
+          appId,
+        )}&app_key=${encodeURIComponent(appKey)}&results_per_page=1&content-type=application/json`;
+        const adzunaRes = await fetch(testUrl, {
+          headers: {
+            'User-Agent': userAgent,
+            Accept: 'application/json',
+          },
+        });
+        if (!adzunaRes.ok) {
+          result = {
+            ok: false,
+            code: 'adzuna_error',
+            message: `Adzuna API returned HTTP ${adzunaRes.status}`,
+          };
+        } else {
+          const adzunaJson = (await adzunaRes.json().catch(() => ({}))) as { count?: number };
+          result = {
+            ok: true,
+            code: 'ok',
+            message:
+              typeof adzunaJson.count === 'number'
+                ? `Adzuna API connection verified (${adzunaJson.count} jobs available)`
+                : 'Adzuna API connection verified',
+          };
+        }
+      } catch (err) {
+        result = {
+          ok: false,
+          code: 'adzuna_error',
+          message: `Adzuna API request failed: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     }

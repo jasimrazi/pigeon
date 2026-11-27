@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { SettingFieldSummary } from '@pigeon/shared';
 import {
+  Briefcase,
   Cloud,
   FileSpreadsheet,
   Cpu,
@@ -86,6 +87,13 @@ export function IntegrationsSettings({
   const [timezone, setTimezone] = useState('');
   const [alertForwarding, setAlertForwarding] = useState('');
   const [savingIdentity, setSavingIdentity] = useState(false);
+
+  // Card 6: Adzuna Job Search API
+  const [adzunaAppId, setAdzunaAppId] = useState('');
+  const [adzunaAppKey, setAdzunaAppKey] = useState('');
+  const [savingAdzuna, setSavingAdzuna] = useState(false);
+  const [testingAdzuna, setTestingAdzuna] = useState(false);
+  const [adzunaTestResult, setAdzunaTestResult] = useState<TestResult | null>(null);
 
   // General feedback
   const [cardFeedback, setCardFeedback] = useState<
@@ -416,6 +424,72 @@ export function IntegrationsSettings({
     }
   };
 
+  // Adzuna Save & Test logic
+  const handleSaveAdzuna = async () => {
+    try {
+      setSavingAdzuna(true);
+      setAdzunaTestResult(null);
+      if (adzunaAppId) {
+        await updateSetting('ADZUNA_APP_ID', adzunaAppId);
+        setAdzunaAppId('');
+      }
+      if (adzunaAppKey) {
+        await updateSetting('ADZUNA_APP_KEY', adzunaAppKey);
+        setAdzunaAppKey('');
+      }
+      await onRefreshSettings();
+      setCardFeedback((prev) => ({
+        ...prev,
+        adzuna: {
+          type: 'success',
+          message:
+            'Adzuna API credentials saved. If the Adzuna circuit breaker was open, reset circuits in the Sources tab.',
+        },
+      }));
+    } catch (err) {
+      setCardFeedback((prev) => ({
+        ...prev,
+        adzuna: { type: 'error', message: err instanceof Error ? err.message : String(err) },
+      }));
+    } finally {
+      setSavingAdzuna(false);
+    }
+  };
+
+  const handleTestAdzuna = async () => {
+    try {
+      setTestingAdzuna(true);
+      setAdzunaTestResult(null);
+      const res = await apiFetch(`${apiBase}/api/settings/test/adzuna`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appId: adzunaAppId || undefined,
+          appKey: adzunaAppKey || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+      setAdzunaTestResult({
+        ok: Boolean(data.ok),
+        message:
+          data.message ||
+          data.error ||
+          (res.ok ? 'Adzuna API test succeeded' : 'Adzuna API test failed'),
+      });
+    } catch (err) {
+      setAdzunaTestResult({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setTestingAdzuna(false);
+    }
+  };
+
   // Determine unsaved states
   const hasUnsavedGoogle = Boolean(googleClientId || googleClientSecret);
   const currentSheetId = getSummary('GOOGLE_SHEET_ID')?.value || '';
@@ -445,6 +519,12 @@ export function IntegrationsSettings({
     userAgentEmail !== currentUaEmail ||
     timezone !== currentTimezone ||
     alertForwarding !== currentAlertFwd;
+
+  const hasUnsavedAdzuna = Boolean(adzunaAppId || adzunaAppKey);
+  const hasAdzunaIdReady = Boolean(adzunaAppId || getSummary('ADZUNA_APP_ID')?.isSet);
+  const hasAdzunaKeyReady = Boolean(adzunaAppKey || getSummary('ADZUNA_APP_KEY')?.isSet);
+  const adzunaConfigured =
+    Boolean(getSummary('ADZUNA_APP_ID')?.isSet) && Boolean(getSummary('ADZUNA_APP_KEY')?.isSet);
 
   return (
     <div className="space-y-6">
@@ -1355,6 +1435,145 @@ export function IntegrationsSettings({
             className="w-full sm:w-auto"
           >
             Save Sending Identity
+          </Button>
+        </div>
+      </div>
+
+      {/* CARD 6: Job Search API (Adzuna) */}
+      <div className="bg-surface p-4 sm:p-6 rounded-[6px] border border-border space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
+          <div className="flex items-center gap-2.5">
+            <Briefcase size={18} strokeWidth={1.5} className="text-fg-muted shrink-0" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-[14px] font-semibold text-fg">Job Search API (Adzuna)</h3>
+                {hasUnsavedAdzuna && (
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-[4px] border border-state-warn-border bg-state-warn-bg text-state-warn-fg">
+                    Unsaved changes
+                  </span>
+                )}
+              </div>
+              <p className="text-[12px] text-fg-muted mt-0.5">
+                Optional API credentials for Adzuna job ingestion (ADZUNA_APP_ID &amp;
+                ADZUNA_APP_KEY).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <StatusChip
+              variant={adzunaConfigured ? 'ok' : 'unknown'}
+              label={adzunaConfigured ? 'Configured' : 'Optional / Not Set'}
+            />
+          </div>
+        </div>
+
+        {cardFeedback.adzuna?.message && (
+          <div
+            className={`p-3 rounded-[6px] border text-[13px] ${
+              cardFeedback.adzuna.type === 'success'
+                ? 'bg-state-ok-bg border-state-ok-border text-state-ok-fg'
+                : 'bg-state-danger-bg border-state-danger-border text-state-danger-fg'
+            }`}
+          >
+            {cardFeedback.adzuna.message}
+          </div>
+        )}
+
+        {adzunaTestResult && (
+          <div
+            className={`p-3 rounded-[6px] border text-[12px] ${
+              adzunaTestResult.ok
+                ? 'bg-state-ok-bg border-state-ok-border text-state-ok-fg'
+                : 'bg-state-danger-bg border-state-danger-border text-state-danger-fg'
+            }`}
+          >
+            <strong>{adzunaTestResult.ok ? 'Connected: ' : 'Connection Failed: '}</strong>
+            {adzunaTestResult.message}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SecretSettingField
+            id="adzuna-app-id"
+            label="Adzuna App ID"
+            placeholder="e.g. a1b2c3d4"
+            summary={getSummary('ADZUNA_APP_ID')}
+            value={adzunaAppId}
+            onChange={setAdzunaAppId}
+            onClear={async () => {
+              await clearSetting('ADZUNA_APP_ID');
+              await onRefreshSettings();
+            }}
+            disabled={disabled}
+          />
+
+          <SecretSettingField
+            id="adzuna-app-key"
+            label="Adzuna App Key"
+            placeholder="e.g. xxxxxxxxxxxxxxxxxxxxxxxx"
+            summary={getSummary('ADZUNA_APP_KEY')}
+            value={adzunaAppKey}
+            onChange={setAdzunaAppKey}
+            onClear={async () => {
+              await clearSetting('ADZUNA_APP_KEY');
+              await onRefreshSettings();
+            }}
+            disabled={disabled}
+          />
+        </div>
+
+        <details className="text-[12px] text-fg-muted border border-border/70 rounded-[6px] p-3 bg-surface-subtle/40 group">
+          <summary className="font-medium text-fg cursor-pointer select-none flex items-center justify-between">
+            <span>How to get Adzuna API credentials</span>
+            <ChevronDown size={14} className="group-open:rotate-180 transition-transform" />
+          </summary>
+          <ol className="mt-2.5 list-decimal list-inside space-y-1.5 pt-2 border-t border-border/50 text-[12px] leading-relaxed">
+            <li>
+              Sign up for a free developer account at the{' '}
+              <a
+                href="https://developer.adzuna.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline font-medium inline-flex items-center gap-0.5"
+              >
+                Adzuna Developer Portal
+                <ExternalLink size={11} className="inline ml-0.5" />
+              </a>
+              .
+            </li>
+            <li>Create an application and copy both the Application ID and Application Key.</li>
+            <li>
+              Paste them above, click <strong>Save Adzuna Credentials</strong>, then reset the
+              Adzuna circuit breaker in <strong>Sources</strong> if it was tripped.
+            </li>
+          </ol>
+        </details>
+
+        <div className="pt-3 border-t border-border flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            loading={testingAdzuna}
+            disabled={disabled || !(hasAdzunaIdReady && hasAdzunaKeyReady)}
+            onClick={() => void handleTestAdzuna()}
+            className="w-full sm:w-auto"
+          >
+            <Play size={13} className="mr-1.5" />
+            Test Adzuna API
+          </Button>
+
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            loading={savingAdzuna}
+            disabled={disabled || !hasUnsavedAdzuna}
+            onClick={() => void handleSaveAdzuna()}
+            className="w-full sm:w-auto"
+          >
+            Save Adzuna Credentials
           </Button>
         </div>
       </div>
