@@ -3,29 +3,39 @@ import type { ManualQueueResponse, ManualKit } from '@pigeon/shared';
 import {
   AlertTriangle,
   ArrowLeft,
+  Ban,
   Bookmark,
   Check,
+  CheckSquare,
   Clock,
   Copy,
+  Download,
   ExternalLink,
   Flag,
   Info,
   Loader2,
+  Mail,
   Pause,
   RefreshCw,
+  Square,
 } from 'lucide-react';
 import { Button } from './ui/Button.js';
 import { AlertModal, PromptModal } from './ui/ModalShell.js';
 import { StatusChip } from './ui/StatusChip.js';
 import { SourceLogo, getSourceDisplayName } from './ui/SourceLogo.js';
 import { WorkplaceBadge, getWorkplaceType } from './ui/WorkplaceBadge.js';
+import { useDialog } from './ui/DialogProvider.js';
+import { useToast } from './ui/ToastProvider.js';
 import { apiFetch } from '../api.js';
 
 interface Props {
   apiBase?: string;
+  onActionComplete?: () => void;
 }
 
-export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
+export function ManualQueueView({ apiBase = '', onActionComplete }: Props): React.JSX.Element {
+  const dialog = useDialog();
+  const toast = useToast();
   const [data, setData] = useState<ManualQueueResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,29 +43,41 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [kit, setKit] = useState<ManualKit | null>(null);
   const [kitLoading, setKitLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'focus' | 'bookmarked' | 'needs_attention' | 'all'>('focus');
+  const [activeTab, setActiveTab] = useState<
+    'focus' | 'bookmarked' | 'needs_attention' | 'snoozed' | 'all'
+  >('focus');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [editedLetter, setEditedLetter] = useState<string>('');
   const [savingLetter, setSavingLetter] = useState(false);
   const [letterErrors, setLetterErrors] = useState<string[]>([]);
-  const [workplaceFilter, setWorkplaceFilter] = useState<'all' | 'remote' | 'hybrid' | 'onsite'>('all');
+  const [workplaceFilter, setWorkplaceFilter] = useState<'all' | 'remote' | 'hybrid' | 'onsite'>(
+    'all',
+  );
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [alertState, setAlertState] = useState<{ title: string; message: string } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [sendingByEmail, setSendingByEmail] = useState(false);
+  const [downloadingResume, setDownloadingResume] = useState(false);
+  const [applyNote, setApplyNote] = useState('');
 
-  // Fetch Queue Items
+  // Fetch Queue Items (only pass ?include_snoozed=true when viewing Snoozed tab)
   const loadQueue = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiFetch(`${apiBase}/api/manual`);
+      const url =
+        activeTab === 'snoozed'
+          ? `${apiBase}/api/manual?include_snoozed=true`
+          : `${apiBase}/api/manual`;
+      const res = await apiFetch(url);
       if (!res.ok) {
         throw new Error(`Failed to load queue (${res.status})`);
       }
       const json = (await res.json()) as ManualQueueResponse & { ok?: boolean };
       setData(json);
 
-      // Default select the first item if none selected
       const list = json.todays_focus.length > 0 ? json.todays_focus : json.items;
       if (list.length > 0 && !selectedId) {
         setSelectedId(list[0]?.application_id ?? null);
@@ -65,7 +87,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [apiBase, selectedId]);
+  }, [apiBase, activeTab, selectedId]);
 
   useEffect(() => {
     void loadQueue();
@@ -91,6 +113,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           setKit(json.kit);
           setEditedLetter(json.kit.cover_letter || '');
           setLetterErrors(json.kit.validator_errors || []);
+          setApplyNote(json.kit.notes || '');
         }
       } catch {
         if (isMounted) {
@@ -113,27 +136,47 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
   const displayedItems = useMemo(() => {
     if (!data) return [];
     let list = data.items;
-    if (activeTab === 'focus') list = data.todays_focus;
-    else if (activeTab === 'bookmarked') list = data.bookmarked ?? [];
-    else if (activeTab === 'needs_attention') list = data.needs_attention;
+    if (activeTab === 'focus') {
+      list = data.todays_focus;
+    } else if (activeTab === 'bookmarked') {
+      list = data.bookmarked ?? [];
+    } else if (activeTab === 'needs_attention') {
+      list = data.needs_attention;
+    } else if (activeTab === 'snoozed') {
+      const nowMs = Date.now();
+      list = [...data.items, ...(data.bookmarked ?? [])].filter(
+        (item) => item.snoozed_until && new Date(item.snoozed_until).getTime() > nowMs,
+      );
+    }
 
     if (workplaceFilter === 'all') return list;
     return list.filter((item) => getWorkplaceType(item) === workplaceFilter);
   }, [data, activeTab, workplaceFilter]);
 
+  const showToastFeedback = useCallback(
+    (msg: string) => {
+      toast.success(msg);
+      setActionFeedback(msg);
+      setTimeout(() => setActionFeedback(null), 3000);
+    },
+    [toast],
+  );
+
   // Actions
   const handleMarkApplied = useCallback(async () => {
     if (!selectedId) return;
     try {
+      const notePayload = applyNote.trim() ? { note: applyNote.trim() } : {};
       const res = await apiFetch(`${apiBase}/api/manual/${selectedId}/applied`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(notePayload),
       });
       if (res.ok) {
-        setActionFeedback('Application marked as applied!');
-        setTimeout(() => setActionFeedback(null), 3000);
+        showToastFeedback('Application marked as applied!');
         setMobileDetailOpen(false);
+        setApplyNote('');
+        onActionComplete?.();
         void loadQueue();
       } else {
         setAlertState({
@@ -147,7 +190,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         message: err instanceof Error ? err.message : 'Failed to mark application as applied.',
       });
     }
-  }, [apiBase, selectedId, loadQueue]);
+  }, [apiBase, applyNote, loadQueue, onActionComplete, selectedId, showToastFeedback]);
 
   const handleSkip = useCallback(() => {
     if (!selectedId) return;
@@ -166,9 +209,9 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           body: JSON.stringify({ reason }),
         });
         if (res.ok) {
-          setActionFeedback('Application skipped.');
-          setTimeout(() => setActionFeedback(null), 3000);
+          showToastFeedback('Application skipped.');
           setMobileDetailOpen(false);
+          onActionComplete?.();
           void loadQueue();
         } else {
           setAlertState({
@@ -183,7 +226,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         });
       }
     },
-    [apiBase, selectedId, loadQueue],
+    [apiBase, loadQueue, onActionComplete, selectedId, showToastFeedback],
   );
 
   const handleSnooze = useCallback(
@@ -196,9 +239,9 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           body: JSON.stringify({ days }),
         });
         if (res.ok) {
-          setActionFeedback(`Application snoozed for ${days} days.`);
-          setTimeout(() => setActionFeedback(null), 3000);
+          showToastFeedback(`Application snoozed for ${days} days.`);
           setMobileDetailOpen(false);
+          onActionComplete?.();
           void loadQueue();
         } else {
           setAlertState({
@@ -213,7 +256,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         });
       }
     },
-    [apiBase, selectedId, loadQueue],
+    [apiBase, loadQueue, onActionComplete, selectedId, showToastFeedback],
   );
 
   const handleToggleBookmark = useCallback(
@@ -250,12 +293,11 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           setKit((prev) =>
             prev && prev.id === id ? { ...prev, bookmarked_at: resolvedAt } : prev,
           );
-          setActionFeedback(
+          showToastFeedback(
             nextBookmarked
               ? 'Application moved to Bookmarked.'
               : 'Application removed from Bookmarked.',
           );
-          setTimeout(() => setActionFeedback(null), 3000);
           void loadQueue();
         } else {
           setAlertState({
@@ -270,8 +312,164 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         });
       }
     },
-    [apiBase, selectedId, data, kit, loadQueue],
+    [apiBase, selectedId, data, kit, loadQueue, showToastFeedback],
   );
+
+  const handleSendByEmail = async () => {
+    if (!kit || !kit.contact_email) return;
+    const isRisky =
+      kit.contact_source === 'guessed' || kit.route_reason === 'FREEMAIL_CONTACT';
+    const confirmed = await dialog.confirm({
+      title: isRisky ? 'Send to Unverified / Guessed Email?' : 'Switch to Email & Approve?',
+      message: isRisky
+        ? `The contact email "${kit.contact_email}" is marked as ${kit.contact_source || kit.route_reason}. Confirm you want to switch this application to Email and approve it for sending.`
+        : `Switch "${kit.title}" at ${kit.company} from Manual Apply to Email (${kit.contact_email}) and approve for sending?`,
+      confirmLabel: isRisky ? 'Confirm Risk & Approve Email' : 'Switch & Approve Email',
+      isDanger: isRisky,
+    });
+    if (!confirmed) return;
+
+    try {
+      setSendingByEmail(true);
+      const res = await apiFetch(`${apiBase}/api/manual/${kit.id}/send-by-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isRisky ? { confirm_risk: true } : {}),
+      });
+      if (!res.ok) {
+        const errJson = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errJson.error || `Failed to switch to email (${res.status})`);
+      }
+      showToastFeedback(`Switched ${kit.company} to email and approved.`);
+      setMobileDetailOpen(false);
+      setSelectedId(null);
+      onActionComplete?.();
+      void loadQueue();
+    } catch (err) {
+      setAlertState({
+        title: 'Switch to Email Failed',
+        message: err instanceof Error ? err.message : 'Failed to send by email.',
+      });
+    } finally {
+      setSendingByEmail(false);
+    }
+  };
+
+  const handleBulkAction = async (action: 'applied' | 'skip') => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    const confirmed = await dialog.confirm({
+      title:
+        action === 'applied'
+          ? `Mark ${ids.length} Application(s) Applied?`
+          : `Skip ${ids.length} Application(s)?`,
+      message:
+        action === 'applied'
+          ? `Mark all ${ids.length} selected manual_pending items as applied?`
+          : `Skip all ${ids.length} selected manual_pending items?`,
+      confirmLabel: action === 'applied' ? 'Mark All Applied' : 'Skip Selected',
+      isDanger: action === 'skip',
+    });
+    if (!confirmed) return;
+
+    try {
+      setBulkLoading(true);
+      const res = await apiFetch(`${apiBase}/api/manual/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ids,
+          action,
+          reason: action === 'skip' ? 'BULK_SKIPPED' : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const errJson = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errJson.error || `Bulk action failed (${res.status})`);
+      }
+      const json = (await res.json()) as { processed?: string[]; skipped?: string[] };
+      const count = json.processed?.length ?? ids.length;
+      setSelectedIds(new Set());
+      showToastFeedback(
+        action === 'applied'
+          ? `Marked ${count} application(s) as applied.`
+          : `Skipped ${count} application(s).`,
+      );
+      onActionComplete?.();
+      void loadQueue();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Bulk action failed');
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleDownloadResume = async () => {
+    if (!kit?.resume) return;
+    try {
+      setDownloadingResume(true);
+      const res = await apiFetch(`${apiBase}${kit.resume.download_url}`);
+      if (!res.ok) {
+        throw new Error(`Download failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${kit.resume.label.replace(/[^a-z0-9._-]+/gi, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${kit.resume.label}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to download resume PDF');
+    } finally {
+      setDownloadingResume(false);
+    }
+  };
+
+  const handleBlockCompanyDnc = async () => {
+    if (!kit) return;
+    const confirmed = await dialog.confirm({
+      title: `Block ${kit.company}?`,
+      message: `Add "${kit.company}" to Do-Not-Contact and skip all pending applications for this company?`,
+      confirmLabel: 'Block & Skip',
+      isDanger: true,
+    });
+    if (!confirmed) return;
+    try {
+      const res = await apiFetch(`${apiBase}/api/dnc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          value: kit.company,
+          reason: 'BLOCKED_FROM_MANUAL_QUEUE',
+          dismiss_pending: true,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to block company (${res.status})`);
+      }
+      showToastFeedback(`Blocked ${kit.company} (Do-Not-Contact).`);
+      setSelectedId(null);
+      setMobileDetailOpen(false);
+      onActionComplete?.();
+      void loadQueue();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to block company');
+    }
+  };
+
+  const toggleSelectItem = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const handleCopyText = useCallback((text: string, label: string) => {
     void navigator.clipboard.writeText(text);
@@ -285,6 +483,17 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     }
   }, [kit?.apply_url]);
 
+  const handleOpenAndCopy = useCallback(() => {
+    if (editedLetter) {
+      void navigator.clipboard.writeText(editedLetter);
+      setCopyFeedback('Copied Cover Letter!');
+      setTimeout(() => setCopyFeedback(null), 2500);
+    }
+    if (kit?.apply_url) {
+      window.open(kit.apply_url, '_blank', 'noopener,noreferrer');
+    }
+  }, [editedLetter, kit?.apply_url]);
+
   const handleSaveLetter = useCallback(async () => {
     if (!selectedId) return;
     setSavingLetter(true);
@@ -297,7 +506,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       });
       const body = (await res.json()) as { validation_passed: boolean; errors?: string[] };
       if (body.validation_passed) {
-        setActionFeedback('Cover letter saved and validated successfully!');
+        showToastFeedback('Cover letter saved and validated successfully!');
         setLetterErrors([]);
       } else {
         setLetterErrors(body.errors || ['Validation failed']);
@@ -307,7 +516,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
     } finally {
       setSavingLetter(false);
     }
-  }, [apiBase, selectedId, editedLetter]);
+  }, [apiBase, selectedId, editedLetter, showToastFeedback]);
 
   // Keyboard navigation shortcuts
   useEffect(() => {
@@ -415,7 +624,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             bookmark
           </p>
           <p className="sm:hidden text-[12px] text-fg-muted mt-0.5 truncate">
-            Portal applications & manual reviews
+            Portal applications &amp; manual reviews
           </p>
         </div>
 
@@ -455,7 +664,12 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
               Waiting
             </span>
-            <Clock size={12} strokeWidth={1.5} className="text-fg-muted shrink-0 hidden sm:block" aria-hidden="true" />
+            <Clock
+              size={12}
+              strokeWidth={1.5}
+              className="text-fg-muted shrink-0 hidden sm:block"
+              aria-hidden="true"
+            />
           </div>
           <div className="mt-1 sm:mt-1.5 flex items-baseline gap-1">
             <span className="text-[18px] sm:text-[22px] font-semibold font-mono tabular-nums text-fg leading-none">
@@ -486,7 +700,12 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
               Bookmarked
             </span>
-            <Bookmark size={12} strokeWidth={1.5} className="text-fg-muted shrink-0 hidden sm:block" aria-hidden="true" />
+            <Bookmark
+              size={12}
+              strokeWidth={1.5}
+              className="text-fg-muted shrink-0 hidden sm:block"
+              aria-hidden="true"
+            />
           </div>
           <div className="mt-1 sm:mt-1.5 flex items-baseline gap-1">
             <span className="text-[18px] sm:text-[22px] font-semibold font-mono tabular-nums text-fg leading-none">
@@ -550,15 +769,33 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           </div>
         </div>
 
-        {/* Snoozed Card */}
+        {/* Snoozed Card (Clickable) */}
         <div
-          className="p-2.5 sm:p-3 rounded-[6px] border bg-surface border-border text-left select-none"
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('snoozed')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTab('snoozed');
+            }
+          }}
+          className={`p-2.5 sm:p-3 rounded-[6px] border text-left transition-all cursor-pointer select-none ${
+            activeTab === 'snoozed'
+              ? 'bg-surface-subtle border-accent ring-1 ring-accent'
+              : 'bg-surface border-border hover:bg-surface-subtle/60'
+          }`}
         >
           <div className="flex items-center justify-between gap-1">
             <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-wider text-fg-muted truncate">
               Snoozed
             </span>
-            <Pause size={12} strokeWidth={1.5} className="text-fg-muted shrink-0 hidden sm:block" aria-hidden="true" />
+            <Pause
+              size={12}
+              strokeWidth={1.5}
+              className="text-fg-muted shrink-0 hidden sm:block"
+              aria-hidden="true"
+            />
           </div>
           <div className="mt-1 sm:mt-1.5 flex items-baseline gap-1">
             <span className="text-[18px] sm:text-[22px] font-semibold font-mono tabular-nums text-fg-muted leading-none">
@@ -568,6 +805,37 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           </div>
         </div>
       </div>
+
+      {/* Bulk Selection Bar */}
+      {selectedIds.size > 0 && (
+        <div className="bg-surface border border-accent rounded-[6px] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[13px] font-medium text-fg">
+            <span className="font-mono font-semibold text-accent">{selectedIds.size}</span>{' '}
+            application(s) selected
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              size="xs"
+              loading={bulkLoading}
+              onClick={() => void handleBulkAction('applied')}
+            >
+              Bulk Mark Applied
+            </Button>
+            <Button
+              variant="destructive"
+              size="xs"
+              loading={bulkLoading}
+              onClick={() => void handleBulkAction('skip')}
+            >
+              Bulk Skip
+            </Button>
+            <Button variant="ghost" size="xs" onClick={() => setSelectedIds(new Set())}>
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Notifications / Feedback */}
       {actionFeedback && (
@@ -597,7 +865,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                 : 'border-transparent text-fg-muted hover:text-fg'
             }`}
           >
-            Today's Focus ({data?.todays_focus.length ?? 0})
+            Today&apos;s Focus ({data?.todays_focus.length ?? 0})
           </button>
           <button
             onClick={() => setActiveTab('bookmarked')}
@@ -618,6 +886,16 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             }`}
           >
             Needs Attention ({data?.needs_attention.length ?? 0})
+          </button>
+          <button
+            onClick={() => setActiveTab('snoozed')}
+            className={`py-2 px-3 text-[13px] font-medium border-b-2 cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
+              activeTab === 'snoozed'
+                ? 'border-accent text-fg font-semibold'
+                : 'border-transparent text-fg-muted hover:text-fg'
+            }`}
+          >
+            Snoozed ({data?.counts.snoozed ?? 0})
           </button>
           <button
             onClick={() => setActiveTab('all')}
@@ -649,7 +927,9 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
       {/* Main Split: Queue List on Left, Kit Panel on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-[600px]">
         {/* Left: Queue List */}
-        <div className={`lg:col-span-5 flex flex-col space-y-2 overflow-y-auto max-h-[800px] pr-0 sm:pr-2 ${mobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}>
+        <div
+          className={`lg:col-span-5 flex flex-col space-y-2 overflow-y-auto max-h-[800px] pr-0 sm:pr-2 ${mobileDetailOpen ? 'hidden lg:flex' : 'flex'}`}
+        >
           {loading ? (
             <div className="text-fg-muted text-center py-12 text-[14px]">
               Loading manual queue...
@@ -661,6 +941,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
           ) : (
             displayedItems.map((item) => {
               const isSelected = item.application_id === selectedId;
+              const isChecked = selectedIds.has(item.application_id);
               return (
                 <div
                   key={item.application_id}
@@ -675,9 +956,28 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0 pr-2">
-                      <h4 className="font-semibold text-fg text-[14px] truncate">{item.title}</h4>
-                      <p className="text-[13px] text-fg-muted truncate">{item.company}</p>
+                    <div className="flex items-start gap-2.5 flex-1 min-w-0 pr-2">
+                      {item.status === 'manual_pending' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelectItem(item.application_id);
+                          }}
+                          aria-label={isChecked ? 'Deselect application' : 'Select application'}
+                          className="mt-0.5 text-fg-muted hover:text-accent cursor-pointer shrink-0"
+                        >
+                          {isChecked ? (
+                            <CheckSquare size={15} className="text-accent" aria-hidden="true" />
+                          ) : (
+                            <Square size={15} aria-hidden="true" />
+                          )}
+                        </button>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-semibold text-fg text-[14px] truncate">{item.title}</h4>
+                        <p className="text-[13px] text-fg-muted truncate">{item.company}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
@@ -690,7 +990,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                         title={
                           item.bookmarked_at
                             ? 'Remove from Bookmarked'
-                            : 'Bookmark (move out of Today\'s Focus)'
+                            : "Bookmark (move out of Today's Focus)"
                         }
                         className={`p-1 rounded-[4px] border transition-colors cursor-pointer ${
                           item.bookmarked_at
@@ -737,6 +1037,13 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                     {item.needs_attention && (
                       <StatusChip variant="warn" label="Needs attention" size="sm" />
                     )}
+                    {item.snoozed_until && new Date(item.snoozed_until).getTime() > Date.now() && (
+                      <StatusChip
+                        variant="unknown"
+                        label={`Snoozed until ${new Date(item.snoozed_until).toLocaleDateString()}`}
+                        size="sm"
+                      />
+                    )}
                   </div>
 
                   {item.route_reason_explained && (
@@ -751,7 +1058,9 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
         </div>
 
         {/* Right: Kit Side Panel */}
-        <div className={`lg:col-span-7 bg-surface border border-border rounded-[6px] p-4 sm:p-6 flex flex-col space-y-5 sm:space-y-6 overflow-y-auto max-h-[800px] ${mobileDetailOpen ? 'flex' : 'hidden lg:flex'}`}>
+        <div
+          className={`lg:col-span-7 bg-surface border border-border rounded-[6px] p-4 sm:p-6 flex flex-col space-y-5 sm:space-y-6 overflow-y-auto max-h-[800px] ${mobileDetailOpen ? 'flex' : 'hidden lg:flex'}`}
+        >
           {/* Mobile Back Button */}
           <button
             type="button"
@@ -774,7 +1083,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
             <>
               {/* Header */}
               <div className="border-b border-border pb-4">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-[18px] font-semibold text-fg">{kit.title}</h3>
                     <p className="text-[14px] text-fg-muted font-medium">{kit.company}</p>
@@ -789,16 +1098,18 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                       </span>
                     </div>
                   </div>
-                  {kit.match_score !== null && (
-                    <div className="text-center bg-surface-subtle border border-border px-3 py-1.5 rounded-[6px]">
-                      <span className="block text-[24px] font-mono font-semibold tabular-nums text-accent leading-none">
-                        {kit.match_score}
-                      </span>
-                      <span className="text-[11px] text-fg-muted font-medium uppercase tracking-wider">
-                        Fit Score
-                      </span>
-                    </div>
-                  )}
+                  <div className="flex items-start gap-2 shrink-0">
+                    {kit.match_score !== null && (
+                      <div className="text-center bg-surface-subtle border border-border px-3 py-1.5 rounded-[6px]">
+                        <span className="block text-[24px] font-mono font-semibold tabular-nums text-accent leading-none">
+                          {kit.match_score}
+                        </span>
+                        <span className="text-[11px] text-fg-muted font-medium uppercase tracking-wider">
+                          Fit Score
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Banners */}
@@ -829,17 +1140,24 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                 )}
 
                 {/* Apply Link & Action Buttons */}
-                <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="mt-4 flex flex-wrap items-center gap-2.5">
                   {kit.apply_url ? (
-                    <a
-                      href={kit.apply_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg rounded-[6px] font-medium text-[13px] transition-colors"
-                    >
-                      <span>Open Application ({kit.apply_domain || 'Portal'})</span>
-                      <ExternalLink size={14} strokeWidth={1.5} aria-hidden="true" />
-                    </a>
+                    <>
+                      <a
+                        href={kit.apply_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-accent hover:bg-accent-hover text-accent-fg rounded-[6px] font-medium text-[13px] transition-colors"
+                      >
+                        <span>Open Application ({kit.apply_domain || 'Portal'})</span>
+                        <ExternalLink size={14} strokeWidth={1.5} aria-hidden="true" />
+                      </a>
+                      {editedLetter && (
+                        <Button variant="secondary" size="sm" onClick={handleOpenAndCopy}>
+                          Open &amp; Copy Letter
+                        </Button>
+                      )}
+                    </>
                   ) : (
                     <span className="text-[12px] text-state-danger-fg font-medium">
                       No valid HTTP/HTTPS apply link available
@@ -852,9 +1170,27 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                   <Button variant="secondary" size="sm" onClick={() => void handleSkip()}>
                     Skip <span className="hidden sm:inline">[s]</span>
                   </Button>
-                  <Button variant="secondary" size="sm" onClick={() => void handleSnooze(3)}>
-                    Snooze (3d) <span className="hidden sm:inline">[z]</span>
-                  </Button>
+                  <div className="inline-flex items-center gap-1">
+                    <Button variant="secondary" size="sm" onClick={() => void handleSnooze(3)}>
+                      Snooze (3d) <span className="hidden sm:inline">[z]</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => void handleSnooze(1)}
+                      title="Snooze 1 day"
+                    >
+                      1d
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => void handleSnooze(7)}
+                      title="Snooze 7 days"
+                    >
+                      7d
+                    </Button>
+                  </div>
                   <Button
                     variant={kit.bookmarked_at ? 'primary' : 'secondary'}
                     size="sm"
@@ -865,13 +1201,44 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                     {kit.bookmarked_at ? 'Unbookmark' : 'Bookmark'}{' '}
                     <span className="hidden sm:inline">[b]</span>
                   </Button>
+                  {kit.contact_email && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={Mail}
+                      loading={sendingByEmail}
+                      onClick={() => void handleSendByEmail()}
+                    >
+                      Send by Email
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={Ban}
+                    onClick={() => void handleBlockCompanyDnc()}
+                  >
+                    Block Company
+                  </Button>
+                </div>
+
+                {/* Optional pre-apply note */}
+                <div className="mt-3">
+                  <input
+                    type="text"
+                    aria-label="Application note"
+                    value={applyNote}
+                    onChange={(e) => setApplyNote(e.target.value)}
+                    placeholder="Optional note when marking applied (e.g. referral, portal ID)..."
+                    className="w-full text-[12px] px-3 py-1.5 rounded-[6px] border border-border bg-surface-subtle text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  />
                 </div>
               </div>
 
               {/* Skills & Flags */}
               <div className="space-y-2">
                 <h5 className="text-[12px] font-medium uppercase tracking-wider text-fg-muted">
-                  Skills & Fit Analysis
+                  Skills &amp; Fit Analysis
                 </h5>
                 <div className="flex flex-wrap gap-1.5">
                   {kit.matched_skills.map((s) => (
@@ -924,7 +1291,7 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                       loading={savingLetter}
                       onClick={() => void handleSaveLetter()}
                     >
-                      Save & Validate
+                      Save &amp; Validate
                     </Button>
                   </div>
                 </div>
@@ -947,22 +1314,22 @@ export function ManualQueueView({ apiBase = '' }: Props): React.JSX.Element {
                 />
               </div>
 
-              {/* Resume Download */}
+              {/* Resume Download (Authenticated via apiFetch) */}
               {kit.resume && (
                 <div className="p-3 bg-surface-subtle border border-border rounded-[6px] flex items-center justify-between text-[13px]">
                   <div>
                     <span className="font-semibold text-fg">Recommended Resume:</span>{' '}
                     <span className="text-fg-muted">{kit.resume.label}</span>
                   </div>
-                  <a
-                    href={kit.resume.download_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent hover:underline font-medium inline-flex items-center gap-1"
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    icon={Download}
+                    loading={downloadingResume}
+                    onClick={() => void handleDownloadResume()}
                   >
-                    <span>Download PDF</span>
-                    <ExternalLink size={12} strokeWidth={1.5} aria-hidden="true" />
-                  </a>
+                    Download PDF
+                  </Button>
                 </div>
               )}
 
